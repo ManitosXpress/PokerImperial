@@ -1,0 +1,20 @@
+export interface Player {
+    id: string;
+    name: string;
+    chips: number;
+    hand?: string[];
+    isFolded: boolean;
+    currentBet: number;
+    isBot?: boolean;
+}
+
+export interface Room {
+    id: string;
+    players: Player[];
+    maxPlayers: number;
+    gameState: 'waiting' | 'playing' | 'finished';
+    pot: number;
+    communityCards: string[];
+    currentTurn: string; // Player ID
+    dealerId: string;
+}

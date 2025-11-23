@@ -1,0 +1,222 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../services/socket_service.dart';
+import 'game_screen.dart';
+
+class LobbyScreen extends StatefulWidget {
+  const LobbyScreen({super.key});
+
+  @override
+  State<LobbyScreen> createState() => _LobbyScreenState();
+}
+
+class _LobbyScreenState extends State<LobbyScreen> {
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _roomController = TextEditingController();
+  bool _isCreating = false;
+  bool _isJoining = false;
+
+  void _navigateToGame(String roomId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => GameScreen(roomId: roomId)),
+    );
+  }
+
+  void _showShareDialog(String roomId) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('🎉 Sala Creada'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text(
+              'Comparte este código con tus amigos:',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade100,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber, width: 2),
+              ),
+              child: SelectableText(
+                roomId,
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 4,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: roomId));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('✅ Código copiado al portapapeles'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copiar Código'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(dialogContext); // Close dialog first
+              _navigateToGame(roomId);
+            },
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('Ir a la Sala'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final socketService = Provider.of<SocketService>(context);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Poker Lobby')),
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (!socketService.isConnected)
+              const Text('Connecting to server...', style: TextStyle(color: Colors.red))
+            else
+              const Text('Connected', style: TextStyle(color: Colors.green)),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Your Name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 40),
+            ElevatedButton(
+              onPressed: _isCreating ? null : () {
+                if (_nameController.text.isNotEmpty) {
+                  setState(() => _isCreating = true);
+                  socketService.createRoom(
+                    _nameController.text,
+                    onSuccess: (roomId) {
+                      setState(() => _isCreating = false);
+                      _showShareDialog(roomId);
+                    },
+                    onError: (error) {
+                      setState(() => _isCreating = false);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error: $error')),
+                      );
+                    },
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
+                backgroundColor: const Color(0xFFE94560),
+              ),
+              child: _isCreating 
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Text('CREATE ROOM'),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                if (_nameController.text.isNotEmpty) {
+                  socketService.createPracticeRoom(
+                    _nameController.text,
+                    onSuccess: (roomId) {
+                      _navigateToGame(roomId);
+                    },
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
+                backgroundColor: Colors.blue,
+              ),
+              child: const Text('PRACTICE WITH BOTS'),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _roomController,
+                    decoration: const InputDecoration(
+                      labelText: 'Room ID',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  onPressed: _isJoining ? null : () {
+                    if (_nameController.text.isNotEmpty && _roomController.text.isNotEmpty) {
+                      setState(() => _isJoining = true);
+                      socketService.joinRoom(
+                        _roomController.text,
+                        _nameController.text,
+                        onSuccess: (roomId) {
+                          setState(() => _isJoining = false);
+                          _navigateToGame(roomId);
+                        },
+                        onError: (error) {
+                          setState(() => _isJoining = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $error')),
+                          );
+                        },
+                      );
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(100, 50),
+                  ),
+                  child: _isJoining
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('JOIN'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
