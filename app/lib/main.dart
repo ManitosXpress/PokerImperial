@@ -49,7 +49,7 @@ class HomeScreen extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Text(
-              'TEXAS HOLD\'EM',
+              'POKER IMPERIAL',
               style: TextStyle(
                 fontSize: 48,
                 fontWeight: FontWeight.bold,
