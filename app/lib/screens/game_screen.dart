@@ -539,6 +539,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                           ),
                         ),
                       );
+                    },
                   ),
                   // Call/Check button (2nd button)
                   AnimatedBuilder(
