@@ -1,0 +1,125 @@
+import 'package:flutter/material.dart';
+
+class LanguageProvider with ChangeNotifier {
+  Locale _currentLocale = const Locale('es'); // Default to Spanish as requested implicitly by user context
+
+  Locale get currentLocale => _currentLocale;
+
+  void toggleLanguage() {
+    _currentLocale = _currentLocale.languageCode == 'en' 
+        ? const Locale('es') 
+        : const Locale('en');
+    notifyListeners();
+  }
+
+  String getText(String key) {
+    return _localizedValues[_currentLocale.languageCode]?[key] ?? key;
+  }
+
+  // Poker hand translation
+  String translateHand(String englishHand) {
+    if (_currentLocale.languageCode == 'en') return englishHand;
+
+    String result = englishHand;
+    _pokerTerms.forEach((english, spanish) {
+      result = result.replaceAll(english, spanish);
+    });
+    return result;
+  }
+
+  static final Map<String, String> _pokerTerms = {
+    'High Card': 'Carta Alta',
+    'Pair': 'Par',
+    'Two Pair': 'Doble Par',
+    'Three of a Kind': 'Trío',
+    'Straight': 'Escalera',
+    'Flush': 'Color',
+    'Full House': 'Full',
+    'Four of a Kind': 'Poker',
+    'Straight Flush': 'Escalera de Color',
+    'Royal Flush': 'Escalera Real',
+    'Ace': 'As',
+    'King': 'Rey',
+    'Queen': 'Reina',
+    'Jack': 'Jota',
+    '\'s': '',
+    'high': 'alta',
+  };
+
+  static final Map<String, Map<String, String>> _localizedValues = {
+    'en': {
+      'app_title': 'POKER IMPERIAL',
+      'play_now': 'PLAY NOW',
+      'create_room': 'CREATE ROOM',
+      'practice_bots': 'PRACTICE WITH BOTS',
+      'join_room': 'JOIN ROOM',
+      'your_name': 'Your Name',
+      'room_id': 'Room ID',
+      'join': 'JOIN',
+      'connecting': 'Connecting to server...',
+      'connected': 'Connected',
+      'room_created': '🎉 Room Created',
+      'share_code': 'Share this code with friends:',
+      'copy_code': 'Copy Code',
+      'copied': '✅ Code copied to clipboard',
+      'go_to_room': 'Go to Room',
+      'waiting_players': 'Waiting for players...',
+      'players': 'Players',
+      'start_game': 'START GAME',
+      'need_players': 'Need at least 2 players',
+      'check': 'Check',
+      'call': 'Call',
+      'fold': 'Fold',
+      'raise': 'Raise',
+      'winner': 'WINNER!',
+      'loser': 'YOU LOST!',
+      'tie': 'TIE!',
+      'wins': 'wins',
+      'next_hand': 'Next hand shortly...',
+      'exit': 'Exit',
+      'continue': 'Continue',
+      'player_cards': 'Player Cards:',
+      'pot': 'Pot',
+      'community_cards': 'Community Cards',
+      'waiting_turn': 'Waiting for turn...',
+      'your_turn': 'YOUR TURN',
+    },
+    'es': {
+      'app_title': 'POKER IMPERIAL',
+      'play_now': 'JUGAR AHORA',
+      'create_room': 'CREAR SALA',
+      'practice_bots': 'PRACTICAR CON BOTS',
+      'join_room': 'UNIRSE A SALA',
+      'your_name': 'Tu Nombre',
+      'room_id': 'ID de Sala',
+      'join': 'ENTRAR',
+      'connecting': 'Conectando al servidor...',
+      'connected': 'Conectado',
+      'room_created': '🎉 Sala Creada',
+      'share_code': 'Comparte este código con amigos:',
+      'copy_code': 'Copiar Código',
+      'copied': '✅ Código copiado al portapapeles',
+      'go_to_room': 'Ir a la Sala',
+      'waiting_players': 'Esperando jugadores...',
+      'players': 'Jugadores',
+      'start_game': 'INICIAR JUEGO',
+      'need_players': 'Se necesitan al menos 2 jugadores',
+      'check': 'Pasar',
+      'call': 'Igualar',
+      'fold': 'Retirarse',
+      'raise': 'Subir',
+      'winner': '¡GANASTE!',
+      'loser': '¡PERDISTE!',
+      'tie': '¡EMPATE!',
+      'wins': 'gana',
+      'next_hand': 'Próxima mano en breve...',
+      'exit': 'Salir',
+      'continue': 'Continuar',
+      'player_cards': 'Cartas de los Jugadores:',
+      'pot': 'Bote',
+      'community_cards': 'Cartas Comunitarias',
+      'waiting_turn': 'Esperando turno...',
+      'your_turn': 'TU TURNO',
+    },
+  };
+}

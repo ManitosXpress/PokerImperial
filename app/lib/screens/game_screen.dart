@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import '../services/socket_service.dart';
 import '../widgets/poker_card.dart';
 import '../widgets/player_seat.dart';
-import '../utils/poker_translations.dart';
+import '../providers/language_provider.dart';
 
 class GameScreen extends StatefulWidget {
   final String roomId;
@@ -127,6 +127,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final socketService = Provider.of<SocketService>(context);
+    final languageProvider = Provider.of<LanguageProvider>(context);
     
     bool isTurn = false;
     if (gameState != null && gameState!['currentTurn'] != null) {
@@ -136,9 +137,21 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A2E),
       appBar: AppBar(
-        title: Text('Room: ${widget.roomId}'),
+        title: Text('${languageProvider.getText('room')}: ${widget.roomId}'),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: IconButton(
+              icon: Text(
+                languageProvider.currentLocale.languageCode == 'en' ? '🇺🇸' : '🇪🇸',
+                style: const TextStyle(fontSize: 24),
+              ),
+              onPressed: () => languageProvider.toggleLanguage(),
+            ),
+          ),
+        ],
       ),
       body: gameState == null
           ? Center(
@@ -195,9 +208,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Jugadores Conectados:',
-                              style: TextStyle(
+                            Text(
+                              languageProvider.getText('players_connected'),
+                              style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -209,24 +222,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Row(
                                   children: [
-                                    Container(
-                                      width: 40,
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFE94560),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          player['name'][0].toUpperCase(),
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 20,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
+                                    const Icon(Icons.person, color: Colors.white70),
                                     const SizedBox(width: 12),
                                     Text(
                                       player['name'],
@@ -235,57 +231,22 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                         fontSize: 18,
                                       ),
                                     ),
-                                    const Spacer(),
-                                    const Icon(Icons.check_circle, color: Colors.green, size: 20),
                                   ],
                                 ),
                               );
                             }).toList(),
-                            
-                            // Empty slots
-                            if (roomState!['players'] != null)
-                              ...List.generate(
-                                4 - (roomState!['players'] as List).length,
-                                (index) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 40,
-                                        height: 40,
-                                        decoration: BoxDecoration(
-                                          color: Colors.white24,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Center(
-                                          child: Icon(Icons.person_outline, color: Colors.white38),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      const Text(
-                                        'Esperando jugador...',
-                                        style: TextStyle(
-                                          color: Colors.white38,
-                                          fontSize: 16,
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
                           ],
                         ),
                       ),
                     
                     const SizedBox(height: 32),
-                    
+
                     // Start button
                     if (roomState != null && (roomState!['players'] as List).length >= 2)
                       ElevatedButton.icon(
                         onPressed: _startGame,
                         icon: const Icon(Icons.play_arrow, size: 28),
-                        label: const Text('INICIAR JUEGO'),
+                        label: Text(languageProvider.getText('start_game')),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                           padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
@@ -309,7 +270,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                             const Icon(Icons.info_outline, color: Colors.orange),
                             const SizedBox(width: 12),
                             Text(
-                              'Se necesitan al menos 2 jugadores',
+                              languageProvider.getText('waiting_for_players'),
                               style: const TextStyle(
                                 color: Colors.orange,
                                 fontSize: 16,
@@ -448,7 +409,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                               onPressed: () => _sendAction('bet', raiseAmount),
                               backgroundColor: Colors.green,
                               icon: const Icon(Icons.add_circle),
-                              label: Text('Bet $raiseAmount', style: const TextStyle(fontWeight: FontWeight.bold)),
+                              label: Text('${languageProvider.getText('raise')} $raiseAmount', style: const TextStyle(fontWeight: FontWeight.bold)),
                               heroTag: 'bet',
                             ),
                           ),
@@ -479,12 +440,12 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                             child: FloatingActionButton.extended(
                               onPressed: () => _sendAction(needToCall ? 'call' : 'check'),
                               backgroundColor: Colors.blue,
-                              icon: const Icon(Icons.check_circle),
+                              icon: Icon(needToCall ? Icons.call_made : Icons.check_circle_outline),
                               label: Text(
-                                needToCall ? 'Call ${currentBet - myCurrentBet}' : 'Check',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                needToCall ? '${languageProvider.getText('call')} ${currentBet - myCurrentBet}' : languageProvider.getText('check'),
+                                style: const TextStyle(fontWeight: FontWeight.bold)
                               ),
-                              heroTag: 'check',
+                              heroTag: 'call_check',
                             ),
                           ),
                         ),
@@ -495,7 +456,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                     animation: _animation,
                     builder: (context, child) {
                       return Positioned(
-                        bottom: 30 + (70 * _animation.value), // Fold button
+                        bottom: 30 + (70 * _animation.value * 1), // Fold button
                         left: 30,
                         child: Opacity(
                           opacity: _animation.value,
@@ -504,8 +465,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                             child: FloatingActionButton.extended(
                               onPressed: () => _sendAction('fold'),
                               backgroundColor: Colors.red,
-                              icon: const Icon(Icons.cancel),
-                              label: const Text('Fold', style: TextStyle(fontWeight: FontWeight.bold)),
+                              icon: const Icon(Icons.close),
+                              label: Text(languageProvider.getText('fold'), style: const TextStyle(fontWeight: FontWeight.bold)),
                               heroTag: 'fold',
                             ),
                           ),
@@ -586,8 +547,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                       // Winner/Loser Text
                                       Text(
                                         iWon 
-                                          ? (_winnerData!['split'] == true ? '¡EMPATE!' : '¡GANASTE!')
-                                          : '¡PERDISTE!',
+                                          ? (_winnerData!['split'] == true ? languageProvider.getText('tie') : languageProvider.getText('winner'))
+                                          : languageProvider.getText('loser'),
                                         style: TextStyle(
                                           fontSize: 48,
                                           fontWeight: FontWeight.bold,
@@ -608,7 +569,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                       // Winner name if not me
                                       if (!iWon && _winnerData!['winner'] != null)
                                         Text(
-                                          '${_winnerData!['winner']['name']} gana',
+                                          '${_winnerData!['winner']['name']} ${languageProvider.getText('wins')}',
                                           style: TextStyle(
                                             fontSize: 20,
                                             color: Colors.white.withOpacity(0.9),
@@ -642,7 +603,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                                 ),
                                                 const SizedBox(width: 8),
                                                 Text(
-                                                  translatePokerHand(_winnerData!['winner']['handDescription']),
+                                                  languageProvider.translateHand(_winnerData!['winner']['handDescription']),
                                                   style: TextStyle(
                                                     fontSize: 16,
                                                     fontWeight: FontWeight.bold,
@@ -709,9 +670,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                           ),
                                           child: Column(
                                             children: [
-                                              const Text(
-                                                'Cartas de los Jugadores:',
-                                                style: TextStyle(
+                                              Text(
+                                                languageProvider.getText('player_cards'),
+                                                style: const TextStyle(
                                                   color: Colors.white,
                                                   fontSize: 16,
                                                   fontWeight: FontWeight.bold,
@@ -741,9 +702,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                                       ),
                                                       const SizedBox(width: 12),
                                                       if (isFolded)
-                                                        const Text(
-                                                          '(Fold)',
-                                                          style: TextStyle(
+                                                        Text(
+                                                          '(${languageProvider.getText('fold')})',
+                                                          style: const TextStyle(
                                                             color: Colors.grey,
                                                             fontSize: 14,
                                                             fontStyle: FontStyle.italic,
@@ -770,7 +731,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                       
                                       // Next hand info
                                       Text(
-                                        'Próxima mano en breve...',
+                                        languageProvider.getText('next_hand'),
                                         style: TextStyle(
                                           fontSize: 16,
                                           color: iWon ? Colors.brown.shade700 : Colors.white.withOpacity(0.8),
@@ -789,7 +750,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                               Navigator.pop(context);
                                             },
                                             icon: const Icon(Icons.exit_to_app),
-                                            label: const Text('Salir'),
+                                            label: Text(languageProvider.getText('exit')),
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: Colors.brown.shade700,
                                               foregroundColor: Colors.white,
@@ -804,7 +765,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                               });
                                             },
                                             icon: const Icon(Icons.check_circle),
-                                            label: const Text('Continuar'),
+                                            label: Text(languageProvider.getText('continue')),
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: Colors.green.shade700,
                                               foregroundColor: Colors.white,

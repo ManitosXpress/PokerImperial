@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/socket_service.dart';
+import '../providers/language_provider.dart';
 import 'game_screen.dart';
 
 class LobbyScreen extends StatefulWidget {
@@ -97,25 +98,57 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final languageProvider = Provider.of<LanguageProvider>(context);
     final socketService = Provider.of<SocketService>(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Poker Lobby')),
+      appBar: AppBar(
+        title: const Text('Poker Lobby'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: GestureDetector(
+              onTap: () => languageProvider.toggleLanguage(),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      languageProvider.currentLocale.languageCode == 'en' ? '🇺🇸' : '🇪🇸',
+                      style: const TextStyle(fontSize: 20),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      languageProvider.currentLocale.languageCode == 'en' ? 'EN' : 'ES',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (!socketService.isConnected)
-              const Text('Connecting to server...', style: TextStyle(color: Colors.red))
+              Text(languageProvider.getText('connecting'), style: const TextStyle(color: Colors.red))
             else
-              const Text('Connected', style: TextStyle(color: Colors.green)),
+              Text(languageProvider.getText('connected'), style: const TextStyle(color: Colors.green)),
             const SizedBox(height: 20),
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Your Name',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: languageProvider.getText('your_name'),
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 40),
@@ -148,7 +181,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     width: 20,
                     child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                   )
-                : const Text('CREATE ROOM'),
+                : Text(languageProvider.getText('create_room')),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
@@ -166,7 +199,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 minimumSize: const Size(double.infinity, 50),
                 backgroundColor: Colors.blue,
               ),
-              child: const Text('PRACTICE WITH BOTS'),
+              child: Text(languageProvider.getText('practice_bots')),
             ),
             const SizedBox(height: 20),
             Row(
@@ -174,9 +207,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 Expanded(
                   child: TextField(
                     controller: _roomController,
-                    decoration: const InputDecoration(
-                      labelText: 'Room ID',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: languageProvider.getText('room_id'),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                 ),
@@ -210,7 +243,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('JOIN'),
+                    : Text(languageProvider.getText('join')),
                 ),
               ],
             ),

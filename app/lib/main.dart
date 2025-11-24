@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'services/socket_service.dart';
+import 'providers/language_provider.dart';
 import 'screens/lobby_screen.dart';
 
 void main() {
@@ -16,6 +17,7 @@ class PokerApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => SocketService()..connect()),
+        ChangeNotifierProvider(create: (_) => LanguageProvider()),
       ],
       child: MaterialApp(
         title: 'Poker Texas Holdem',
