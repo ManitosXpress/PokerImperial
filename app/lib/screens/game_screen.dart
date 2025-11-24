@@ -612,6 +612,44 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                           ),
                                         ),
                                       
+                                      // Hand description (poker hand type)
+                                      if (_winnerData!['winner']?['handDescription'] != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 12),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                            decoration: BoxDecoration(
+                                              color: iWon 
+                                                ? Colors.brown.shade900.withOpacity(0.5)
+                                                : Colors.black.withOpacity(0.5),
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: iWon ? Colors.amber : Colors.white38,
+                                                width: 2,
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.emoji_events_outlined,
+                                                  color: iWon ? Colors.amber : Colors.white70,
+                                                  size: 20,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  _winnerData!['winner']['handDescription'],
+                                                  style: TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: iWon ? Colors.amber : Colors.white,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      
                                       const SizedBox(height: 20),
                                       
                                       // Amount Won/Lost

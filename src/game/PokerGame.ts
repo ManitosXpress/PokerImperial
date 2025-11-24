@@ -276,8 +276,11 @@ export class PokerGame {
         const winners = playerHands.filter(ph => winningHands.includes(ph.hand));
 
         if (winners.length === 1) {
-            // Single winner
-            this.endHand(winners[0].player);
+            // Single winner - get hand description
+            const winningHand = winners[0].hand;
+            const handDescription = winningHand.descr; // e.g., "Pair, 10's" or "Flush, A high"
+
+            this.endHand(winners[0].player, handDescription);
         } else {
             // Split pot
             const splitAmount = Math.floor(this.pot / winners.length);
@@ -341,7 +344,7 @@ export class PokerGame {
         return this.deck.splice(0, count);
     }
 
-    private endHand(winner: Player) {
+    private endHand(winner: Player, handDescription?: string) {
         const wonAmount = this.pot;
         winner.chips += this.pot;
 
@@ -353,7 +356,8 @@ export class PokerGame {
                     id: winner.id,
                     name: winner.name,
                     amount: wonAmount,
-                    hand: winner.hand
+                    hand: winner.hand,
+                    handDescription: handDescription || 'High Card'
                 },
                 players: this.players.map(p => ({
                     id: p.id,
@@ -366,7 +370,7 @@ export class PokerGame {
             });
         }
 
-        console.log(`${winner.name} wins ${wonAmount} chips!`);
+        console.log(`${winner.name} wins ${wonAmount} chips with ${handDescription || 'fold'}!`);
 
         // Auto-start next hand after 5 seconds
         setTimeout(() => {
