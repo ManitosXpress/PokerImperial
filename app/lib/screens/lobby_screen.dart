@@ -297,6 +297,56 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               ),
                             ),
                           ),
+                          const SizedBox(height: 20),
+                          
+                          // Create Room Button
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 400),
+                            child: ElevatedButton(
+                              onPressed: _isCreating ? null : () {
+                                if (_nameController.text.isNotEmpty) {
+                                  setState(() => _isCreating = true);
+                                  socketService.createRoom(
+                                    _nameController.text,
+                                    onSuccess: (roomId) {
+                                      setState(() => _isCreating = false);
+                                      _showShareDialog(roomId);
+                                    },
+                                    onError: (error) {
+                                      setState(() => _isCreating = false);
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Error: $error')),
+                                      );
+                                    },
+                                  );
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: const Size(double.infinity, 65),
+                                backgroundColor: Colors.white.withOpacity(0.15),
+                                foregroundColor: Colors.white,
+                                elevation: 4,
+                                side: BorderSide(color: Colors.white.withOpacity(0.5), width: 2),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: _isCreating 
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                  )
+                                : Text(
+                                    languageProvider.getText('create_room').toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 2,
+                                    ),
+                                  ),
+                            ),
+                          ),
                           const SizedBox(height: 50),
                           
                           // Divider
