@@ -15,6 +15,7 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateMixin {
   Map<String, dynamic>? gameState;
+  Map<String, dynamic>? roomState;  // Track room info before game starts
   List<dynamic> players = [];
   bool _isActionMenuExpanded = false;
   late AnimationController _animationController;
@@ -37,6 +38,19 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     );
     
     final socketService = Provider.of<SocketService>(context, listen: false);
+    
+    // Listen for room updates (player joins/leaves)
+    socketService.socket.on('player_joined', (data) {
+      setState(() {
+        roomState = data;
+      });
+    });
+    
+    socketService.socket.on('room_created', (data) {
+      setState(() {
+        roomState = data;
+      });
+    });
     
     socketService.socket.on('game_started', (data) {
       _updateState(data);
@@ -118,27 +132,184 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       ),
       body: gameState == null
           ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Esperando que inicie el juego...',
-                    style: TextStyle(color: Colors.white, fontSize: 16),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: _startGame,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('INICIAR JUEGO'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              child: Container(
+                padding: const EdgeInsets.all(32),
+                constraints: const BoxConstraints(maxWidth: 500),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Room title
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F3460),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE94560), width: 2),
+                      ),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.people, color: Color(0xFFE94560), size: 48),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Sala: ${widget.roomId}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          if (roomState != null && roomState!['players'] != null)
+                            Text(
+                              '${(roomState!['players'] as List).length} / 4 Jugadores',
+                              style: const TextStyle(
+                                color: Color(0xFFE94560),
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    
+                    const SizedBox(height: 32),
+                    
+                    // Players list
+                    if (roomState != null && roomState!['players'] != null)
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF16213E),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Jugadores Conectados:',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            ...(roomState!['players'] as List).map((player) {
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFE94560),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          player['name'][0].toUpperCase(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      player['name'],
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                            
+                            // Empty slots
+                            if (roomState!['players'] != null)
+                              ...List.generate(
+                                4 - (roomState!['players'] as List).length,
+                                (index) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white24,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Center(
+                                          child: Icon(Icons.person_outline, color: Colors.white38),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Text(
+                                        'Esperando jugador...',
+                                        style: TextStyle(
+                                          color: Colors.white38,
+                                          fontSize: 16,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    
+                    const SizedBox(height: 32),
+                    
+                    // Start button
+                    if (roomState != null && (roomState!['players'] as List).length >= 2)
+                      ElevatedButton.icon(
+                        onPressed: _startGame,
+                        icon: const Icon(Icons.play_arrow, size: 28),
+                        label: const Text('INICIAR JUEGO'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
+                          textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.orange, width: 2),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.info_outline, color: Colors.orange),
+                            const SizedBox(width: 12),
+                            Text(
+                              'Se necesitan al menos 2 jugadores',
+                              style: const TextStyle(
+                                color: Colors.orange,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ),
             )
           : Stack(
