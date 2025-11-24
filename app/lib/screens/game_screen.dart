@@ -52,6 +52,12 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       });
     });
     
+    socketService.socket.on('room_joined', (data) {
+      setState(() {
+        roomState = data;
+      });
+    });
+    
     socketService.socket.on('game_started', (data) {
       _updateState(data);
     });
