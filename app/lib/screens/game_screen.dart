@@ -515,39 +515,6 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
                 // Expandable Action Menu (Bottom Left)
                 if (isTurn) ...[
-                  // All-in button (4th button - topmost)
-                  AnimatedBuilder(
-                    animation: _animation,
-                    builder: (context, child) {
-                      final myId = Provider.of<SocketService>(context, listen: false).socketId;
-                      final myPlayer = (gameState?['players'] as List?)?.firstWhere(
-                        (p) => p['id'] == myId,
-                        orElse: () => null,
-                      );
-                      final int myChips = myPlayer?['chips'] ?? 0;
-                      
-                      return Positioned(
-                        bottom: 30 + (70 * _animation.value * 4), // All-in button (highest)
-                        left: 30,
-                        child: Opacity(
-                          opacity: _animation.value,
-                          child: ScaleTransition(
-                            scale: _animation,
-                            child: FloatingActionButton.extended(
-                              onPressed: () => _sendAction('allin'),
-                              backgroundColor: Colors.purple.shade700,
-                              icon: const Icon(Icons.stars),
-                              label: Text(
-                                '${languageProvider.getText('all_in')} ($myChips)',
-                                style: const TextStyle(fontWeight: FontWeight.bold)
-                              ),
-                              heroTag: 'allin',
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
                   // Custom Bet button (3rd button)
                   AnimatedBuilder(
                     animation: _animation,
@@ -572,8 +539,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                           ),
                         ),
                       );
-                    },
                   ),
+                  // Call/Check button (2nd button)
                   AnimatedBuilder(
                     animation: _animation,
                     builder: (context, child) {
@@ -609,6 +576,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                       );
                     },
                   ),
+                  // Fold button (1st button)
                   AnimatedBuilder(
                     animation: _animation,
                     builder: (context, child) {
