@@ -60,6 +60,8 @@ export class PokerGame {
     }
 
     public getGameState() {
+        const minRaise = this.currentBet + Math.max(this.bigBlindAmount, this.currentBet);
+
         return {
             pot: this.pot,
             communityCards: this.communityCards,
@@ -67,6 +69,7 @@ export class PokerGame {
             dealerId: this.players[this.dealerIndex]?.id,
             round: this.round,
             currentBet: this.currentBet,
+            minBet: minRaise,
             players: this.players.map(p => ({
                 id: p.id,
                 name: p.name,
@@ -74,12 +77,13 @@ export class PokerGame {
                 currentBet: p.currentBet,
                 isFolded: p.isFolded,
                 isBot: p.isBot,
+                isAllIn: p.chips === 0 && p.currentBet > 0,
                 hand: p.hand
             }))
         };
     }
 
-    public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check', amount: number = 0) {
+    public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0) {
         const player = this.activePlayers[this.currentTurnIndex];
         if (!player || player.id !== playerId) {
             throw new Error('Not your turn');
@@ -99,12 +103,26 @@ export class PokerGame {
                 this.placeBet(player, callAmount);
                 break;
             case 'bet':
-                if (amount < this.currentBet) throw new Error('Bet must be at least current bet');
+                // Validate minimum bet
+                const minRaise = this.currentBet + Math.max(this.bigBlindAmount, this.currentBet);
+                if (amount < minRaise && player.chips >= minRaise) {
+                    throw new Error(`Minimum raise is ${minRaise}`);
+                }
+
                 this.placeBet(player, amount - player.currentBet);
                 if (amount > this.currentBet) {
                     this.lastAggressorIndex = this.currentTurnIndex;
                 }
                 this.currentBet = amount;
+                break;
+            case 'allin':
+                // Bet all remaining chips
+                const allInAmount = player.currentBet + player.chips;
+                this.placeBet(player, player.chips);
+                if (allInAmount > this.currentBet) {
+                    this.lastAggressorIndex = this.currentTurnIndex;
+                    this.currentBet = allInAmount;
+                }
                 break;
             case 'check':
                 if (player.currentBet < this.currentBet) throw new Error('Cannot check, must call');

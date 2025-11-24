@@ -119,6 +119,131 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     _toggleActionMenu(); // Close menu after action
   }
 
+  void _showCustomBetDialog() {
+    final languageProvider = Provider.of<LanguageProvider>(context, listen: false);
+    final socketService = Provider.of<SocketService>(context, listen: false);
+    
+    final myId = socketService.socketId;
+    final myPlayer = (gameState?['players'] as List?)?.firstWhere(
+      (p) => p['id'] == myId,
+      orElse: () => null,
+    );
+    
+    if (myPlayer == null) return;
+    
+    final int myChips = myPlayer['chips'] ?? 0;
+    final int currentBet = gameState?['currentBet'] ?? 0;
+    final int myCurrentBet = myPlayer['currentBet'] ?? 0;
+    final int minBet = gameState?['minBet'] ?? (currentBet + 20);
+    final int maxBet = myCurrentBet + myChips;
+    
+    double sliderValue = minBet.toDouble();
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text(languageProvider.getText('custom_bet')),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${languageProvider.getText('enter_amount')}: ${sliderValue.toInt()}',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 20),
+                  Slider(
+                    value: sliderValue,
+                    min: minBet.toDouble(),
+                    max: maxBet.toDouble(),
+                    divisions: ((maxBet - minBet) / 10).ceil(),
+                    label: sliderValue.toInt().toString(),
+                    onChanged: (value) {
+                      setState(() {
+                        sliderValue = value;
+                      });
+                    },
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('${languageProvider.getText('min')}: $minBet'),
+                      Text('${languageProvider.getText('max')}: $maxBet'),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  // Preset buttons
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      if (minBet <= maxBet)
+                        ElevatedButton(
+                          onPressed: () {
+                            setState(() {
+                              sliderValue = minBet.toDouble();
+                            });
+                          },
+                          child: Text('${languageProvider.getText('min')}'),
+                        ),
+                      if ((currentBet * 2) <= maxBet)
+                        ElevatedButton(
+                          onPressed: () {
+                            setState(() {
+                              sliderValue = (currentBet * 2).toDouble();
+                            });
+                          },
+                          child: const Text('2x'),
+                        ),
+                      if ((currentBet * 3) <= maxBet)
+                        ElevatedButton(
+                          onPressed: () {
+                            setState(() {
+                              sliderValue = (currentBet * 3).toDouble();
+                            });
+                          },
+                          child: const Text('3x'),
+                        ),
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            sliderValue = maxBet.toDouble();
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.purple,
+                        ),
+                        child: Text(languageProvider.getText('all_in')),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                    _sendAction('bet', sliderValue.toInt());
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                  ),
+                  child: Text(languageProvider.getText('raise')),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    _toggleActionMenu(); // Close action menu
+  }
+
   void _startGame() {
     final socketService = Provider.of<SocketService>(context, listen: false);
     socketService.socket.emit('start_game', {'roomId': widget.roomId});
@@ -390,14 +515,43 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
                 // Expandable Action Menu (Bottom Left)
                 if (isTurn) ...[
-                  // Action buttons that expand
+                  // All-in button (4th button - topmost)
                   AnimatedBuilder(
                     animation: _animation,
                     builder: (context, child) {
-                      // Determine bet amount (current bet + reasonable raise)
-                      final int currentBet = gameState?['currentBet'] ?? 0;
-                      final int raiseAmount = currentBet + 50;
+                      final myId = Provider.of<SocketService>(context, listen: false).socketId;
+                      final myPlayer = (gameState?['players'] as List?)?.firstWhere(
+                        (p) => p['id'] == myId,
+                        orElse: () => null,
+                      );
+                      final int myChips = myPlayer?['chips'] ?? 0;
                       
+                      return Positioned(
+                        bottom: 30 + (70 * _animation.value * 4), // All-in button (highest)
+                        left: 30,
+                        child: Opacity(
+                          opacity: _animation.value,
+                          child: ScaleTransition(
+                            scale: _animation,
+                            child: FloatingActionButton.extended(
+                              onPressed: () => _sendAction('allin'),
+                              backgroundColor: Colors.purple.shade700,
+                              icon: const Icon(Icons.stars),
+                              label: Text(
+                                '${languageProvider.getText('all_in')} ($myChips)',
+                                style: const TextStyle(fontWeight: FontWeight.bold)
+                              ),
+                              heroTag: 'allin',
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  // Custom Bet button (3rd button)
+                  AnimatedBuilder(
+                    animation: _animation,
+                    builder: (context, child) {
                       return Positioned(
                         bottom: 30 + (70 * _animation.value * 3), // Bet button
                         left: 30,
@@ -406,10 +560,13 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                           child: ScaleTransition(
                             scale: _animation,
                             child: FloatingActionButton.extended(
-                              onPressed: () => _sendAction('bet', raiseAmount),
+                              onPressed: _showCustomBetDialog,
                               backgroundColor: Colors.green,
                               icon: const Icon(Icons.add_circle),
-                              label: Text('${languageProvider.getText('raise')} $raiseAmount', style: const TextStyle(fontWeight: FontWeight.bold)),
+                              label: Text(
+                                languageProvider.getText('raise'),
+                                style: const TextStyle(fontWeight: FontWeight.bold)
+                              ),
                               heroTag: 'bet',
                             ),
                           ),
