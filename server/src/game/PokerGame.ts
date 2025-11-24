@@ -134,61 +134,31 @@ export class PokerGame {
     }
 
     private nextTurn() {
+        // Check if we should skip to showdown (all-in scenario)
+        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
+        const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
+
+        // If all remaining players are all-in (0 chips), or only one player has chips left
+        // Skip remaining betting rounds and go to showdown
+        if (playersWithChips.length <= 1) {
+            console.log('All-in scenario detected - skipping to showdown');
+            this.revealAllCardsAndShowdown();
+            return;
+        }
+
         // Check if round should end BEFORE moving to next player
-        // Logic: If everyone remaining has matched the current bet, 
-        // AND the next player to act would be the lastAggressor (meaning we completed the circle),
-        // THEN the round is over.
-
-        // Exception: Pre-flop BB option. 
-        // If pre-flop, and next is BB, and BB has matched but NOT acted (checked/raised)?
-        // We can simplify: The round ends if allMatched is true AND:
-        // 1. We are back to lastAggressor.
-        // 2. OR (Pre-flop specific) We are back to BB and BB checks (handled in handleAction check -> nextTurn).
-        //    If BB calls (impossible, they are BB), or checks.
-
-        // Let's use a standard approach:
-        // Move index first? No, check current state.
-
         let nextIndex = this.currentTurnIndex;
         do {
             nextIndex = (nextIndex + 1) % this.activePlayers.length;
         } while (this.activePlayers[nextIndex].isFolded);
 
-        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
         const allMatched = activeNonFolded.every(p => p.currentBet === this.currentBet || p.chips === 0);
 
         if (allMatched && nextIndex === this.lastAggressorIndex) {
-            // Special case: Pre-flop BB option.
-            // If round is pre-flop, and lastAggressor is BB.
-            // If we are here, it means everyone called the BB.
-            // Action is ON the BB.
-            // If BB checks, handleAction calls nextTurn. 
-            // In that call, nextIndex will be UTG. lastAggressor is BB.
-            // UTG != BB. So we continue? NO.
-            // If BB checks, round SHOULD end.
-
-            // So, we need to detect if the player who JUST acted (currentTurnIndex) was the lastAggressor?
-            // If currentTurnIndex == lastAggressorIndex AND allMatched -> Round End.
-
             if (this.currentTurnIndex === this.lastAggressorIndex) {
                 this.nextRound();
                 return;
             }
-
-            // But wait, if A bets. B calls. C calls.
-            // A bets (lastAggressor = A).
-            // B calls. current=B. next=C.
-            // C calls. current=C. next=A.
-            // allMatched = true. nextIndex = A (lastAggressor).
-            // So we should end here? Yes.
-
-            // But what about the BB option?
-            // Pre-flop. Aggressor = BB.
-            // UTG calls. ... SB calls.
-            // Current=SB. next=BB.
-            // allMatched = true. nextIndex = BB (lastAggressor).
-            // If we end here, BB doesn't get to act!
-            // So for Pre-flop, if next is BB, we DO NOT end.
 
             if (this.round === 'pre-flop' && this.activePlayers[nextIndex].currentBet === this.bigBlindAmount && this.currentBet === this.bigBlindAmount) {
                 // Allow BB to act
@@ -205,6 +175,34 @@ export class PokerGame {
         if (nextPlayer.isBot) {
             setTimeout(() => this.handleBotTurn(nextPlayer), 1000 + Math.random() * 1000);
         }
+    }
+
+    private revealAllCardsAndShowdown() {
+        // Reveal all remaining community cards
+        while (this.communityCards.length < 5) {
+            if (this.round === 'pre-flop') {
+                this.communityCards.push(...this.deal(3)); // Flop
+                this.round = 'flop';
+            } else if (this.round === 'flop') {
+                this.communityCards.push(...this.deal(1)); // Turn
+                this.round = 'turn';
+            } else if (this.round === 'turn') {
+                this.communityCards.push(...this.deal(1)); // River
+                this.round = 'river';
+                break;
+            }
+        }
+
+        // Emit game state update with all cards revealed
+        if (this.onGameStateChange) {
+            this.onGameStateChange(this.getGameState());
+        }
+
+        // Wait a moment for UI to show cards, then evaluate winner
+        setTimeout(() => {
+            this.round = 'showdown';
+            this.evaluateWinner();
+        }, 2000);
     }
 
     private nextRound() {
