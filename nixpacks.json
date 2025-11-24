@@ -1,18 +1,18 @@
 {
-    "phases": {
-        "setup": {
-            "nixPkgs": [
-                "nodejs_20"
-            ]
-        },
-        "install": {
-            "cmds": [
-                "npm ci --only=production"
-            ]
-        },
-        "build": null,
-        "start": {
-            "cmd": "node dist/index.js"
+    {
+        "phases": {
+            "setup": {
+                "nixPkgs": [
+                    "nodejs_20"
+                ]
+            },
+            "install": {
+                "cmds": [
+                    "npm ci --only=production"
+                ]
+            },
+            "start": {
+                "cmd": "node dist/index.js"
+            }
         }
     }
-}
