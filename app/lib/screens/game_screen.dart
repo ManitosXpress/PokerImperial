@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import '../services/socket_service.dart';
 import '../widgets/poker_card.dart';
 import '../widgets/player_seat.dart';
+import '../utils/poker_translations.dart';
 
 class GameScreen extends StatefulWidget {
   final String roomId;
@@ -59,6 +60,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     });
     
     socketService.socket.on('game_started', (data) {
+      setState(() {
+        roomState = null; // Clear room state to show game screen
+      });
       _updateState(data);
     });
     
@@ -638,7 +642,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                                 ),
                                                 const SizedBox(width: 8),
                                                 Text(
-                                                  _winnerData!['winner']['handDescription'],
+                                                  translatePokerHand(_winnerData!['winner']['handDescription']),
                                                   style: TextStyle(
                                                     fontSize: 16,
                                                     fontWeight: FontWeight.bold,
