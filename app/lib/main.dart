@@ -46,57 +46,78 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              'POKER IMPERIAL',
-              style: TextStyle(
-                fontSize: 48,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2.0,
-                color: Color(0xFFE94560),
-              ),
+      body: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/poker_background.png'),
+            fit: BoxFit.cover,
+          ),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withOpacity(0.7),
+                Colors.black.withOpacity(0.85),
+                Colors.black.withOpacity(0.9),
+              ],
             ),
-            const SizedBox(height: 50),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LobbyScreen()),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE94560),
-                padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 20),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'POKER IMPERIAL',
+                  style: TextStyle(
+                    fontSize: 52,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 4.0,
+                    color: Color(0xFFE94560),
+                    shadows: [
+                      Shadow(
+                        color: Colors.black87,
+                        blurRadius: 15,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              child: const Text(
-                'PLAY NOW',
-                style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-            ),
-            const SizedBox(height: 20),
-            OutlinedButton(
-              onPressed: () {
-                // Create Room
-              },
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Colors.white),
-                padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 20),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
+                const SizedBox(height: 80),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LobbyScreen()),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE94560),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 65),
+                      elevation: 8,
+                      shadowColor: const Color(0xFFE94560).withOpacity(0.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: const Text(
+                      'PLAY NOW',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              child: const Text(
-                'CREATE ROOM',
-                style: TextStyle(fontSize: 24, color: Colors.white),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
