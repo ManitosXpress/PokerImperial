@@ -118,6 +118,7 @@ export class PokerGame {
             case 'allin':
                 // Bet all remaining chips
                 const allInAmount = player.currentBet + player.chips;
+                console.log(`Player ${player.name} going ALL-IN with ${player.chips} chips (total bet: ${allInAmount})`);
                 this.placeBet(player, player.chips);
                 if (allInAmount > this.currentBet) {
                     this.lastAggressorIndex = this.currentTurnIndex;
