@@ -281,7 +281,7 @@ class PokerGame {
     }
     initializeDeck() {
         const suits = ['h', 'd', 'c', 's'];
-        const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+        const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
         this.deck = [];
         for (const suit of suits) {
             for (const rank of ranks) {
@@ -302,15 +302,23 @@ class PokerGame {
     endHand(winner) {
         const wonAmount = this.pot;
         winner.chips += this.pot;
-        // Emit hand_winner event
+        // Emit hand_winner event with all players' hands
         if (this.onGameStateChange) {
             this.onGameStateChange({
                 type: 'hand_winner',
                 winner: {
                     id: winner.id,
                     name: winner.name,
-                    amount: wonAmount
+                    amount: wonAmount,
+                    hand: winner.hand
                 },
+                players: this.players.map(p => ({
+                    id: p.id,
+                    name: p.name,
+                    hand: p.hand,
+                    isFolded: p.isFolded
+                })),
+                communityCards: this.communityCards,
                 gameState: this.getGameState()
             });
         }
