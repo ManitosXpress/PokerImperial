@@ -11,11 +11,9 @@ class SocketService extends ChangeNotifier {
 
   void connect() {
     // Adjust URL based on platform
-    String uri = 'http://localhost:3000';
-    if (!kIsWeb) {
-      // Assuming Android Emulator for mobile non-web
-      uri = 'http://10.0.2.2:3000';
-    }
+    String uri = kIsWeb 
+      ? 'https://pokerimperial-production.up.railway.app'  // Production backend
+      : 'http://10.0.2.2:3000';  // Android emulator (local)
     
     _socket = IO.io(uri, IO.OptionBuilder()
       .setTransports(['websocket'])

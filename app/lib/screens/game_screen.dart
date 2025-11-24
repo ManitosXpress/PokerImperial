@@ -657,6 +657,75 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                       
                                       const SizedBox(height: 30),
                                       
+                                      // Show all players' cards
+                                      if (_winnerData!['players'] != null)
+                                        Container(
+                                          padding: const EdgeInsets.all(16),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withOpacity(0.3),
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Column(
+                                            children: [
+                                              const Text(
+                                                'Cartas de los Jugadores:',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 12),
+                                              ...(_winnerData!['players'] as List).map((player) {
+                                                final isMe = player['id'] == myId;
+                                                final isFolded = player['isFolded'] == true;
+                                                
+                                                return Padding(
+                                                  padding: const EdgeInsets.only(bottom: 12),
+                                                  child: Row(
+                                                    mainAxisAlignment: MainAxisAlignment.center,
+                                                    children: [
+                                                      SizedBox(
+                                                        width: 100,
+                                                        child: Text(
+                                                          player['name'],
+                                                          style: TextStyle(
+                                                            color: isMe ? Colors.amber : Colors.white,
+                                                            fontSize: 14,
+                                                            fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
+                                                          ),
+                                                          textAlign: TextAlign.right,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 12),
+                                                      if (isFolded)
+                                                        const Text(
+                                                          '(Fold)',
+                                                          style: TextStyle(
+                                                            color: Colors.grey,
+                                                            fontSize: 14,
+                                                            fontStyle: FontStyle.italic,
+                                                          ),
+                                                        )
+                                                      else if (player['hand'] != null)
+                                                        Row(
+                                                          children: (player['hand'] as List).map<Widget>((card) {
+                                                            return Padding(
+                                                              padding: const EdgeInsets.only(right: 4),
+                                                              child: PokerCard(cardCode: card, width: 35),
+                                                            );
+                                                          }).toList(),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                );
+                                              }).toList(),
+                                            ],
+                                          ),
+                                        ),
+                                      
+                                      const SizedBox(height: 20),
+                                      
                                       // Next hand info
                                       Text(
                                         'Próxima mano en breve...',
