@@ -3,17 +3,33 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { RoomManager } from './game/RoomManager';
 
-if (!origin) return callback(null, true);
+const app = express();
+const httpServer = createServer(app);
 
-if (allowedOrigins.includes(origin)) {
-    callback(null, true);
-} else {
-    console.log('Blocked origin:', origin);
-    callback(new Error('Not allowed by CORS'));
-}
+// CORS configuration for production and development
+const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5000',
+    'http://localhost:2383',  // Flutter web dev
+    'https://poker-fa33a.web.app',
+    'https://poker-fa33a.firebaseapp.com'
+];
+
+const io = new Server(httpServer, {
+    cors: {
+        origin: (origin, callback) => {
+            // Allow requests with no origin (mobile apps, Postman, etc.)
+            if (!origin) return callback(null, true);
+
+            if (allowedOrigins.includes(origin)) {
+                callback(null, true);
+            } else {
+                console.log('Blocked origin:', origin);
+                callback(new Error('Not allowed by CORS'));
+            }
         },
-methods: ["GET", "POST"],
-    credentials: true
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
 

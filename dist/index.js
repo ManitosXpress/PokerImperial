@@ -1,19 +1,40 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const http_1 = require("http");
+const socket_io_1 = require("socket.io");
 const RoomManager_1 = require("./game/RoomManager");
-if (!origin)
-    return callback(null, true);
-if (allowedOrigins.includes(origin)) {
-    callback(null, true);
-}
-else {
-    console.log('Blocked origin:', origin);
-    callback(new Error('Not allowed by CORS'));
-}
-methods: ["GET", "POST"],
-    credentials;
-true;
-;
+const app = (0, express_1.default)();
+const httpServer = (0, http_1.createServer)(app);
+// CORS configuration for production and development
+const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5000',
+    'http://localhost:2383', // Flutter web dev
+    'https://poker-fa33a.web.app',
+    'https://poker-fa33a.firebaseapp.com'
+];
+const io = new socket_io_1.Server(httpServer, {
+    cors: {
+        origin: (origin, callback) => {
+            // Allow requests with no origin (mobile apps, Postman, etc.)
+            if (!origin)
+                return callback(null, true);
+            if (allowedOrigins.includes(origin)) {
+                callback(null, true);
+            }
+            else {
+                console.log('Blocked origin:', origin);
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
+        methods: ["GET", "POST"],
+        credentials: true
+    }
+});
 const PORT = process.env.PORT || 3000;
 const roomManager = new RoomManager_1.RoomManager();
 io.on('connection', (socket) => {
