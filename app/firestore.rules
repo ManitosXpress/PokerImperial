@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ============================================
+    // USERS COLLECTION - Server-Authoritative
+    // ============================================
+    // Users can READ their own data but CANNOT WRITE
+    // Only Cloud Functions (Admin SDK) can modify wallet balance
+    match /users/{userId} {
+      // Allow read only if authenticated and accessing own document
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // BLOCK ALL CLIENT WRITES
+      // This prevents users from modifying their own balance
+      allow write: if false;
+    }
+    
+    // ============================================
+    // TRANSACTION LOGS - Immutable Audit Trail
+    // ============================================
+    // Users can READ their own logs but CANNOT WRITE
+    // Only Cloud Functions can create transaction logs
+    match /transaction_logs/{logId} {
+      // Allow read only if authenticated and log belongs to user
+      allow read: if request.auth != null && 
+                     resource.data.userId == request.auth.uid;
+      
+      // BLOCK ALL CLIENT WRITES
+      // Logs are immutable - only Cloud Functions can create them
+      allow write: if false;
+    }
+    
+    // ============================================
+    // DEFAULT DENY ALL
+    // ============================================
+    // Any other collection is completely blocked
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

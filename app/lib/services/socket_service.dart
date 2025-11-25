@@ -77,16 +77,73 @@ class SocketService extends ChangeNotifier {
     });
   }
 
-  void createPracticeRoom(String playerName, {Function(String roomId)? onSuccess}) {
+  void createPracticeRoom(String playerName, {Function(String roomId)? onSuccess, Function(String error)? onError}) {
     print('Emitting create_practice_room event for $playerName');
     _socket.emit('create_practice_room', playerName);
     
-    // For practice rooms, wait for game_started event (not room_created)
-    // This ensures we skip the waiting screen and go directly to the game
-    _socket.once('game_started', (data) {
+    String? capturedRoomId;
+    bool navigationCompleted = false;
+    
+    // Declare cleanup function first
+    void cleanup() {
+      _socket.off('room_created');
+      _socket.off('game_started');
+      _socket.off('error');
+    }
+    
+    // Listen for room_created first (server emits this immediately)
+    void handleRoomCreated(dynamic data) {
+      if (navigationCompleted) return;
+      print('Practice room created: ${data['id']}');
+      capturedRoomId = data['id'];
+    }
+    
+    // Error handler (must be declared before handleGameStarted uses it)
+    void handleError(dynamic data) {
+      if (navigationCompleted) return;
+      navigationCompleted = true;
+      
+      print('Practice room error: $data');
+      cleanup();
+      
+      if (onError != null) {
+        onError(data.toString());
+      }
+    }
+    
+    // Then wait for game_started (server emits this after 500ms delay)
+    void handleGameStarted(dynamic data) {
+      if (navigationCompleted) return;
+      navigationCompleted = true;
+      
       print('Practice game started successfully');
-      if (onSuccess != null && data['roomId'] != null) {
-        onSuccess(data['roomId']);
+      final roomId = data['roomId'] ?? capturedRoomId;
+      
+      cleanup();
+      
+      if (roomId != null && onSuccess != null) {
+        onSuccess(roomId);
+      } else if (onError != null) {
+        onError('Failed to start practice game - no room ID');
+      }
+    }
+    
+    // Set up listeners
+    _socket.on('room_created', handleRoomCreated);
+    _socket.on('game_started', handleGameStarted);
+    _socket.on('error', handleError);
+    
+    // Timeout fallback in case server doesn't respond
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!navigationCompleted && capturedRoomId != null) {
+        print('Practice game timeout - forcing navigation with room ID: $capturedRoomId');
+        handleGameStarted({'roomId': capturedRoomId});
+      } else if (!navigationCompleted) {
+        navigationCompleted = true;
+        cleanup();
+        if (onError != null) {
+          onError('Timeout waiting for practice game to start');
+        }
       }
     });
   }

@@ -3,7 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/socket_service.dart';
 import '../providers/language_provider.dart';
+import '../providers/auth_provider.dart';
+import '../widgets/wallet_display.dart';
+import '../widgets/add_credits_dialog.dart';
 import 'game_screen.dart';
+import 'login_screen.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -124,46 +128,92 @@ class _LobbyScreenState extends State<LobbyScreen> {
           child: SafeArea(
             child: Column(
               children: [
-                // Header with language toggle
+                // Header with wallet, language toggle, and sign out
                 Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      GestureDetector(
-                        onTap: () => languageProvider.toggleLanguage(),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(25),
-                            border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
+                      // Sign out button
+                      IconButton(
+                        onPressed: () async {
+                          final authProvider = context.read<AuthProvider>();
+                          await authProvider.signOut();
+                          if (context.mounted) {
+                            Navigator.of(context).pushReplacement(
+                              MaterialPageRoute(builder: (_) => const LoginScreen()),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.logout, color: Colors.white70),
+                        tooltip: languageProvider.currentLocale.languageCode == 'en' ? 'Sign Out' : 'Cerrar Sesión',
+                      ),
+                      // Wallet and controls
+                      Row(
+                        children: [
+                          // Add Credits Button
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (_) => const AddCreditsDialog(),
+                              );
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: Text(
+                              languageProvider.currentLocale.languageCode == 'en' ? 'Add' : 'Agregar',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFe94560),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
                               ),
-                            ],
+                            ),
                           ),
-                          child: Row(
-                            children: [
-                              Text(
-                                languageProvider.currentLocale.languageCode == 'en' ? '🇺🇸' : '🇪🇸',
-                                style: const TextStyle(fontSize: 22),
+                          const SizedBox(width: 12),
+                          // Wallet Display
+                          const WalletDisplay(),
+                          const SizedBox(width: 12),
+                          // Language Toggle
+                          GestureDetector(
+                            onTap: () => languageProvider.toggleLanguage(),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(25),
+                                border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.3),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 8),
-                              Text(
-                                languageProvider.currentLocale.languageCode == 'en' ? 'EN' : 'ES',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                ),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    languageProvider.currentLocale.languageCode == 'en' ? '🇺🇸' : '🇪🇸',
+                                    style: const TextStyle(fontSize: 22),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    languageProvider.currentLocale.languageCode == 'en' ? 'EN' : 'ES',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
@@ -273,6 +323,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     _nameController.text,
                                     onSuccess: (roomId) {
                                       _navigateToGame(roomId);
+                                    },
+                                    onError: (error) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Error: $error'),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
                                     },
                                   );
                                 }

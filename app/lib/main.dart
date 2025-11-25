@@ -1,13 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'services/socket_service.dart';
 import 'providers/language_provider.dart';
+import 'providers/auth_provider.dart' as app_auth;
+import 'providers/wallet_provider.dart';
 import 'screens/lobby_screen.dart';
-
+import 'screens/login_screen.dart';
+import 'firebase_options.dart';
 import 'dart:async';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Firebase with options
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  
   runZonedGuarded(() {
     // Set up error widget for build errors
     ErrorWidget.builder = (FlutterErrorDetails details) {
@@ -29,9 +41,9 @@ void main() {
                   style: const TextStyle(color: Colors.white, fontSize: 16),
                 ),
                 const SizedBox(height: 20),
-                Text(
+                const Text(
                   'Stack Trace:',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                 ),
                 Text(
                   details.stack.toString(),
@@ -61,6 +73,10 @@ class PokerApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => SocketService()..connect()),
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
+        ChangeNotifierProvider(create: (_) => app_auth.AuthProvider()),
+        ChangeNotifierProvider(
+          create: (_) => WalletProvider()..initialize(),
+        ),
       ],
       child: MaterialApp(
         title: 'Poker Texas Holdem',
@@ -77,8 +93,38 @@ class PokerApp extends StatelessWidget {
           ),
           useMaterial3: true,
         ),
-        home: const HomeScreen(),
+        home: const AuthGate(),
       ),
+    );
+  }
+}
+
+/// Auth Gate - Routes to Login or Home based on auth state
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        // Show loading while checking auth state
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(color: Color(0xFFE94560)),
+            ),
+          );
+        }
+
+        // Show login screen if not authenticated
+        if (!snapshot.hasData) {
+          return const LoginScreen();
+        }
+
+        // Show home screen if authenticated
+        return const HomeScreen();
+      },
     );
   }
 }
