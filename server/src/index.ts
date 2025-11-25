@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { RoomManager } from './game/RoomManager';
+import { verifyFirebaseToken, getUserBalance, deductCreditsForGame } from './middleware/firebaseAuth';
 
 const app = express();
 const httpServer = createServer(app);
@@ -38,8 +39,57 @@ const roomManager = new RoomManager();
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
-    socket.on('create_room', (playerName: string) => {
+    socket.on('authenticate', async (data: { token: string }) => {
+        const uid = await verifyFirebaseToken(data.token);
+
+        if (!uid) {
+            socket.emit('auth_error', { message: 'Invalid token' });
+            return;
+        }
+
+        (socket as any).userId = uid;
+        socket.emit('authenticated', { uid });
+        console.log(`User authenticated: ${uid}`);
+    });
+
+    socket.on('create_room', async (data: { playerName: string, token?: string }) => {
+        // Handle both string (old format) and object (new format)
+        const playerName = typeof data === 'string' ? data : data.playerName;
+        const token = typeof data === 'object' ? data.token : null;
+
         try {
+            // Economy Check
+            if (token) {
+                const uid = await verifyFirebaseToken(token);
+                if (uid) {
+                    const balance = await getUserBalance(uid);
+                    const entryFee = 100; // Cost to create room
+
+                    if (balance < entryFee) {
+                        socket.emit('insufficient_balance', {
+                            required: entryFee,
+                            current: balance
+                        });
+                        return;
+                    }
+
+                    const deducted = await deductCreditsForGame(uid, entryFee);
+                    if (!deducted) {
+                        socket.emit('error', 'Failed to deduct credits');
+                        return;
+                    }
+                }
+            } else {
+                // If no token provided, we might want to block or allow for now. 
+                // The requirement says "necesites credito para crear sala".
+                // So we should probably enforce it if we can, but for backward compatibility during dev, maybe warn?
+                // But the user said "necesites credito", so I should enforce it.
+                // However, the frontend might not be sending token yet.
+                // I will enforce it but handle the case where frontend isn't updated yet by emitting error.
+                socket.emit('error', 'Authentication required to create room');
+                return;
+            }
+
             const room = roomManager.createRoom(socket.id, playerName);
             socket.join(room.id);
             socket.emit('room_created', room);
@@ -55,28 +105,62 @@ io.on('connection', (socket) => {
             socket.join(room.id);
             socket.emit('room_created', room);
 
-            // Hook up bot updates
-            const game = roomManager['games'].get(room.id); // Access private map
-            if (game) {
-                game.onGameStateChange = (state: any) => {
-                    io.to(room.id).emit('game_update', state);
-                };
-            }
+            console.log(`Practice Room created: ${room.id} by ${playerName}`);
 
             // Auto-start game for practice with a small delay to allow frontend to load
             setTimeout(() => {
-                const gameState = roomManager.startGame(room.id, socket.id);
-                io.to(room.id).emit('game_started', { ...gameState, roomId: room.id });
+                try {
+                    const gameState = roomManager.startGame(room.id, socket.id, (data) => {
+                        // Emit game state changes to all players in room
+                        if (data.type === 'hand_winner') {
+                            // Emit winner event
+                            io.to(room.id).emit('hand_winner', data);
+                        } else {
+                            // Regular game update
+                            io.to(room.id).emit('game_update', data);
+                        }
+                    });
+                    io.to(room.id).emit('game_started', { ...gameState, roomId: room.id });
+                } catch (e: any) {
+                    console.error('Error starting practice game:', e);
+                    socket.emit('error', 'Failed to start practice game: ' + e.message);
+                }
             }, 500);
 
-            console.log(`Practice Room created: ${room.id} by ${playerName}`);
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
+            socket.emit('error', e.message);
         }
     });
 
-    socket.on('join_room', ({ roomId, playerName }: { roomId: string, playerName: string }) => {
+    socket.on('join_room', async ({ roomId, playerName, token }: { roomId: string, playerName: string, token?: string }) => {
         try {
+            // Economy Check
+            if (token) {
+                const uid = await verifyFirebaseToken(token);
+                if (uid) {
+                    const balance = await getUserBalance(uid);
+                    const entryFee = 100; // Cost to join room
+
+                    if (balance < entryFee) {
+                        socket.emit('insufficient_balance', {
+                            required: entryFee,
+                            current: balance
+                        });
+                        return;
+                    }
+
+                    const deducted = await deductCreditsForGame(uid, entryFee);
+                    if (!deducted) {
+                        socket.emit('error', 'Failed to deduct credits');
+                        return;
+                    }
+                }
+            } else {
+                socket.emit('error', 'Authentication required to join room');
+                return;
+            }
+
             const room = roomManager.joinRoom(roomId, socket.id, playerName);
             if (room) {
                 socket.join(roomId);

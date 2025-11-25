@@ -395,9 +395,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     },
                                     onError: (error) {
                                       setState(() => _isCreating = false);
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Error: $error')),
-                                      );
+                                      if (error.contains('Insufficient balance')) {
+                                        showDialog(
+                                          context: context,
+                                          builder: (_) => const AddCreditsDialog(),
+                                        );
+                                      } else {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Error: $error')),
+                                        );
+                                      }
                                     },
                                   );
                                 }
@@ -506,9 +513,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                             },
                                             onError: (error) {
                                               setState(() => _isJoining = false);
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                SnackBar(content: Text('Error: $error')),
-                                              );
+                                              if (error.contains('Insufficient balance')) {
+                                                showDialog(
+                                                  context: context,
+                                                  builder: (_) => const AddCreditsDialog(),
+                                                );
+                                              } else {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Error: $error')),
+                                                );
+                                              }
                                             },
                                           );
                                         }
