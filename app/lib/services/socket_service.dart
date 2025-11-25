@@ -98,7 +98,7 @@ class SocketService extends ChangeNotifier {
       capturedRoomId = data['id'];
     }
     
-    // Error handler (must be declared before handleGameStarted uses it)
+    // Error handler
     void handleError(dynamic data) {
       if (navigationCompleted) return;
       navigationCompleted = true;
@@ -111,20 +111,24 @@ class SocketService extends ChangeNotifier {
       }
     }
     
-    // Then wait for game_started (server emits this after 500ms delay)
+    // Wait for game_started - server emits this when bots are ready and game begins
     void handleGameStarted(dynamic data) {
       if (navigationCompleted) return;
       navigationCompleted = true;
       
-      print('Practice game started successfully');
+      print('Practice game started successfully with data: $data');
       final roomId = data['roomId'] ?? capturedRoomId;
       
       cleanup();
       
       if (roomId != null && onSuccess != null) {
+        print('Navigating to practice game with roomId: $roomId');
         onSuccess(roomId);
-      } else if (onError != null) {
-        onError('Failed to start practice game - no room ID');
+      } else {
+        print('ERROR: No roomId found! data: $data, capturedRoomId: $capturedRoomId');
+        if (onError != null) {
+          onError('Failed to start practice game - no room ID');
+        }
       }
     }
     
@@ -133,18 +137,17 @@ class SocketService extends ChangeNotifier {
     _socket.on('game_started', handleGameStarted);
     _socket.on('error', handleError);
     
-    // Timeout fallback in case server doesn't respond
-    Future.delayed(const Duration(seconds: 5), () {
-      if (!navigationCompleted && capturedRoomId != null) {
-        print('Practice game timeout - forcing navigation with room ID: $capturedRoomId');
-        handleGameStarted({'roomId': capturedRoomId});
-      } else if (!navigationCompleted) {
+    // Timeout to show error if server doesn't respond (but don't navigate!)
+    Future.delayed(const Duration(seconds: 10), () {
+      if (!navigationCompleted) {
         navigationCompleted = true;
         cleanup();
+        print('Practice game timeout - server did not respond');
         if (onError != null) {
-          onError('Timeout waiting for practice game to start');
+          onError('Server took too long to start practice game. Please try again.');
         }
       }
     });
   }
 }
+
