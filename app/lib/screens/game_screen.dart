@@ -8,7 +8,13 @@ import '../providers/language_provider.dart';
 
 class GameScreen extends StatefulWidget {
   final String roomId;
-  const GameScreen({super.key, required this.roomId});
+  final Map<String, dynamic>? initialGameState;
+  
+  const GameScreen({
+    super.key, 
+    required this.roomId,
+    this.initialGameState,
+  });
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -29,6 +35,12 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
+    
+    // Initialize with passed state if available
+    if (widget.initialGameState != null) {
+      gameState = widget.initialGameState;
+    }
+    
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 250),
@@ -367,7 +379,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                     const SizedBox(height: 32),
 
                     // Start button
-                    if (roomState != null && (roomState!['players'] as List).length >= 2)
+                    if (roomState == null || (roomState!['players'] != null && (roomState!['players'] as List).length >= 2))
                       ElevatedButton.icon(
                         onPressed: _startGame,
                         icon: const Icon(Icons.play_arrow, size: 28),

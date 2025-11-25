@@ -77,7 +77,7 @@ class SocketService extends ChangeNotifier {
     });
   }
 
-  void createPracticeRoom(String playerName, {Function(String roomId)? onSuccess, Function(String error)? onError}) {
+  void createPracticeRoom(String playerName, {Function(dynamic data)? onSuccess, Function(String error)? onError}) {
     print('Emitting create_practice_room event for $playerName');
     _socket.emit('create_practice_room', playerName);
     
@@ -123,7 +123,8 @@ class SocketService extends ChangeNotifier {
       
       if (roomId != null && onSuccess != null) {
         print('Navigating to practice game with roomId: $roomId');
-        onSuccess(roomId);
+        // Pass the full data object (gameState) to the callback
+        onSuccess(data);
       } else {
         print('ERROR: No roomId found! data: $data, capturedRoomId: $capturedRoomId');
         if (onError != null) {

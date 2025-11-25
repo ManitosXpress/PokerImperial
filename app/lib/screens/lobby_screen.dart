@@ -22,10 +22,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
   bool _isCreating = false;
   bool _isJoining = false;
 
-  void _navigateToGame(String roomId) {
+  void _navigateToGame(String roomId, [Map<String, dynamic>? initialState]) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => GameScreen(roomId: roomId)),
+      MaterialPageRoute(
+        builder: (_) => GameScreen(
+          roomId: roomId,
+          initialGameState: initialState,
+        ),
+      ),
     );
   }
 
@@ -317,14 +322,26 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           Container(
                             constraints: const BoxConstraints(maxWidth: 400),
                             child: ElevatedButton(
-                              onPressed: () {
+                              onPressed: (_isCreating || _isJoining) ? null : () {
                                 if (_nameController.text.isNotEmpty) {
+                                  setState(() => _isCreating = true); // Reuse _isCreating for simplicity or add _isPracticeLoading
                                   socketService.createPracticeRoom(
                                     _nameController.text,
-                                    onSuccess: (roomId) {
-                                      _navigateToGame(roomId);
+                                    onSuccess: (data) {
+                                      setState(() => _isCreating = false);
+                                      final roomId = data['roomId'];
+                                      if (roomId != null) {
+                                        try {
+                                          final Map<String, dynamic> state = Map<String, dynamic>.from(data as Map);
+                                          _navigateToGame(roomId, state);
+                                        } catch (e) {
+                                          print('Error casting game state: $e');
+                                          _navigateToGame(roomId);
+                                        }
+                                      }
                                     },
                                     onError: (error) {
+                                      setState(() => _isCreating = false);
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         SnackBar(
                                           content: Text('Error: $error'),
@@ -345,14 +362,20 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                   borderRadius: BorderRadius.circular(16),
                                 ),
                               ),
-                              child: Text(
-                                languageProvider.getText('practice_bots').toUpperCase(),
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 2,
-                                ),
-                              ),
+                              child: _isCreating
+                                ? const SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                                  )
+                                : Text(
+                                    languageProvider.getText('practice_bots').toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 2,
+                                    ),
+                                  ),
                             ),
                           ),
                           const SizedBox(height: 20),
