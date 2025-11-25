@@ -5,8 +5,51 @@ import 'services/socket_service.dart';
 import 'providers/language_provider.dart';
 import 'screens/lobby_screen.dart';
 
+import 'dart:async';
+
 void main() {
-  runApp(const PokerApp());
+  runZonedGuarded(() {
+    // Set up error widget for build errors
+    ErrorWidget.builder = (FlutterErrorDetails details) {
+      return Material(
+        color: Colors.red.shade900,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Application Error',
+                  style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  details.exception.toString(),
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Stack Trace:',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  details.stack.toString(),
+                  style: const TextStyle(color: Colors.white70, fontFamily: 'monospace'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    };
+    
+    runApp(const PokerApp());
+  }, (error, stackTrace) {
+    // Log async errors
+    print('Caught error: $error');
+    print(stackTrace);
+  });
 }
 
 class PokerApp extends StatelessWidget {

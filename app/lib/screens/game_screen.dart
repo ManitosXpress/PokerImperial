@@ -607,6 +607,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                     child: FloatingActionButton(
                       onPressed: _toggleActionMenu,
                       backgroundColor: _isActionMenuExpanded ? Colors.grey[700] : Colors.amber,
+                      heroTag: 'menu_toggle',
                       child: AnimatedRotation(
                         turns: _isActionMenuExpanded ? 0.125 : 0,
                         duration: const Duration(milliseconds: 250),
