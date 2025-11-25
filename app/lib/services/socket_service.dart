@@ -81,11 +81,12 @@ class SocketService extends ChangeNotifier {
     print('Emitting create_practice_room event for $playerName');
     _socket.emit('create_practice_room', playerName);
     
-    // Set up one-time listener for response
-    _socket.once('room_created', (data) {
-      print('Practice room created successfully: ${data['id']}');
-      if (onSuccess != null) {
-        onSuccess(data['id']);
+    // For practice rooms, wait for game_started event (not room_created)
+    // This ensures we skip the waiting screen and go directly to the game
+    _socket.once('game_started', (data) {
+      print('Practice game started successfully');
+      if (onSuccess != null && data['roomId'] != null) {
+        onSuccess(data['roomId']);
       }
     });
   }

@@ -66,7 +66,7 @@ io.on('connection', (socket) => {
             // Auto-start game for practice with a small delay to allow frontend to load
             setTimeout(() => {
                 const gameState = roomManager.startGame(room.id, socket.id);
-                io.to(room.id).emit('game_started', gameState);
+                io.to(room.id).emit('game_started', { ...gameState, roomId: room.id });
             }, 500);
 
             console.log(`Practice Room created: ${room.id} by ${playerName}`);
