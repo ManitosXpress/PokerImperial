@@ -14,7 +14,7 @@ class SocketService extends ChangeNotifier {
   Future<void> connect() async {
     // Adjust URL based on platform
     String uri = kIsWeb 
-      ? 'https://pokerimperial-production.up.railway.app'  // Production backend
+      ? 'https://poker-server-s8yj.onrender.com'  // Production backend (Render)
       : 'http://10.0.2.2:3000';  // Android emulator (local)
     
     // Get Firebase token
@@ -31,12 +31,22 @@ class SocketService extends ChangeNotifier {
 
     _socket.connect();
 
-    _socket.onConnect((_) {
+    _socket.onConnect((_) async {
       print('Connected to server');
       
+      // Get fresh token on every connection
+      final user = FirebaseAuth.instance.currentUser;
+      String? freshToken;
+      if (user != null) {
+        freshToken = await user.getIdToken();
+      }
+      
       // Authenticate
-      if (token != null) {
-        _socket.emit('authenticate', {'token': token});
+      if (freshToken != null) {
+        print('Sending authenticate event with token');
+        _socket.emit('authenticate', {'token': freshToken});
+      } else {
+        print('No user logged in, skipping authentication');
       }
 
       _isConnected = true;
