@@ -8,10 +8,12 @@ const serviceAccountPath = path.join(__dirname, '../../serviceAccountKey.json');
 
 if (fs.existsSync(serviceAccountPath)) {
     try {
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccountPath)
-        });
-        console.log('Firebase Admin initialized successfully');
+        if (!admin.apps.length) {
+            admin.initializeApp({
+                credential: admin.credential.cert(serviceAccountPath)
+            });
+            console.log('Firebase Admin initialized successfully');
+        }
     } catch (error) {
         console.error('Error initializing Firebase Admin:', error);
     }
@@ -27,7 +29,46 @@ export async function verifyFirebaseToken(token: string): Promise<string | null>
 
     try {
         const decodedToken = await admin.auth().verifyIdToken(token);
-        return decodedToken.uid;
+        const uid = decodedToken.uid;
+        const db = admin.firestore();
+        const userRef = db.collection('users').doc(uid);
+
+        // Check if user exists, if not create
+        const userDoc = await userRef.get();
+
+        if (!userDoc.exists) {
+            const initialBalance = 1000;
+            const now = admin.firestore.FieldValue.serverTimestamp();
+
+            const userData = {
+                uid: uid,
+                email: decodedToken.email || '',
+                displayName: decodedToken.name || 'Player',
+                photoURL: decodedToken.picture || '',
+                walletBalance: initialBalance,
+                createdAt: now,
+                lastLogin: now
+            };
+
+            await userRef.set(userData);
+
+            // Create initial transaction
+            await userRef.collection('transactions').add({
+                type: 'deposit',
+                amount: initialBalance,
+                reason: 'Welcome Bonus',
+                timestamp: now
+            });
+
+            console.log(`Created new user ${uid} with ${initialBalance} credits`);
+        } else {
+            // Update last login
+            await userRef.update({
+                lastLogin: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        return uid;
     } catch (error) {
         console.error('Error verifying token:', error);
         return null;
@@ -66,9 +107,19 @@ export async function deductCreditsForGame(uid: string, amount: number): Promise
                 throw new Error('Insufficient balance');
             }
 
+            // Deduct balance
             transaction.update(userRef, {
                 walletBalance: currentBalance - amount,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Record transaction
+            const transactionRef = userRef.collection('transactions').doc();
+            transaction.set(transactionRef, {
+                type: 'payment',
+                amount: -amount,
+                reason: 'Game Entry Fee',
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
 
             return true;
