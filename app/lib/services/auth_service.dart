@@ -36,7 +36,7 @@ class AuthService {
       await userCredential.user?.updateDisplayName(nickname);
 
       // Create user profile in Firestore
-      // Note: walletBalance will be set to 0 by Cloud Function on first read
+      // Note: credit will be set to 0 initially, then updated by backend on token verification
       await _createUserProfile(
         uid: userCredential.user!.uid,
         email: email,
@@ -71,7 +71,7 @@ class AuthService {
 
   /// Create user profile in Firestore
   /// This document will be read-only for clients (enforced by security rules)
-  /// Only Cloud Functions can modify walletBalance
+  /// Only Cloud Functions can modify credit balance
   Future<void> _createUserProfile({
     required String uid,
     required String email,
@@ -81,15 +81,16 @@ class AuthService {
       await _firestore.collection('users').doc(uid).set({
         'uid': uid,
         'email': email,
-        'nickname': nickname,
+        'displayName': nickname, // Changed from 'nickname' to 'displayName'
+        'photoURL': '', // Empty for email/password registration
         'createdAt': FieldValue.serverTimestamp(),
-        'walletBalance': 0, // Initial balance
+        'credit': 0, // Changed from 'walletBalance' to 'credit'
         'lastUpdated': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (e) {
       print('Error creating user profile: $e');
       // Don't throw - authentication should succeed even if profile creation fails
-      // The Cloud Function will create the profile on first credit operation
+      // The backend/Cloud Function will create the profile on token verification
     }
   }
 

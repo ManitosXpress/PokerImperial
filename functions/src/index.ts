@@ -7,6 +7,6 @@ if (!admin.apps.length) {
     admin.initializeApp();
 }
 
-// Export Cloud Functions
+// Export Cloud Functions (using v1 API for compatibility)
 export const addCreditsFunction = functions.https.onCall(addCredits);
 export const deductCreditsFunction = functions.https.onCall(deductCredits);

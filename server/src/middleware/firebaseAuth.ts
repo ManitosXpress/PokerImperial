@@ -45,7 +45,7 @@ export async function verifyFirebaseToken(token: string): Promise<string | null>
                 email: decodedToken.email || '',
                 displayName: decodedToken.name || 'Player',
                 photoURL: decodedToken.picture || '',
-                walletBalance: initialBalance,
+                credit: initialBalance, // Changed from walletBalance to credit
                 createdAt: now,
                 lastLogin: now
             };
@@ -80,7 +80,7 @@ export async function getUserBalance(uid: string): Promise<number> {
 
     try {
         const userDoc = await admin.firestore().collection('users').doc(uid).get();
-        return userDoc.data()?.walletBalance || 0;
+        return userDoc.data()?.credit || 0; // Changed from walletBalance to credit
     } catch (error) {
         console.error('Error getting balance:', error);
         return 0;
@@ -101,7 +101,7 @@ export async function deductCreditsForGame(uid: string, amount: number): Promise
                 throw new Error('User not found');
             }
 
-            const currentBalance = userDoc.data()?.walletBalance || 0;
+            const currentBalance = userDoc.data()?.credit || 0; // Changed from walletBalance to credit
 
             if (currentBalance < amount) {
                 throw new Error('Insufficient balance');
@@ -109,7 +109,7 @@ export async function deductCreditsForGame(uid: string, amount: number): Promise
 
             // Deduct balance
             transaction.update(userRef, {
-                walletBalance: currentBalance - amount,
+                credit: currentBalance - amount, // Changed from walletBalance to credit
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
 

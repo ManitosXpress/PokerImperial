@@ -79,10 +79,11 @@ export async function addCredits(
                 const userData = {
                     uid: userId,
                     email: context.auth!.token.email || "",
-                    nickname: context.auth!.token.name ||
+                    displayName: context.auth!.token.name ||
                         context.auth!.token.email?.split("@")[0] || "Player",
+                    photoURL: context.auth!.token.picture || "",
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                    walletBalance: 0,
+                    credit: 0,
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
                 };
                 transaction.set(userRef, userData);
@@ -90,7 +91,7 @@ export async function addCredits(
 
             // Get current balance
             const currentBalance = userDoc.exists ?
-                (userDoc.data()?.walletBalance || 0) : 0;
+                (userDoc.data()?.credit || 0) : 0;
             const newBalance = currentBalance + amount;
             const timestamp = Date.now();
 
@@ -106,7 +107,7 @@ export async function addCredits(
 
             // Update user balance
             transaction.update(userRef, {
-                walletBalance: newBalance,
+                credit: newBalance,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
             });
 
@@ -186,7 +187,7 @@ export async function deductCredits(
                 throw new Error("User not found");
             }
 
-            const currentBalance = userDoc.data()?.walletBalance || 0;
+            const currentBalance = userDoc.data()?.credit || 0;
 
             // Check sufficient balance
             if (currentBalance < amount) {
@@ -210,7 +211,7 @@ export async function deductCredits(
 
             // Update user balance
             transaction.update(userRef, {
-                walletBalance: newBalance,
+                credit: newBalance,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
             });
 

@@ -24,7 +24,7 @@ class CreditsService {
         .snapshots()
         .map((doc) {
       if (!doc.exists) return 0.0;
-      return (doc.data()?['walletBalance'] ?? 0).toDouble();
+      return (doc.data()?['credit'] ?? 0).toDouble(); // Changed from walletBalance
     });
   }
 
@@ -36,7 +36,7 @@ class CreditsService {
     try {
       final doc = await _firestore.collection('users').doc(userId).get();
       if (!doc.exists) return 0;
-      return (doc.data()?['walletBalance'] ?? 0).toDouble();
+      return (doc.data()?['credit'] ?? 0).toDouble(); // Changed from walletBalance
     } catch (e) {
       print('Error getting wallet balance: $e');
       return 0;
