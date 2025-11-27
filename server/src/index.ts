@@ -214,15 +214,44 @@ io.on('connection', (socket) => {
         const result = roomManager.removePlayer(socket.id);
         if (result) {
             const { roomId, player } = result;
+
+            // 1. Process leaver (with 100 credit penalty)
+            if (player.pokerSessionId && (socket as any).userId) {
+                const uid = (socket as any).userId;
+                await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, 100);
+            }
+
+            // 2. Check remaining room state
             const room = roomManager.getRoom(roomId);
             if (room) {
                 io.to(roomId).emit('player_left', room);
-            }
 
-            // End Poker Session if exists
-            if (player.pokerSessionId && (socket as any).userId) {
-                const uid = (socket as any).userId;
-                await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0);
+                // Check if we should close the room (less than 2 players)
+                // Note: Bots count as players in the current implementation, so this works for practice rooms too (1 human + 3 bots = 4, human leaves -> 3 bots remain, room stays open? No, practice room usually ends when human leaves. But for multiplayer, if < 2 players, close.)
+                // Actually, for practice room, if the human leaves, we probably want to close it to save resources.
+                // But let's stick to the rule: "si son 2 jugadores [total] ... se termine la sala".
+                // If I am in a room with 1 other person (2 total), and I leave. 1 remains. Close.
+                // If I am in a room with bots (4 total), and I leave. 3 remain. Keep open?
+                // The user said "si son 2 jugadores sin son mas de 2 que siga nomas".
+                // If I assume "jugadores" means humans?
+                // But `room.players` includes bots.
+                // Let's assume strict player count < 2.
+
+                if (room.players.length < 2) {
+                    console.log(`Room ${roomId} has less than 2 players. Closing room.`);
+
+                    // Refund remaining players
+                    for (const remainingPlayer of room.players) {
+                        if (remainingPlayer.pokerSessionId && !remainingPlayer.isBot) {
+                            // End session for remaining player (no penalty)
+                            await endPokerSession(remainingPlayer.id, remainingPlayer.pokerSessionId, remainingPlayer.chips, remainingPlayer.totalRakePaid || 0, 0);
+                        }
+                    }
+
+                    // Notify and delete room
+                    io.to(roomId).emit('room_closed', { reason: 'Not enough players' });
+                    roomManager.deleteRoom(roomId);
+                }
             }
         }
     });

@@ -133,6 +133,11 @@ export class RoomManager {
         return game.getGameState();
     }
 
+    public deleteRoom(roomId: string) {
+        this.rooms.delete(roomId);
+        this.games.delete(roomId);
+    }
+
     private generateRoomId(): string {
         return Math.random().toString(36).substring(2, 8).toUpperCase();
     }

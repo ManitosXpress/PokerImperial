@@ -148,7 +148,7 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
     }
 }
 
-export async function endPokerSession(uid: string, sessionId: string, finalChips: number, totalRake: number): Promise<boolean> {
+export async function endPokerSession(uid: string, sessionId: string, finalChips: number, totalRake: number, exitFee: number = 0): Promise<boolean> {
     if (!admin.apps.length) return false;
 
     const db = admin.firestore();
@@ -171,35 +171,51 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
             // Update session status
             transaction.update(sessionRef, {
                 currentChips: finalChips,
-                totalRakePaid: totalRake, // This might be cumulative if updated periodically, but here we set final
+                totalRakePaid: totalRake,
+                exitFee: exitFee,
                 endTime: admin.firestore.FieldValue.serverTimestamp(),
                 status: 'completed'
             });
 
+            // Calculate return amount (chips - fee)
+            const returnAmount = Math.max(0, finalChips - exitFee);
+
             // Return chips to user wallet
-            if (finalChips > 0) {
+            if (returnAmount > 0) {
                 const userDoc = await transaction.get(userRef);
                 if (userDoc.exists) {
                     const currentBalance = userDoc.data()?.credit || 0;
                     transaction.update(userRef, {
-                        credit: currentBalance + finalChips,
+                        credit: currentBalance + returnAmount,
                         lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                     });
 
-                    // Record transaction log
+                    // Record transaction log for cash-out
                     const transactionRef = userRef.collection('transactions').doc();
                     transaction.set(transactionRef, {
                         type: 'poker_cashout',
-                        amount: finalChips,
+                        amount: returnAmount,
                         reason: 'Poker Room Cash-out',
                         sessionId: sessionId,
                         timestamp: admin.firestore.FieldValue.serverTimestamp()
                     });
                 }
             }
+
+            // Record transaction log for exit fee if applied
+            if (exitFee > 0) {
+                const feeRef = userRef.collection('transactions').doc();
+                transaction.set(feeRef, {
+                    type: 'poker_exit_fee',
+                    amount: -exitFee,
+                    reason: 'Early Exit Fee',
+                    sessionId: sessionId,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
         });
 
-        console.log(`Ended poker session ${sessionId} for user ${uid}. Returned ${finalChips} credits.`);
+        console.log(`Ended poker session ${sessionId} for user ${uid}. Returned ${Math.max(0, finalChips - exitFee)} credits (Fee: ${exitFee}).`);
         return true;
     } catch (error) {
         console.error('Error ending poker session:', error);
