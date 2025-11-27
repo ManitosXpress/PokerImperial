@@ -292,14 +292,24 @@ export class PokerGame {
         // Find players with winning hands
         const winners = playerHands.filter(ph => winningHands.includes(ph.hand));
 
+        // Rake Calculation (10%)
+        const rakeAmount = Math.floor(this.pot * 0.10);
+        const potAfterRake = this.pot - rakeAmount;
+        console.log(`Pot: ${this.pot}, Rake: ${rakeAmount}, Distributable: ${potAfterRake}`);
+
         if (winners.length === 1) {
             // Single winner
-            this.endHand(winners[0].player);
+            const winner = winners[0].player;
+            winner.totalRakePaid = (winner.totalRakePaid || 0) + rakeAmount;
+            this.endHand(winner, potAfterRake);
         } else {
             // Split pot
-            const splitAmount = Math.floor(this.pot / winners.length);
+            const splitAmount = Math.floor(potAfterRake / winners.length);
+            const rakePerWinner = Math.floor(rakeAmount / winners.length);
+
             winners.forEach(w => {
                 w.player.chips += splitAmount;
+                w.player.totalRakePaid = (w.player.totalRakePaid || 0) + rakePerWinner;
             });
 
             // Notify about split pot
@@ -312,6 +322,7 @@ export class PokerGame {
                         amount: splitAmount
                     })),
                     split: true,
+                    rake: rakeAmount,
                     gameState: this.getGameState()
                 });
             }
@@ -358,9 +369,19 @@ export class PokerGame {
         return this.deck.splice(0, count);
     }
 
-    private endHand(winner: Player) {
-        const wonAmount = this.pot;
-        winner.chips += this.pot;
+    private endHand(winner: Player, wonAmount?: number) {
+        let finalAmount = wonAmount;
+        let rakeAmount = 0;
+
+        if (finalAmount === undefined) {
+            // Calculate rake if not provided (e.g. winner by fold)
+            rakeAmount = Math.floor(this.pot * 0.10);
+            finalAmount = this.pot - rakeAmount;
+            winner.totalRakePaid = (winner.totalRakePaid || 0) + rakeAmount;
+            console.log(`Winner by fold. Pot: ${this.pot}, Rake: ${rakeAmount}, Won: ${finalAmount}`);
+        }
+
+        winner.chips += finalAmount;
 
         // Emit hand_winner event
         if (this.onGameStateChange) {
@@ -369,8 +390,9 @@ export class PokerGame {
                 winner: {
                     id: winner.id,
                     name: winner.name,
-                    amount: wonAmount
+                    amount: finalAmount
                 },
+                rake: rakeAmount > 0 ? rakeAmount : undefined, // Only send if calculated here, otherwise it was sent in evaluateWinner (wait, evaluateWinner calls endHand too)
                 gameState: this.getGameState()
             });
         }

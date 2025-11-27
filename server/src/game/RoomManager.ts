@@ -26,14 +26,16 @@ export class RoomManager {
         return room;
     }
 
-    public createRoom(hostId: string, hostName: string): Room {
+    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000): Room {
         const roomId = this.generateRoomId();
         const host: Player = {
             id: hostId,
             name: hostName,
-            chips: 1000, // Default starting chips
+            chips: buyInAmount,
             isFolded: false,
-            currentBet: 0
+            currentBet: 0,
+            pokerSessionId: sessionId,
+            totalRakePaid: 0
         };
 
         const newRoom: Room = {
@@ -53,7 +55,7 @@ export class RoomManager {
         return newRoom;
     }
 
-    public joinRoom(roomId: string, playerId: string, playerName: string): Room | null {
+    public joinRoom(roomId: string, playerId: string, playerName: string, sessionId?: string, buyInAmount: number = 1000): Room | null {
         const room = this.rooms.get(roomId);
         if (!room) return null;
 
@@ -68,9 +70,11 @@ export class RoomManager {
         const newPlayer: Player = {
             id: playerId,
             name: playerName,
-            chips: 1000,
+            chips: buyInAmount,
             isFolded: false,
-            currentBet: 0
+            currentBet: 0,
+            pokerSessionId: sessionId,
+            totalRakePaid: 0
         };
 
         room.players.push(newPlayer);
@@ -81,17 +85,18 @@ export class RoomManager {
         return this.rooms.get(roomId);
     }
 
-    public removePlayer(playerId: string) {
+    public removePlayer(playerId: string): { roomId: string, player: Player } | null {
         // Find room with player and remove them
         for (const [roomId, room] of this.rooms) {
             const index = room.players.findIndex(p => p.id === playerId);
             if (index !== -1) {
+                const player = room.players[index];
                 room.players.splice(index, 1);
                 if (room.players.length === 0) {
                     this.rooms.delete(roomId);
                     this.games.delete(roomId);
                 }
-                return roomId;
+                return { roomId, player };
             }
         }
         return null;

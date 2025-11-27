@@ -6,6 +6,8 @@ export interface Player {
     isFolded: boolean;
     currentBet: number;
     isBot?: boolean;
+    pokerSessionId?: string;
+    totalRakePaid?: number;
 }
 
 export interface Room {

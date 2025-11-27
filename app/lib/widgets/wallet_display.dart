@@ -61,6 +61,17 @@ class WalletDisplay extends StatelessWidget {
                   color: const Color(0xFF1a1a2e),
                 ),
               ),
+              if (walletProvider.inGameBalance > 0) ...[
+                const SizedBox(width: 4),
+                Text(
+                  '(+${walletProvider.inGameBalance.toStringAsFixed(0)})',
+                  style: GoogleFonts.montserrat(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: const Color(0xFF1a1a2e).withOpacity(0.7),
+                  ),
+                ),
+              ],
           ],
         ),
       ),

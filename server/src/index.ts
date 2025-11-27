@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { RoomManager } from './game/RoomManager';
-import { verifyFirebaseToken, getUserBalance, deductCreditsForGame } from './middleware/firebaseAuth';
+import { verifyFirebaseToken, getUserBalance, reservePokerSession, endPokerSession } from './middleware/firebaseAuth';
 
 const app = express();
 const httpServer = createServer(app);
@@ -58,12 +58,14 @@ io.on('connection', (socket) => {
         const token = typeof data === 'object' ? data.token : null;
 
         try {
+            let sessionId: string | undefined;
+            const entryFee = 1000; // Standard buy-in
+
             // Economy Check
             if (token) {
                 const uid = await verifyFirebaseToken(token);
                 if (uid) {
                     const balance = await getUserBalance(uid);
-                    const entryFee = 100; // Cost to create room
 
                     if (balance < entryFee) {
                         socket.emit('insufficient_balance', {
@@ -73,11 +75,12 @@ io.on('connection', (socket) => {
                         return;
                     }
 
-                    const deducted = await deductCreditsForGame(uid, entryFee);
-                    if (!deducted) {
-                        socket.emit('error', 'Failed to deduct credits');
+                    const sid = await reservePokerSession(uid, entryFee, 'new_room');
+                    if (!sid) {
+                        socket.emit('error', 'Failed to reserve credits');
                         return;
                     }
+                    sessionId = sid;
                 }
             } else {
                 // If no token provided, we might want to block or allow for now. 
@@ -90,12 +93,13 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            const room = roomManager.createRoom(socket.id, playerName);
+            const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee);
             socket.join(room.id);
             socket.emit('room_created', room);
-            console.log(`Room created: ${room.id} by ${playerName}`);
-        } catch (e) {
+            console.log(`Room created: ${room.id} by ${playerName} (Session: ${sessionId})`);
+        } catch (e: any) {
             console.error(e);
+            socket.emit('error', e.message);
         }
     });
 
@@ -135,12 +139,14 @@ io.on('connection', (socket) => {
 
     socket.on('join_room', async ({ roomId, playerName, token }: { roomId: string, playerName: string, token?: string }) => {
         try {
+            let sessionId: string | undefined;
+            const entryFee = 1000; // Standard buy-in
+
             // Economy Check
             if (token) {
                 const uid = await verifyFirebaseToken(token);
                 if (uid) {
                     const balance = await getUserBalance(uid);
-                    const entryFee = 100; // Cost to join room
 
                     if (balance < entryFee) {
                         socket.emit('insufficient_balance', {
@@ -150,23 +156,24 @@ io.on('connection', (socket) => {
                         return;
                     }
 
-                    const deducted = await deductCreditsForGame(uid, entryFee);
-                    if (!deducted) {
-                        socket.emit('error', 'Failed to deduct credits');
+                    const sid = await reservePokerSession(uid, entryFee, roomId);
+                    if (!sid) {
+                        socket.emit('error', 'Failed to reserve credits');
                         return;
                     }
+                    sessionId = sid;
                 }
             } else {
                 socket.emit('error', 'Authentication required to join room');
                 return;
             }
 
-            const room = roomManager.joinRoom(roomId, socket.id, playerName);
+            const room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
             if (room) {
                 socket.join(roomId);
                 io.to(roomId).emit('player_joined', room); // Notify everyone in room
                 socket.emit('room_joined', room); // Notify joiner
-                console.log(`${playerName} joined room ${roomId}`);
+                console.log(`${playerName} joined room ${roomId} (Session: ${sessionId})`);
             } else {
                 socket.emit('error', 'Room not found');
             }
@@ -202,13 +209,20 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
         console.log('User disconnected:', socket.id);
-        const roomId = roomManager.removePlayer(socket.id);
-        if (roomId) {
+        const result = roomManager.removePlayer(socket.id);
+        if (result) {
+            const { roomId, player } = result;
             const room = roomManager.getRoom(roomId);
             if (room) {
                 io.to(roomId).emit('player_left', room);
+            }
+
+            // End Poker Session if exists
+            if (player.pokerSessionId && (socket as any).userId) {
+                const uid = (socket as any).userId;
+                await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0);
             }
         }
     });

@@ -7,10 +7,13 @@ class WalletProvider extends ChangeNotifier {
   final CreditsService _creditsService = CreditsService();
 
   double _balance = 0;
+  double _inGameBalance = 0;
   bool _isLoading = false;
   String? _errorMessage;
 
   double get balance => _balance;
+  double get inGameBalance => _inGameBalance;
+  double get totalBalance => _balance + _inGameBalance;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
@@ -24,6 +27,16 @@ class WalletProvider extends ChangeNotifier {
       onError: (error) {
         _errorMessage = error.toString();
         notifyListeners();
+      },
+    );
+
+    _creditsService.getInGameBalanceStream().listen(
+      (balance) {
+        _inGameBalance = balance;
+        notifyListeners();
+      },
+      onError: (error) {
+        print('Error getting in-game balance: $error');
       },
     );
   }

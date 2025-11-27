@@ -87,13 +87,13 @@ export async function getUserBalance(uid: string): Promise<number> {
     }
 }
 
-export async function deductCreditsForGame(uid: string, amount: number): Promise<boolean> {
-    if (!admin.apps.length) return false;
+export async function reservePokerSession(uid: string, amount: number, roomId: string): Promise<string | null> {
+    if (!admin.apps.length) return null;
 
     const db = admin.firestore();
 
     try {
-        const result = await db.runTransaction(async (transaction) => {
+        const sessionId = await db.runTransaction(async (transaction) => {
             const userRef = db.collection('users').doc(uid);
             const userDoc = await transaction.get(userRef);
 
@@ -101,33 +101,108 @@ export async function deductCreditsForGame(uid: string, amount: number): Promise
                 throw new Error('User not found');
             }
 
-            const currentBalance = userDoc.data()?.credit || 0; // Changed from walletBalance to credit
+            const currentBalance = userDoc.data()?.credit || 0;
 
             if (currentBalance < amount) {
                 throw new Error('Insufficient balance');
             }
 
-            // Deduct balance
+            // Deduct balance from main wallet
             transaction.update(userRef, {
-                credit: currentBalance - amount, // Changed from walletBalance to credit
+                credit: currentBalance - amount,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            // Record transaction
+            // Create Poker Session
+            const sessionRef = db.collection('poker_sessions').doc();
+            const sessionId = sessionRef.id;
+
+            transaction.set(sessionRef, {
+                userId: uid,
+                roomId: roomId,
+                buyInAmount: amount,
+                currentChips: amount,
+                startTime: admin.firestore.FieldValue.serverTimestamp(),
+                status: 'active',
+                totalRakePaid: 0
+            });
+
+            // Record transaction log
             const transactionRef = userRef.collection('transactions').doc();
             transaction.set(transactionRef, {
-                type: 'payment',
+                type: 'poker_buyin',
                 amount: -amount,
-                reason: 'Game Entry Fee',
+                reason: `Poker Room Buy-in: ${roomId}`,
+                sessionId: sessionId,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            return true;
+            return sessionId;
         });
 
-        return result;
+        console.log(`Reserved poker session ${sessionId} for user ${uid} in room ${roomId}`);
+        return sessionId;
     } catch (error) {
-        console.error('Error deducting credits:', error);
+        console.error('Error reserving poker session:', error);
+        return null;
+    }
+}
+
+export async function endPokerSession(uid: string, sessionId: string, finalChips: number, totalRake: number): Promise<boolean> {
+    if (!admin.apps.length) return false;
+
+    const db = admin.firestore();
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const sessionRef = db.collection('poker_sessions').doc(sessionId);
+            const userRef = db.collection('users').doc(uid);
+
+            const sessionDoc = await transaction.get(sessionRef);
+            if (!sessionDoc.exists) {
+                throw new Error('Session not found');
+            }
+
+            if (sessionDoc.data()?.status !== 'active') {
+                // Already closed, maybe duplicate call
+                return;
+            }
+
+            // Update session status
+            transaction.update(sessionRef, {
+                currentChips: finalChips,
+                totalRakePaid: totalRake, // This might be cumulative if updated periodically, but here we set final
+                endTime: admin.firestore.FieldValue.serverTimestamp(),
+                status: 'completed'
+            });
+
+            // Return chips to user wallet
+            if (finalChips > 0) {
+                const userDoc = await transaction.get(userRef);
+                if (userDoc.exists) {
+                    const currentBalance = userDoc.data()?.credit || 0;
+                    transaction.update(userRef, {
+                        credit: currentBalance + finalChips,
+                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // Record transaction log
+                    const transactionRef = userRef.collection('transactions').doc();
+                    transaction.set(transactionRef, {
+                        type: 'poker_cashout',
+                        amount: finalChips,
+                        reason: 'Poker Room Cash-out',
+                        sessionId: sessionId,
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            }
+        });
+
+        console.log(`Ended poker session ${sessionId} for user ${uid}. Returned ${finalChips} credits.`);
+        return true;
+    } catch (error) {
+        console.error('Error ending poker session:', error);
         return false;
     }
 }

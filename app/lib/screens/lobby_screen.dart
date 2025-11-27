@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../services/socket_service.dart';
-import '../providers/language_provider.dart';
 import '../providers/auth_provider.dart';
-import '../widgets/wallet_display.dart';
-import '../widgets/add_credits_dialog.dart';
+import '../providers/language_provider.dart';
+import '../services/socket_service.dart';
 import 'game_screen.dart';
 import 'login_screen.dart';
+import 'profile_screen.dart';
+import '../widgets/add_credits_dialog.dart';
+import '../widgets/wallet_display.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -22,9 +23,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
   bool _isCreating = false;
   bool _isJoining = false;
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _roomController.dispose();
+    super.dispose();
+  }
+
   void _navigateToGame(String roomId, [Map<String, dynamic>? initialState]) {
-    Navigator.push(
-      context,
+    Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GameScreen(
           roomId: roomId,
@@ -140,6 +147,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       // Sign out button
+                      // Sign out button
                       IconButton(
                         onPressed: () async {
                           final authProvider = context.read<AuthProvider>();
@@ -153,6 +161,51 @@ class _LobbyScreenState extends State<LobbyScreen> {
                         icon: const Icon(Icons.logout, color: Colors.white70),
                         tooltip: languageProvider.currentLocale.languageCode == 'en' ? 'Sign Out' : 'Cerrar Sesión',
                       ),
+                      const Spacer(),
+                      // Profile Avatar Button
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFFE94560),
+                              width: 2,
+                            ),
+                          ),
+                          child: Consumer<AuthProvider>(
+                            builder: (context, authProvider, _) {
+                              final user = authProvider.user;
+                              return CircleAvatar(
+                                radius: 18,
+                                backgroundColor: const Color(0xFFE94560),
+                                backgroundImage: user?.photoURL != null
+                                    ? NetworkImage(user!.photoURL!)
+                                    : null,
+                                child: user?.photoURL == null
+                                    ? Text(
+                                        (user?.displayName?.isNotEmpty == true
+                                            ? user!.displayName![0].toUpperCase()
+                                            : user?.email?[0].toUpperCase() ?? '?'),
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : null,
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
                       // Wallet and controls
                       Row(
                         children: [

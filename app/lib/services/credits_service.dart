@@ -128,6 +128,27 @@ class CreditsService {
     });
   }
 
+  /// Get in-game (reserved) balance stream
+  Stream<double> getInGameBalanceStream() {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      return Stream.value(0);
+    }
+
+    return _firestore
+        .collection('poker_sessions')
+        .where('userId', isEqualTo: userId)
+        .where('status', isEqualTo: 'active')
+        .snapshots()
+        .map((snapshot) {
+      double total = 0;
+      for (var doc in snapshot.docs) {
+        total += (doc.data()['buyInAmount'] ?? 0).toDouble();
+      }
+      return total;
+    });
+  }
+
   /// Handle Cloud Functions exceptions
   String _handleFunctionException(FirebaseFunctionsException e) {
     switch (e.code) {
