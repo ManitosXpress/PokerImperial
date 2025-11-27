@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/language_provider.dart';
 
-/// Dialog para solicitar créditos via WhatsApp
+/// Dialog para solicitar créditos via Telegram
 /// El admin agrega los créditos manualmente en Firebase
 class AddCreditsDialog extends StatefulWidget {
   const AddCreditsDialog({super.key});
@@ -18,8 +19,8 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
   double? _selectedAmount;
   bool _isLoading = false;
 
-  // Número de WhatsApp del admin (REEMPLAZA CON TU NÚMERO)
-  static const String adminWhatsApp = '+59165884846'; // Formato: +57XXXXXXXXXX
+  // Bot de Telegram
+  static const String telegramBotUrl = 'http://t.me/AgenteBingobot';
 
   @override
   void dispose() {
@@ -27,7 +28,7 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
     super.dispose();
   }
 
-  Future<void> _requestCreditsViaWhatsApp() async {
+  Future<void> _requestCreditsViaTelegram() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -41,7 +42,7 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
     setState(() => _isLoading = true);
 
     try {
-      // Crear mensaje de WhatsApp
+      // Crear mensaje
       final message = '''
 🎰 *Solicitud de Créditos - Poker Imperial*
 
@@ -53,13 +54,14 @@ Por favor agregar estos créditos a mi cuenta.
 Gracias!
 ''';
 
-      // URL encode del mensaje
+      // Copiar al portapapeles (como respaldo)
+      await Clipboard.setData(ClipboardData(text: message));
+      
+      // Intentar pre-llenar el mensaje
       final encodedMessage = Uri.encodeComponent(message);
+      final telegramUrl = '$telegramBotUrl?text=$encodedMessage';
       
-      // URL de WhatsApp
-      final whatsappUrl = 'https://wa.me/$adminWhatsApp?text=$encodedMessage';
-      
-      final uri = Uri.parse(whatsappUrl);
+      final uri = Uri.parse(telegramUrl);
       
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -68,14 +70,14 @@ Gracias!
           Navigator.of(context).pop();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Solicitud enviada. El admin agregará tus créditos pronto.'),
+              content: Text('Solicitud copiada. Pégala en el chat de Telegram.'),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
+              duration: Duration(seconds: 4),
             ),
           );
         }
       } else {
-        _showError('No se pudo abrir WhatsApp. Verifica que esté instalado');
+        _showError('No se pudo abrir Telegram.');
       }
     } catch (e) {
       _showError('Error: ${e.toString()}');
@@ -132,8 +134,8 @@ Gracias!
             const SizedBox(height: 8),
             Text(
               isSpanish 
-                ? 'Solicita créditos al administrador via WhatsApp'
-                : 'Request credits from admin via WhatsApp',
+                ? 'Solicita créditos al administrador via Telegram'
+                : 'Request credits from admin via Telegram',
               style: TextStyle(
                 fontSize: 13,
                 color: Colors.white.withOpacity(0.7),
@@ -281,7 +283,7 @@ Gracias!
                 // Request button (WhatsApp)
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _requestCreditsViaWhatsApp,
+                    onPressed: _isLoading ? null : _requestCreditsViaTelegram,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFe94560),
                       foregroundColor: Colors.white,
@@ -303,7 +305,7 @@ Gracias!
                         : Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.phone, size: 18),
+                              const Icon(Icons.send, size: 18),
                               const SizedBox(width: 8),
                               Text(
                                 isSpanish ? 'Solicitar' : 'Request',
