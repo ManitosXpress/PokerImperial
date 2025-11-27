@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { RoomManager } from './game/RoomManager';
-import { verifyFirebaseToken, getUserBalance, reservePokerSession, endPokerSession } from './middleware/firebaseAuth';
+import { verifyFirebaseToken, getUserBalance, reservePokerSession, endPokerSession, addChipsToSession } from './middleware/firebaseAuth';
 
 const app = express();
 const httpServer = createServer(app);
@@ -253,6 +253,31 @@ io.on('connection', (socket) => {
                     roomManager.deleteRoom(roomId);
                 }
             }
+        }
+    });
+
+    socket.on('request_top_up', async ({ roomId, amount, token }: { roomId: string, amount: number, token?: string }) => {
+        try {
+            if (!token) throw new Error('Authentication required');
+            const uid = await verifyFirebaseToken(token);
+            if (!uid) throw new Error('Invalid token');
+
+            const room = roomManager.getRoom(roomId);
+            if (!room) throw new Error('Room not found');
+
+            const player = room.players.find(p => p.id === socket.id);
+            if (!player || !player.pokerSessionId) throw new Error('Player not found or no active session');
+
+            const success = await addChipsToSession(uid, player.pokerSessionId, amount);
+            if (success) {
+                roomManager.addChips(roomId, socket.id, amount);
+                socket.emit('top_up_success', { amount });
+            } else {
+                socket.emit('error', { message: 'Failed to add chips. Insufficient balance.' });
+            }
+        } catch (error) {
+            console.error('Top-up error:', error);
+            socket.emit('error', { message: error instanceof Error ? error.message : 'Top-up failed' });
         }
     });
 });

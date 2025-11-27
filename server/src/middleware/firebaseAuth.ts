@@ -222,3 +222,65 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
         return false;
     }
 }
+
+export async function addChipsToSession(uid: string, sessionId: string, amount: number): Promise<boolean> {
+    if (!admin.apps.length) return false;
+
+    const db = admin.firestore();
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const userRef = db.collection('users').doc(uid);
+            const sessionRef = db.collection('poker_sessions').doc(sessionId);
+
+            const userDoc = await transaction.get(userRef);
+            const sessionDoc = await transaction.get(sessionRef);
+
+            if (!userDoc.exists || !sessionDoc.exists) {
+                throw new Error('User or Session not found');
+            }
+
+            if (sessionDoc.data()?.status !== 'active') {
+                throw new Error('Session is not active');
+            }
+
+            const currentBalance = userDoc.data()?.credit || 0;
+
+            if (currentBalance < amount) {
+                throw new Error('Insufficient balance');
+            }
+
+            // Deduct from wallet
+            transaction.update(userRef, {
+                credit: currentBalance - amount,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Add to session
+            const currentChips = sessionDoc.data()?.currentChips || 0;
+            const currentBuyIn = sessionDoc.data()?.buyInAmount || 0;
+
+            transaction.update(sessionRef, {
+                currentChips: currentChips + amount,
+                buyInAmount: currentBuyIn + amount,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Log transaction
+            const transactionRef = userRef.collection('transactions').doc();
+            transaction.set(transactionRef, {
+                type: 'poker_topup',
+                amount: -amount,
+                reason: 'Poker Room Top-Up',
+                sessionId: sessionId,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        console.log(`Added ${amount} chips to session ${sessionId} for user ${uid}`);
+        return true;
+    } catch (error) {
+        console.error('Error adding chips to session:', error);
+        return false;
+    }
+}

@@ -138,6 +138,13 @@ export class RoomManager {
         this.games.delete(roomId);
     }
 
+    public addChips(roomId: string, playerId: string, amount: number) {
+        const game = this.games.get(roomId);
+        if (game) {
+            game.addChips(playerId, amount);
+        }
+    }
+
     private generateRoomId(): string {
         return Math.random().toString(36).substring(2, 8).toUpperCase();
     }

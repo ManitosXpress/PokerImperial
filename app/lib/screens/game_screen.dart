@@ -5,6 +5,7 @@ import '../services/socket_service.dart';
 import '../widgets/poker_card.dart';
 import '../widgets/player_seat.dart';
 import '../providers/language_provider.dart';
+import '../widgets/game_wallet_dialog.dart';
 
 class GameScreen extends StatefulWidget {
   final String roomId;
@@ -278,6 +279,18 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: IconButton(
+              icon: const Icon(Icons.account_balance_wallet, color: Color(0xFFffd700)),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => GameWalletDialog(roomId: widget.roomId),
+                );
+              },
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16.0),
             child: IconButton(

@@ -220,5 +220,37 @@ class SocketService extends ChangeNotifier {
       }
     });
   }
+
+  Future<void> topUp(String roomId, double amount, {Function(double amount)? onSuccess, Function(String error)? onError}) async {
+    print('Emitting request_top_up event for room $roomId with amount $amount');
+    
+    final user = FirebaseAuth.instance.currentUser;
+    final token = await user?.getIdToken();
+
+    _socket.emit('request_top_up', {
+      'roomId': roomId,
+      'amount': amount,
+      'token': token
+    });
+    
+    _socket.once('top_up_success', (data) {
+      print('Top up successful: ${data['amount']}');
+      if (onSuccess != null) {
+        onSuccess((data['amount'] as num).toDouble());
+      }
+    });
+    
+    _socket.once('error', (data) {
+      print('Top up error: $data');
+      if (onError != null) {
+        // Handle both simple string errors and object errors
+        String errorMessage = data.toString();
+        if (data is Map && data.containsKey('message')) {
+          errorMessage = data['message'];
+        }
+        onError(errorMessage);
+      }
+    });
+  }
 }
 

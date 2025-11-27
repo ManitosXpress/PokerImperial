@@ -59,6 +59,16 @@ export class PokerGame {
         this.lastAggressorIndex = bbIndex;
     }
 
+    public addChips(playerId: string, amount: number) {
+        const player = this.players.find(p => p.id === playerId);
+        if (player) {
+            player.chips += amount;
+            if (this.onGameStateChange) {
+                this.onGameStateChange(this.getGameState());
+            }
+        }
+    }
+
     public getGameState() {
         const minRaise = this.currentBet + Math.max(this.bigBlindAmount, this.currentBet);
 
