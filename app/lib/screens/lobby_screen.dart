@@ -8,6 +8,7 @@ import 'game_screen.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
 import '../widgets/add_credits_dialog.dart';
+import '../widgets/withdraw_credits_dialog.dart';
 import '../widgets/wallet_display.dart';
 
 class LobbyScreen extends StatefulWidget {
@@ -224,6 +225,29 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFFe94560),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Withdraw Credits Button
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (_) => const WithdrawCreditsDialog(),
+                              );
+                            },
+                            icon: Icon(Icons.remove, size: 18, color: Colors.lightBlue.shade100),
+                            label: Text(
+                              languageProvider.currentLocale.languageCode == 'en' ? 'Withdraw' : 'Retirar',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               shape: RoundedRectangleBorder(

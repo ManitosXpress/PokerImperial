@@ -242,3 +242,119 @@ export async function deductCredits(
         throw new Error(`Failed to deduct credits: ${(error as Error).message}`);
     }
 }
+
+/**
+ * Interface for withdrawCredits request
+ */
+interface WithdrawCreditsRequest {
+    amount: number;
+    walletAddress: string;
+    reason?: string;
+}
+
+/**
+ * WITHDRAW CREDITS - Server-Authoritative Function
+ *
+ * This function processes withdrawal requests.
+ * It verifies sufficient balance, deducts credits, and logs the transaction.
+ *
+ * Future blockchain integration: This function will trigger the actual
+ * blockchain transaction to send tokens to the user's wallet.
+ *
+ * @param data - Request data containing amount and wallet address
+ * @param context - Firebase auth context
+ * @returns Transaction response with new balance
+ */
+export async function withdrawCredits(
+    data: WithdrawCreditsRequest,
+    context: CallableContext
+): Promise<TransactionResponse> {
+    // Validate authentication
+    if (!context.auth) {
+        throw new Error("Authentication required");
+    }
+
+    const userId = context.auth.uid;
+    const { amount, walletAddress } = data;
+    const reason = data.reason || "Withdrawal to external wallet";
+
+    // Validate input
+    if (!amount || amount <= 0) {
+        throw new Error("Invalid amount: must be greater than 0");
+    }
+
+    if (!walletAddress || walletAddress.trim().length === 0) {
+        throw new Error("Wallet address is required");
+    }
+
+    try {
+        const db = admin.firestore();
+        // Use Firestore transaction for atomicity
+        const result = await db.runTransaction(async (transaction) => {
+            const userRef = db.collection("users").doc(userId);
+            const userDoc = await transaction.get(userRef);
+
+            if (!userDoc.exists) {
+                throw new Error("User not found");
+            }
+
+            const currentBalance = userDoc.data()?.credit || 0;
+
+            // Check sufficient balance
+            if (currentBalance < amount) {
+                throw new Error(
+                    `Insufficient balance. Current: ${currentBalance}, Required: ${amount}`
+                );
+            }
+
+            const newBalance = currentBalance - amount;
+            const timestamp = Date.now();
+
+            // Generate hash for audit trail
+            const hash = generateTransactionHash(
+                userId,
+                amount,
+                "debit",
+                timestamp,
+                currentBalance,
+                newBalance
+            );
+
+            // Update user balance
+            transaction.update(userRef, {
+                credit: newBalance,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            // Create transaction log entry
+            const logRef = db.collection("transaction_logs").doc();
+            transaction.set(logRef, {
+                userId,
+                amount,
+                type: "debit", // Withdrawal is a debit from the game system
+                reason,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                beforeBalance: currentBalance,
+                afterBalance: newBalance,
+                hash,
+                metadata: {
+                    walletAddress,
+                    status: "processed", // In real web3, this might start as 'pending'
+                    transactionType: "withdrawal"
+                },
+            });
+
+            return {
+                success: true,
+                newBalance,
+                transactionId: logRef.id,
+                message: "Withdrawal processed successfully"
+            };
+        });
+
+        return result;
+    } catch (error) {
+        console.error("Error withdrawing credits:", error);
+        throw new Error(`Failed to withdraw credits: ${(error as Error).message}`);
+    }
+}

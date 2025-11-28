@@ -102,4 +102,27 @@ class WalletProvider extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
   }
+
+  /// Withdraw credits (to external wallet)
+  Future<bool> withdrawCredits(double amount, String walletAddress) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final newBalance = await _creditsService.withdrawCredits(
+        amount: amount,
+        walletAddress: walletAddress,
+      );
+      _balance = newBalance;
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
 }

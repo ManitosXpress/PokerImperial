@@ -164,6 +164,36 @@ class CreditsService {
         return 'Error: ${e.message ?? e.code}';
     }
   }
+
+  /// Withdraw credits through Cloud Function
+  /// This simulates a withdrawal to a blockchain wallet
+  /// 
+  /// @param amount - Amount of credits to withdraw
+  /// @param walletAddress - Destination wallet address
+  /// @returns New balance after withdrawing credits
+  Future<double> withdrawCredits({
+    required double amount,
+    required String walletAddress,
+  }) async {
+    try {
+      // Call Cloud Function
+      final HttpsCallable callable =
+          _functions.httpsCallable('withdrawCreditsFunction');
+
+      final result = await callable.call<Map<String, dynamic>>({
+        'amount': amount,
+        'walletAddress': walletAddress,
+      });
+
+      // Extract new balance from result
+      final data = result.data;
+      return (data['newBalance'] ?? 0).toDouble();
+    } on FirebaseFunctionsException catch (e) {
+      throw _handleFunctionException(e);
+    } catch (e) {
+      throw Exception('Error withdrawing credits: ${e.toString()}');
+    }
+  }
 }
 
 /// Transaction Log Model
