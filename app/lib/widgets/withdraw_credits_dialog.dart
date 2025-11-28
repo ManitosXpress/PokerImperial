@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../providers/wallet_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../providers/auth_provider.dart';
 import '../providers/language_provider.dart';
 
 class WithdrawCreditsDialog extends StatefulWidget {
@@ -23,17 +25,23 @@ class _WithdrawCreditsDialogState extends State<WithdrawCreditsDialog> {
     super.dispose();
   }
 
-  Future<void> _withdraw() async {
+  // Bot de Telegram
+  static const String telegramBotUrl = 'http://t.me/AgenteBingobot';
+
+  Future<void> _requestWithdrawalViaTelegram() async {
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return;
+
     final amount = double.tryParse(_amountController.text);
     final wallet = _walletController.text.trim();
 
     if (amount == null || amount <= 0) {
-      setState(() => _error = 'Invalid amount');
+      setState(() => _error = 'Monto inválido');
       return;
     }
 
     if (wallet.isEmpty) {
-      setState(() => _error = 'Wallet address required');
+      setState(() => _error = 'Dirección de billetera requerida');
       return;
     }
 
@@ -42,23 +50,50 @@ class _WithdrawCreditsDialogState extends State<WithdrawCreditsDialog> {
       _error = null;
     });
 
-    final success = await context.read<WalletProvider>().withdrawCredits(
-      amount,
-      wallet,
-    );
+    try {
+      // Crear mensaje
+      final message = '''
+💸 *Solicitud de Retiro - Poker Imperial*
 
-    if (mounted) {
-      setState(() => _isLoading = false);
-      if (success) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Withdrawal processed successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
+👤 Usuario: ${user.email}
+🆔 UID: ${user.uid}
+💰 Monto: $amount créditos
+🏦 Billetera: $wallet
+
+Por favor procesar mi retiro.
+Gracias!
+''';
+
+      // Copiar al portapapeles
+      await Clipboard.setData(ClipboardData(text: message));
+      
+      // Intentar abrir Telegram
+      final encodedMessage = Uri.encodeComponent(message);
+      final telegramUrl = '$telegramBotUrl?text=$encodedMessage';
+      
+      final uri = Uri.parse(telegramUrl);
+      
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        
+        if (mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Solicitud copiada. Pégala en el chat de Telegram.'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
       } else {
-        _error = context.read<WalletProvider>().errorMessage ?? 'Withdrawal failed';
+        setState(() => _error = 'No se pudo abrir Telegram');
+      }
+    } catch (e) {
+      setState(() => _error = 'Error: ${e.toString()}');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -93,6 +128,16 @@ class _WithdrawCreditsDialogState extends State<WithdrawCreditsDialog> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isSpanish 
+                ? 'Solicita tu retiro al administrador via Telegram'
+                : 'Request withdrawal from admin via Telegram',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.white.withOpacity(0.7),
+              ),
             ),
             const SizedBox(height: 24),
             TextField(
@@ -138,7 +183,7 @@ class _WithdrawCreditsDialogState extends State<WithdrawCreditsDialog> {
                 ),
                 const SizedBox(width: 12),
                 ElevatedButton(
-                  onPressed: _isLoading ? null : _withdraw,
+                  onPressed: _isLoading ? null : _requestWithdrawalViaTelegram,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
@@ -149,7 +194,7 @@ class _WithdrawCreditsDialogState extends State<WithdrawCreditsDialog> {
                           width: 20,
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                         )
-                      : Text(isSpanish ? 'Retirar' : 'Withdraw'),
+                      : Text(isSpanish ? 'Solicitar Retiro' : 'Request Withdraw'),
                 ),
               ],
             ),

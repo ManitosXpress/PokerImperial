@@ -1,12 +1,13 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { addCredits, deductCredits } from "./functions/credits";
+import { addCredits, deductCredits, withdrawCredits } from "./functions/credits";
 
 // Initialize Firebase Admin SDK (lazy initialization)
 if (!admin.apps.length) {
     admin.initializeApp();
 }
 
-// Export Cloud Functions (using v1 API for compatibility)
+// Export Cloud Functions
 export const addCreditsFunction = functions.https.onCall(addCredits);
 export const deductCreditsFunction = functions.https.onCall(deductCredits);
+export const withdrawCreditsFunction = functions.https.onCall(withdrawCredits);

@@ -22,49 +22,34 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
   // Bot de Telegram
   static const String telegramBotUrl = 'http://t.me/AgenteBingobot';
 
-  @override
-  void dispose() {
-    _customAmountController.dispose();
-    super.dispose();
-  }
-
   Future<void> _requestCreditsViaTelegram() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    double amount = _selectedAmount ?? double.tryParse(_customAmountController.text) ?? 0;
-    
-    if (amount <= 0) {
-      _showError('Por favor ingresa un monto válido');
-      return;
-    }
-
     setState(() => _isLoading = true);
-
     try {
-      // Crear mensaje
-      final message = '''
-🎰 *Solicitud de Créditos - Poker Imperial*
+      final double amount = _selectedAmount ?? double.tryParse(_customAmountController.text) ?? 0;
+      
+      if (amount <= 0) {
+        throw Exception('Por favor ingresa un monto válido');
+      }
 
-👤 Usuario: ${user.email}
-🆔 UID: ${user.uid}
-💰 Monto: $amount créditos
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('Usuario no identificado');
+      }
 
-Por favor agregar estos créditos a mi cuenta.
-Gracias!
-''';
+      // Mensaje para el bot
+      final String message = 'Solicitud de recarga:\n'
+          'ID: ${user.uid}\n'
+          'Email: ${user.email}\n'
+          'Monto: ${amount.toStringAsFixed(2)}';
 
-      // Copiar al portapapeles (como respaldo)
+      // Copiar al portapapeles
       await Clipboard.setData(ClipboardData(text: message));
+
+      // Abrir Telegram
+      final Uri url = Uri.parse(telegramBotUrl);
       
-      // Intentar pre-llenar el mensaje
-      final encodedMessage = Uri.encodeComponent(message);
-      final telegramUrl = '$telegramBotUrl?text=$encodedMessage';
-      
-      final uri = Uri.parse(telegramUrl);
-      
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
         
         if (mounted) {
           Navigator.of(context).pop();
@@ -77,10 +62,10 @@ Gracias!
           );
         }
       } else {
-        _showError('No se pudo abrir Telegram.');
+        throw Exception('No se pudo abrir Telegram');
       }
     } catch (e) {
-      _showError('Error: ${e.toString()}');
+      _showError(e.toString().replaceAll('Exception: ', ''));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);

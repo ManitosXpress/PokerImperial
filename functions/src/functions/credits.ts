@@ -348,7 +348,6 @@ export async function withdrawCredits(
                 success: true,
                 newBalance,
                 transactionId: logRef.id,
-                message: "Withdrawal processed successfully"
             };
         });
 
