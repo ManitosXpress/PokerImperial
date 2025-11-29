@@ -10,6 +10,8 @@ import 'profile_screen.dart';
 import '../widgets/add_credits_dialog.dart';
 import '../widgets/withdraw_credits_dialog.dart';
 import '../widgets/wallet_display.dart';
+import 'club/club_dashboard_screen.dart';
+import 'tournament/tournament_list_screen.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -210,50 +212,98 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       // Wallet and controls
                       Row(
                         children: [
-                          // Add Credits Button
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (_) => const AddCreditsDialog(),
-                              );
-                            },
-                            icon: const Icon(Icons.add, size: 18),
-                            label: Text(
-                              languageProvider.currentLocale.languageCode == 'en' ? 'Add' : 'Agregar',
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          // Wallet Menu Button
+                          PopupMenuButton<String>(
+                            offset: const Offset(0, 45),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: BorderSide(color: Colors.white.withOpacity(0.1)),
                             ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFe94560),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              shape: RoundedRectangleBorder(
+                            color: const Color(0xFF1A1A1A),
+                            tooltip: languageProvider.currentLocale.languageCode == 'en' ? 'Wallet Options' : 'Opciones de Billetera',
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE94560),
                                 borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.account_balance_wallet, size: 18, color: Colors.white),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    languageProvider.currentLocale.languageCode == 'en' ? 'Wallet' : 'Billetera',
+                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.keyboard_arrow_down, size: 18, color: Colors.white70),
+                                ],
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          // Withdraw Credits Button
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (_) => const WithdrawCreditsDialog(),
-                              );
+                            onSelected: (value) {
+                              if (value == 'add') {
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => const AddCreditsDialog(),
+                                );
+                              } else if (value == 'withdraw') {
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => const WithdrawCreditsDialog(),
+                                );
+                              }
                             },
-                            icon: Icon(Icons.remove, size: 18, color: Colors.lightBlue.shade100),
-                            label: Text(
-                              languageProvider.currentLocale.languageCode == 'en' ? 'Withdraw' : 'Retirar',
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
+                            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                              PopupMenuItem<String>(
+                                value: 'add',
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green.withOpacity(0.2),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.add, color: Colors.green, size: 16),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      languageProvider.currentLocale.languageCode == 'en' ? 'Add Credits' : 'Agregar Créditos',
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
+                              const PopupMenuDivider(height: 1),
+                              PopupMenuItem<String>(
+                                value: 'withdraw',
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withOpacity(0.2),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.arrow_downward, color: Colors.blue, size: 16),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      languageProvider.currentLocale.languageCode == 'en' ? 'Withdraw' : 'Retirar Créditos',
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(width: 12),
                           // Wallet Display
@@ -636,6 +686,39 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             ),
                           ),
                           const SizedBox(height: 40),
+
+                          // Clubs and Tournaments Buttons
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildFeatureButton(
+                                context,
+                                icon: Icons.shield,
+                                label: 'Clubs',
+                                color: Colors.purple,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const ClubDashboardScreen()),
+                                  );
+                                },
+                              ),
+                              const SizedBox(width: 20),
+                              _buildFeatureButton(
+                                context,
+                                icon: Icons.emoji_events,
+                                label: 'Tournaments',
+                                color: Colors.amber,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const TournamentListScreen()),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 40),
                         ],
                       ),
                     ),
@@ -644,6 +727,42 @@ class _LobbyScreenState extends State<LobbyScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 140,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.5)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ],
         ),
       ),
     );

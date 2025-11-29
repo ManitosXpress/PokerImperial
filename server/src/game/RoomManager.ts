@@ -41,7 +41,7 @@ export class RoomManager {
         const newRoom: Room = {
             id: roomId,
             players: [host],
-            maxPlayers: 6,
+            maxPlayers: 8,
             gameState: 'waiting',
             pot: 0,
             communityCards: [],

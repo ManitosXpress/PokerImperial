@@ -1,11 +1,14 @@
-import 'package:flutter/material.dart';
+  import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:math' as math;
 import '../services/socket_service.dart';
+import '../providers/language_provider.dart';
+import '../providers/wallet_provider.dart'; // Changed from user_provider
 import '../widgets/poker_card.dart';
 import '../widgets/player_seat.dart';
-import '../providers/language_provider.dart';
-import '../widgets/game_wallet_dialog.dart';
+import '../utils/responsive_utils.dart';
+import '../widgets/chip_stack.dart';
+import '../widgets/game_wallet_dialog.dart'; // Added missing import
 
 class GameScreen extends StatefulWidget {
   final String roomId;
@@ -334,7 +337,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                           const SizedBox(height: 8),
                           if (roomState != null && roomState!['players'] != null)
                             Text(
-                              '${(roomState!['players'] as List).length} / 4 Jugadores',
+                              '${(roomState!['players'] as List).length} / ${roomState!['maxPlayers'] ?? 8} Jugadores',
                               style: const TextStyle(
                                 color: Color(0xFFE94560),
                                 fontSize: 18,
@@ -433,55 +436,93 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                 ),
               ),
             )
+
           : Stack(
               children: [
                 // Table
                 Positioned(
-                  top: MediaQuery.of(context).size.height * 0.4 - (MediaQuery.of(context).size.height * 0.5 / 2),
-                  left: MediaQuery.of(context).size.width / 2 - (MediaQuery.of(context).size.width * 0.8 / 2),
-                  child: Container(
-                    width: MediaQuery.of(context).size.width * 0.8,
-                    height: MediaQuery.of(context).size.height * 0.5,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF35654D),
-                      borderRadius: BorderRadius.circular(150),
-                      border: Border.all(color: const Color(0xFF4E342E), width: 15),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.5),
-                          blurRadius: 20,
-                          spreadRadius: 5,
-                        )
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'POT: ${gameState!['pot']}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: (gameState!['communityCards'] as List).map<Widget>((card) {
-                                  return Padding(
-                                    padding: const EdgeInsets.all(2.0),
-                                    child: PokerCard(cardCode: card, width: 40),
-                                  );
-                                }).toList(),
+                  // Move table up: Center at 40% of screen height instead of 50%
+                  top: ResponsiveUtils.screenHeight(context) * 0.4 - (ResponsiveUtils.screenHeight(context) * 0.55 / 2),
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Builder(
+                      builder: (context) {
+                        // Constrain table aspect ratio (e.g., max 2.2:1)
+                        double screenW = ResponsiveUtils.screenWidth(context);
+                        double screenH = ResponsiveUtils.screenHeight(context);
+                        
+                        double tableWidth = screenW * 0.9;
+                        double tableHeight = screenH * 0.55;
+                        
+                        // If table is too wide relative to height, constrain width
+                        if (tableWidth / tableHeight > 2.0) {
+                          tableWidth = tableHeight * 2.0;
+                        }
+                        
+                        return Container(
+                          width: tableWidth,
+                          height: tableHeight,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(150),
+                            border: Border.all(color: const Color(0xFF1A1A1A), width: 20), // Darker Rim
+                            color: const Color(0xFF2C5D3F),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.9),
+                                blurRadius: 40,
+                                spreadRadius: 10,
                               ),
                             ],
                           ),
-                        ),
-                      ],
+                          child: Stack(
+                            children: [
+                              // Racetrack / Thin Line
+                              Positioned.fill(
+                                child: Container(
+                                  margin: const EdgeInsets.all(15),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(130),
+                                    border: Border.all(color: Colors.white.withOpacity(0.1), width: 2),
+                                  ),
+                                ),
+                              ),
+                              Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'POT: ${gameState!['pot']}',
+                                      style: TextStyle(
+                                        color: const Color(0xFFFFD700),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: ResponsiveUtils.fontSize(context, 18),
+                                        shadows: const [Shadow(color: Colors.black, blurRadius: 2)],
+                                      ),
+                                    ),
+                                    SizedBox(height: ResponsiveUtils.scaleHeight(context, 15)),
+                                    if (gameState!['communityCards'] != null && (gameState!['communityCards'] as List).isNotEmpty)
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: (gameState!['communityCards'] as List).map<Widget>((card) {
+                                          return Padding(
+                                            padding: const EdgeInsets.all(4.0),
+                                            child: PokerCard(
+                                              cardCode: card.toString(), 
+                                              // Use unified scale for consistency
+                                              width: ResponsiveUtils.scale(context, 55) 
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -499,19 +540,29 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                      int totalPlayers = playersList.length;
                      int visualIndex = (index - offset + totalPlayers) % totalPlayers;
                      
-                     final double w = MediaQuery.of(context).size.width * 0.8;
-                     final double h = MediaQuery.of(context).size.height * 0.5;
-                     final double centerX = MediaQuery.of(context).size.width / 2;
-                     final double centerY = MediaQuery.of(context).size.height * 0.4;
+                     // Re-calculate table dimensions for player positioning
+                     double screenW = ResponsiveUtils.screenWidth(context);
+                     double screenH = ResponsiveUtils.screenHeight(context);
+                     double tableH = screenH * 0.55;
+                     double tableW = screenW * 0.9;
+                     if (tableW / tableH > 2.0) {
+                       tableW = tableH * 2.0;
+                     }
+                     
+                     final double centerX = screenW / 2;
+                     final double centerY = screenH * 0.4; // Match table center (moved up)
                      
                      double angleStep = 2 * math.pi / totalPlayers;
                      double startAngle = math.pi / 2;
                      double angle = startAngle + (visualIndex * angleStep);
                      
-                     final rX = w / 2 + 35;
-                     final rY = h / 2 + 35;
-                     final x = centerX + (rX * math.cos(angle)) - 30; 
-                     final y = centerY + (rY * math.sin(angle)) - 30;
+                     // Radius for player seats - relative to actual table size
+                     final rX = tableW / 2 + ResponsiveUtils.scale(context, 45);
+                     // Reduced vertical radius to pull top player down (closer to table)
+                     final rY = tableH / 2 + ResponsiveUtils.scale(context, 25);
+                     
+                     final x = centerX + (rX * math.cos(angle)) - 40; 
+                     final y = centerY + (rY * math.sin(angle)) - 45;
 
                      bool isActive = player['id'] == gameState!['currentTurn'];
                      bool isFolded = player['isFolded'] ?? false;
@@ -523,20 +574,92 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                         cards = (player['hand'] as List?)?.cast<String>();
                      }
 
-                     return Positioned(
-                       left: x,
-                       top: y,
-                       child: PlayerSeat(
-                         name: player['name'], 
-                         chips: player['chips'].toString(),
-                         isActive: isActive,
-                         isMe: isMe,
-                         isDealer: isDealer,
-                         isFolded: isFolded,
-                         cards: cards,
-                       ),
+                     // Calculate bet position
+                     final betX = centerX + ((rX - 90) * math.cos(angle)) - 10;
+                     final betY = centerY + ((rY - 90) * math.sin(angle)) - 20;
+
+                     // Adjust "Me" player position to avoid cutoff
+                     double finalY = y;
+                     if (isMe) {
+                       // Position fixed at bottom, moved up significantly to ensure visibility
+                       // CardHeight (~100) + AvatarHeight (~80) + Padding
+                       finalY = ResponsiveUtils.screenHeight(context) - ResponsiveUtils.scaleHeight(context, 280); 
+                     }
+
+                     return Stack(
+                       children: [
+                         Positioned(
+                           left: isMe ? (ResponsiveUtils.screenWidth(context) / 2) - 40 : x,
+                           top: finalY,
+                           child: PlayerSeat(
+                             name: player['name'], 
+                             chips: player['chips'].toString(),
+                             isActive: isActive,
+                             isMe: isMe,
+                             isDealer: isDealer,
+                             isFolded: isFolded,
+                             cards: cards,
+                           ),
+                         ),
+                         // Bet Chips
+                         if (player['currentBet'] > 0)
+                           Positioned(
+                             left: betX,
+                             top: betY,
+                             child: Column(
+                               children: [
+                                 ChipStack(amount: player['currentBet']),
+                                 const SizedBox(height: 2),
+                                 Container(
+                                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                   decoration: BoxDecoration(
+                                     color: Colors.black54,
+                                     borderRadius: BorderRadius.circular(4),
+                                   ),
+                                   child: Text(
+                                     '${player['currentBet']}',
+                                     style: const TextStyle(color: Colors.white, fontSize: 10),
+                                   ),
+                                 ),
+                               ],
+                             ),
+                           ),
+                       ],
                      );
                   }).toList()),
+
+                // Top Right Credits
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Consumer<WalletProvider>( // Use Consumer for updates
+                    builder: (context, walletProvider, child) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.amber.withOpacity(0.5)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.monetization_on, color: Colors.amber, size: 20),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${walletProvider.balance}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
 
                 // Expandable Action Menu (Bottom Left)
                 if (isTurn) ...[
