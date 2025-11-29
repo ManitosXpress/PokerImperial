@@ -7,6 +7,8 @@ import 'services/socket_service.dart';
 import 'providers/language_provider.dart';
 import 'providers/auth_provider.dart' as app_auth;
 import 'providers/wallet_provider.dart';
+import 'providers/club_provider.dart';
+import 'providers/tournament_provider.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/login_screen.dart';
 import 'firebase_options.dart';
@@ -77,6 +79,8 @@ class PokerApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => WalletProvider()..initialize(),
         ),
+        ChangeNotifierProvider(create: (_) => ClubProvider()),
+        ChangeNotifierProvider(create: (_) => TournamentProvider()),
       ],
       child: MaterialApp(
         title: 'Poker Texas Holdem',

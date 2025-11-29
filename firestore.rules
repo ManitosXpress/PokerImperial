@@ -28,6 +28,18 @@ service cloud.firestore {
                   && request.auth.uid == resource.data.userId;
       allow write: if false; // Only Cloud Functions can write
     }
+
+    // Clubs - Public read for authenticated users
+    match /clubs/{clubId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Tournaments - Public read for authenticated users
+    match /tournaments/{tournamentId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Only Cloud Functions can write
+    }
     
     // Deny all other collections by default
     match /{document=**} {

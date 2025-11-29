@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import '../../providers/tournament_provider.dart';
 
 class CreateTournamentScreen extends StatefulWidget {
-  const CreateTournamentScreen({super.key});
+  final String? clubId;
+
+  const CreateTournamentScreen({super.key, this.clubId});
 
   @override
   State<CreateTournamentScreen> createState() => _CreateTournamentScreenState();
@@ -58,7 +60,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
             ),
             const SizedBox(height: 20),
             DropdownButtonFormField<String>(
-              value: _selectedType,
+              value: widget.clubId != null ? 'Club' : _selectedType,
               dropdownColor: const Color(0xFF16213E),
               style: const TextStyle(color: Colors.white),
               decoration: const InputDecoration(
@@ -68,13 +70,13 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                   borderSide: BorderSide(color: Colors.white30),
                 ),
               ),
-              items: ['Open', 'Inter-club'].map((String value) {
+              items: (widget.clubId != null ? ['Club'] : ['Open', 'Inter-club']).map((String value) {
                 return DropdownMenuItem<String>(
                   value: value,
                   child: Text(value),
                 );
               }).toList(),
-              onChanged: (newValue) {
+              onChanged: widget.clubId != null ? null : (newValue) { // Disable if clubId is set
                 setState(() {
                   _selectedType = newValue!;
                 });
@@ -87,10 +89,19 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
               child: ElevatedButton(
                 onPressed: () async {
                   if (_nameController.text.isNotEmpty && _buyInController.text.isNotEmpty) {
+                    // If clubId is present, use 'Club' type, otherwise use selected
+                    final type = widget.clubId != null ? 'Club' : _selectedType;
+                    
+                    // We need to update createTournament in provider to accept clubId
+                    // For now, we'll pass it as part of the data map if we were using a map, 
+                    // but the provider method signature needs update.
+                    // Let's assume we update the provider next.
+                    
                     await Provider.of<TournamentProvider>(context, listen: false).createTournament(
                       _nameController.text,
                       int.parse(_buyInController.text),
-                      _selectedType,
+                      type,
+                      clubId: widget.clubId,
                     );
                     if (mounted) Navigator.pop(context);
                   }

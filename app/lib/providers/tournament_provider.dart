@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class TournamentProvider with ChangeNotifier {
   List<Map<String, dynamic>> _tournaments = [];
@@ -7,51 +9,45 @@ class TournamentProvider with ChangeNotifier {
   List<Map<String, dynamic>> get tournaments => _tournaments;
   bool get isLoading => _isLoading;
 
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+
   Future<void> fetchTournaments() async {
     _isLoading = true;
     notifyListeners();
 
-    await Future.delayed(const Duration(seconds: 1));
-
-    _tournaments = [
-      {
-        'id': '101',
-        'name': 'Weekly Sunday Million',
-        'buyIn': 100,
-        'prizePool': 10000,
-        'startTime': DateTime.now().add(const Duration(days: 2)).toString(),
-        'type': 'Open',
-      },
-      {
-        'id': '102',
-        'name': 'Club vs Club Showdown',
-        'buyIn': 500,
-        'prizePool': 50000,
-        'startTime': DateTime.now().add(const Duration(hours: 5)).toString(),
-        'type': 'Inter-club',
-      },
-    ];
-
-    _isLoading = false;
-    notifyListeners();
+    try {
+      final snapshot = await _firestore.collection('tournaments').orderBy('createdAt', descending: true).get();
+      _tournaments = snapshot.docs.map((doc) => doc.data()).toList();
+    } catch (e) {
+      print('Error fetching tournaments: $e');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
-  Future<void> createTournament(String name, int buyIn, String type) async {
+  Future<void> createTournament(String name, int buyIn, String type, {String? clubId}) async {
     _isLoading = true;
     notifyListeners();
 
-    await Future.delayed(const Duration(seconds: 1));
+    try {
+      final result = await _functions.httpsCallable('createTournamentFunction').call({
+        'name': name,
+        'buyIn': buyIn,
+        'type': type,
+        'clubId': clubId,
+      });
 
-    _tournaments.add({
-      'id': DateTime.now().millisecondsSinceEpoch.toString(),
-      'name': name,
-      'buyIn': buyIn,
-      'prizePool': buyIn * 10, // Mock prize pool
-      'startTime': DateTime.now().add(const Duration(hours: 24)).toString(),
-      'type': type,
-    });
-
-    _isLoading = false;
-    notifyListeners();
+      if (result.data['success'] == true) {
+        await fetchTournaments(); // Refresh list
+      }
+    } catch (e) {
+      print('Error creating tournament: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 }
