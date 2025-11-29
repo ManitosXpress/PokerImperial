@@ -108,15 +108,38 @@ class ClubProvider with ChangeNotifier {
 
   Future<List<Map<String, dynamic>>> fetchClubLeaderboard(String clubId) async {
     try {
+      print('📊 Fetching leaderboard for club: $clubId');
+      
       final result = await _functions.httpsCallable('getClubLeaderboardFunction').call({
         'clubId': clubId,
       });
       
+      print('📊 Raw result from Cloud Function: ${result.data}');
+      
+      if (result.data == null) {
+        print('⚠️ Received null data from Cloud Function');
+        return [];
+      }
+      
+      if (result.data['leaderboard'] == null) {
+        print('⚠️ Leaderboard field is null in the response');
+        return [];
+      }
+      
       final List<dynamic> data = result.data['leaderboard'];
+      print('📊 Leaderboard has ${data.length} members');
+      
       return data.cast<Map<String, dynamic>>();
-    } catch (e) {
-      print('Error fetching club leaderboard: $e');
-      return [];
+    } catch (e, stackTrace) {
+      print('❌ Error fetching club leaderboard: $e');
+      print('Stack trace: $stackTrace');
+      
+      // Check if it's a Firestore index error
+      if (e.toString().contains('index') || e.toString().contains('requires an index')) {
+        throw Exception('Firestore index required. Please check Firebase Console for the index creation link.');
+      }
+      
+      rethrow; // Propagate error to UI
     }
   }
 }
