@@ -1,0 +1,17 @@
+{
+    "name": "poker-game-controllers",
+    "version": "1.0.0",
+    "description": "Client-side poker game controllers with practice mode",
+    "main": "GameControllerFactory.ts",
+    "scripts": {
+        "build": "tsc",
+        "test": "echo \"Tests not yet implemented\""
+    },
+    "dependencies": {
+        "pokersolver": "^2.1.4"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "typescript": "^5.0.0"
+    }
+}

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Practice Mode Demo - Texas Hold'em</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+        }
+        .banner {
+            background: #ff9800;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .poker-table {
+            background: #0d7336;
+            border-radius: 200px;
+            padding: 40px;
+            margin: 20px 0;
+            border: 8px solid #8b4513;
+            position: relative;
+            min-height: 400px;
+        }
+        .community-cards {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .card {
+            width: 60px;
+            height: 90px;
+            background: white;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: black;
+            font-weight: bold;
+            font-size: 24px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .card.red {
+            color: #d32f2f;
+        }
+        .pot {
+            text-align: center;
+            font-size: 28px;
+            margin: 20px 0;
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+        }
+        .players-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin: 30px 0;
+        }
+        .player {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid transparent;
+        }
+        .player.active {
+            border-color: #ff9800;
+            box-shadow: 0 0 20px rgba(255, 152, 0, 0.5);
+        }
+        .player.bot {
+            background: rgba(255,255,255,0.05);
+        }
+        .player-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .player-chips {
+            color: #ffd700;
+            font-size: 18px;
+        }
+        .player-bet {
+            color: #ff9800;
+            margin-top: 5px;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-fold {
+            background: #f44336;
+            color: white;
+        }
+        .btn-check {
+            background: #4caf50;
+            color: white;
+        }
+        .btn-call {
+            background: #2196f3;
+            color: white;
+        }
+        .btn-bet {
+            background: #ff9800;
+            color: white;
+        }
+        .btn-allin {
+            background: #9c27b0;
+            color: white;
+        }
+        .info {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .log {
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 3px 0;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="banner">
+        🎮 PRACTICE MODE - Demo Chips Only (No Real Money)
+    </div>
+
+    <h1 style="text-align: center;">Texas Hold'em Practice Mode</h1>
+
+    <div class="info">
+        <h3>Game Info</h3>
+        <p>Round: <span id="round">-</span></p>
+        <p>Current Turn: <span id="currentTurn">-</span></p>
+        <p>Current Bet: <span id="currentBet">-</span></p>
+    </div>
+
+    <div class="poker-table">
+        <div class="pot">
+            💰 Pot: $<span id="pot">0</span>
+        </div>
+
+        <div class="community-cards" id="communityCards">
+            <!-- Cards will be added here -->
+        </div>
+
+        <div class="players-grid" id="playersGrid">
+            <!-- Players will be added here -->
+        </div>
+    </div>
+
+    <div class="actions" id="actionButtons">
+        <button class="btn-fold" onclick="handleAction('fold')">Fold</button>
+        <button class="btn-check" onclick="handleAction('check')" id="btnCheck">Check</button>
+        <button class="btn-call" onclick="handleAction('call')" id="btnCall">Call</button>
+        <button class="btn-bet" onclick="handleAction('bet', 50)">Bet $50</button>
+        <button class="btn-allin" onclick="handleAction('allin')">All-In 🔥</button>
+    </div>
+
+    <div class="log">
+        <h3>Game Log</h3>
+        <div id="gameLog"></div>
+    </div>
+
+    <!-- Load the game controllers -->
+    <script src="node_modules/pokersolver/dist/poker-solver.min.js"></script>
+    <script type="module">
+        // This is a demo showing how to use the PracticeGameController
+        // In production, you'd compile TypeScript to JavaScript first
+        
+        import { GameControllerFactory } from './GameControllerFactory.js';
+        
+        let controller;
+        let userId = 'player-1';
+        let userName = 'You';
+        
+        // Initialize game
+        function initGame() {
+            log('🎮 Starting practice game...');
+            
+            try {
+                controller = GameControllerFactory.createPracticeGame(userId, userName);
+                
+                // Subscribe to state changes
+                controller.onGameStateChange = (state) => {
+                    if (state.type === 'showdown' || state.type === 'hand_winner') {
+                        // Handle winner announcement
+                        if (state.winners) {
+                            state.winners.forEach(w => {
+                                log(`🏆 ${w.playerName} wins $${w.amount} with ${w.handRank}`);
+                            });
+                        } else if (state.winner) {
+                            log(`🏆 ${state.winner.name} wins $${state.winner.amount}`);
+                        }
+                        updateUI(state.gameState);
+                    } else {
+                        updateUI(state);
+                    }
+                };
+                
+                log('✅ Game started! You and 7 bots are playing.');
+            } catch (error) {
+                log('❌ Error: ' + error.message);
+                log('💡 Note: You need to compile TypeScript first!');
+                log('💡 Run: npm run build (or use the Dart version)');
+            }
+        }
+        
+        // Update UI with game state
+        function updateUI(state) {
+            // Update pot
+            document.getElementById('pot').textContent = state.pot;
+            
+            // Update round info
+            document.getElementById('round').textContent = state.round;
+            document.getElementById('currentBet').textContent = state.currentBet;
+            
+            // Update community cards
+            const cardsDiv = document.getElementById('communityCards');
+            cardsDiv.innerHTML = state.communityCards.map(card => 
+                `<div class="card ${isRed(card) ? 'red' : ''}">${formatCard(card)}</div>`
+            ).join('');
+            
+            // Update players
+            const playersDiv = document.getElementById('playersGrid');
+            playersDiv.innerHTML = state.players.map(player => {
+                const isActive = player.id === state.currentTurn;
+                const isYou = player.id === userId;
+                return `
+                    <div class="player ${isActive ? 'active' : ''} ${player.isBot ? 'bot' : ''}">
+                        <div class="player-name">
+                            ${isYou ? '👤 ' : player.isBot ? '🤖 ' : ''}${player.name}
+                            ${player.isFolded ? ' (Folded)' : ''}
+                            ${player.isAllIn ? ' 🔥 ALL-IN' : ''}
+                        </div>
+                        <div class="player-chips">💰 $${player.chips}</div>
+                        ${player.currentBet > 0 ? `<div class="player-bet">Bet: $${player.currentBet}</div>` : ''}
+                        ${isYou && player.hand ? `<div style="margin-top: 5px;">Your cards: ${player.hand.join(' ')}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+            
+            // Update current turn display
+            const currentPlayer = state.players.find(p => p.id === state.currentTurn);
+            document.getElementById('currentTurn').textContent = currentPlayer ? currentPlayer.name : '-';
+            
+            // Enable/disable buttons
+            updateButtons(state);
+        }
+        
+        // Update action buttons based on game state
+        function updateButtons(state) {
+            const isMyTurn = state.currentTurn === userId;
+            const myPlayer = state.players.find(p => p.id === userId);
+            
+            if (!myPlayer || myPlayer.isFolded || myPlayer.isAllIn || !isMyTurn) {
+                // Disable all buttons
+                document.querySelectorAll('.actions button').forEach(btn => {
+                    btn.disabled = true;
+                });
+                return;
+            }
+            
+            // Enable appropriate buttons
+            document.querySelectorAll('.actions button').forEach(btn => {
+                btn.disabled = false;
+            });
+            
+            // Check vs Call
+            const btnCheck = document.getElementById('btnCheck');
+            const btnCall = document.getElementById('btnCall');
+            
+            if (state.currentBet === myPlayer.currentBet) {
+                btnCheck.style.display = '';
+                btnCall.style.display = 'none';
+            } else {
+                btnCheck.style.display = 'none';
+                btnCall.style.display = '';
+                btnCall.textContent = `Call $${state.currentBet - myPlayer.currentBet}`;
+            }
+        }
+        
+        // Handle player action
+        window.handleAction = function(action, amount) {
+            if (!controller) {
+                log('❌ Game not started');
+                return;
+            }
+            
+            try {
+                log(`🎯 You: ${action}${amount ? ' $' + amount : ''}`);
+                controller.handleAction(userId, action, amount);
+            } catch (error) {
+                log('❌ ' + error.message);
+            }
+        };
+        
+        // Utility functions
+        function isRed(card) {
+            return card.includes('h') || card.includes('d');
+        }
+        
+        function formatCard(card) {
+            const rank = card[0];
+            const suit = card[1];
+            const suits = { h: '♥️', d: '♦️', c: '♣️', s: '♠️' };
+            return rank + suits[suit];
+        }
+        
+        function log(message) {
+            const logDiv = document.getElementById('gameLog');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+            console.log(message);
+        }
+        
+        // Start game on load
+        // initGame(); // Uncomment when TypeScript is compiled
+        
+        // For now, show instructions
+        log('📝 To use this demo:');
+        log('1. Install dependencies: npm install');
+        log('2. Compile TypeScript: npx tsc');
+        log('3. Or use the Dart version for Flutter integration');
+        log('4. Uncomment initGame() in the script');
+    </script>
+</body>
+</html>
