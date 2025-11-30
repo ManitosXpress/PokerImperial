@@ -3,21 +3,24 @@ import 'package:provider/provider.dart';
 import 'dart:math' as math;
 import '../services/socket_service.dart';
 import '../providers/language_provider.dart';
-import '../providers/wallet_provider.dart'; // Changed from user_provider
+import '../providers/wallet_provider.dart';
 import '../widgets/poker_card.dart';
 import '../widgets/player_seat.dart';
 import '../utils/responsive_utils.dart';
 import '../widgets/chip_stack.dart';
-import '../widgets/game_wallet_dialog.dart'; // Added missing import
+import '../widgets/game_wallet_dialog.dart';
+import '../game_controllers/practice_game_controller.dart'; // Import local controller
 
 class GameScreen extends StatefulWidget {
   final String roomId;
   final Map<String, dynamic>? initialGameState;
+  final bool isPracticeMode; // Add flag
   
   const GameScreen({
     super.key, 
     required this.roomId,
     this.initialGameState,
+    this.isPracticeMode = false, // Default to false
   });
 
   @override
@@ -26,11 +29,15 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateMixin {
   Map<String, dynamic>? gameState;
-  Map<String, dynamic>? roomState;  // Track room info before game starts
+  Map<String, dynamic>? roomState;
   List<dynamic> players = [];
   bool _isActionMenuExpanded = false;
   late AnimationController _animationController;
   late Animation<double> _animation;
+  
+  // Practice Mode Controller
+  PracticeGameController? _practiceController;
+  final String _localPlayerId = 'local-player';
   
   // Victory screen state
   bool _showVictoryScreen = false;
@@ -54,59 +61,106 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       curve: Curves.easeInOut,
     );
     
+    if (widget.isPracticeMode) {
+      _initPracticeMode();
+    } else {
+      _initOnlineMode();
+    }
+  }
+
+  void _initPracticeMode() {
+    // Initialize local controller
+    _practiceController = PracticeGameController(
+      humanPlayerId: _localPlayerId,
+      humanPlayerName: 'You', // Could get from AuthProvider
+      onStateChange: (newState) {
+        if (mounted) {
+          setState(() {
+            gameState = newState;
+            
+            // Check for winners to show victory screen
+            if (newState['status'] == 'finished' && newState['winners'] != null) {
+              _showVictoryScreen = true;
+              _winnerData = newState['winners'];
+              
+              Future.delayed(const Duration(milliseconds: 4500), () {
+                if (mounted) {
+                  setState(() {
+                    _showVictoryScreen = false;
+                    _winnerData = null;
+                  });
+                }
+              });
+            }
+          });
+        }
+      },
+    );
+  }
+
+  void _initOnlineMode() {
     final socketService = Provider.of<SocketService>(context, listen: false);
     
     // Listen for room updates (player joins/leaves)
     socketService.socket.on('player_joined', (data) {
-      setState(() {
-        roomState = data;
-      });
+      if (mounted) setState(() => roomState = data);
     });
     
     socketService.socket.on('room_created', (data) {
-      setState(() {
-        roomState = data;
-      });
+      if (mounted) setState(() => roomState = data);
     });
     
     socketService.socket.on('room_joined', (data) {
-      setState(() {
-        roomState = data;
-      });
+      if (mounted) setState(() => roomState = data);
     });
     
     socketService.socket.on('game_started', (data) {
-      setState(() {
-        roomState = null; // Clear room state to show game screen
-      });
-      _updateState(data);
+      if (mounted) {
+        setState(() {
+          roomState = null;
+        });
+        _updateState(data);
+      }
     });
     
     socketService.socket.on('game_update', (data) {
-      _updateState(data);
+      if (mounted) _updateState(data);
     });
     
     socketService.socket.on('hand_winner', (data) {
-      setState(() {
-        _showVictoryScreen = true;
-        _winnerData = data;
-      });
-      
-      // Auto-hide victory screen after 4.5 seconds (before auto-restart)
-      Future.delayed(const Duration(milliseconds: 4500), () {
-        if (mounted) {
-          setState(() {
-            _showVictoryScreen = false;
-            _winnerData = null;
-          });
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _showVictoryScreen = true;
+          _winnerData = data;
+        });
+        
+        Future.delayed(const Duration(milliseconds: 4500), () {
+          if (mounted) {
+            setState(() {
+              _showVictoryScreen = false;
+              _winnerData = null;
+            });
+          }
+        });
+      }
     });
   }
 
   @override
   void dispose() {
     _animationController.dispose();
+    _practiceController?.dispose();
+    
+    if (!widget.isPracticeMode) {
+      final socketService = Provider.of<SocketService>(context, listen: false);
+      socketService.socket.off('player_joined');
+      socketService.socket.off('room_created');
+      socketService.socket.off('room_joined');
+      socketService.socket.off('game_started');
+      socketService.socket.off('game_update');
+      socketService.socket.off('hand_winner');
+    }
+    
     super.dispose();
   }
 
@@ -126,12 +180,16 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   }
 
   void _sendAction(String action, [int amount = 0]) {
-    final socketService = Provider.of<SocketService>(context, listen: false);
-    socketService.socket.emit('game_action', {
-      'roomId': widget.roomId,
-      'action': action,
-      'amount': amount
-    });
+    if (widget.isPracticeMode) {
+      _practiceController?.handleAction(_localPlayerId, action, amount);
+    } else {
+      final socketService = Provider.of<SocketService>(context, listen: false);
+      socketService.socket.emit('game_action', {
+        'roomId': widget.roomId,
+        'action': action,
+        'amount': amount
+      });
+    }
     _toggleActionMenu(); // Close menu after action
   }
 
@@ -139,7 +197,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     final languageProvider = Provider.of<LanguageProvider>(context, listen: false);
     final socketService = Provider.of<SocketService>(context, listen: false);
     
-    final myId = socketService.socketId;
+    final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
     final myPlayer = (gameState?['players'] as List?)?.firstWhere(
       (p) => p['id'] == myId,
       orElse: () => null,
@@ -270,9 +328,11 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     final socketService = Provider.of<SocketService>(context);
     final languageProvider = Provider.of<LanguageProvider>(context);
     
+    final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
+
     bool isTurn = false;
     if (gameState != null && gameState!['currentTurn'] != null) {
-      isTurn = gameState!['currentTurn'] == socketService.socketId;
+      isTurn = gameState!['currentTurn'] == myId;
     }
     
     return Scaffold(
@@ -560,7 +620,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                 if (gameState!['players'] != null)
                   ...((gameState!['players'] as List).asMap().entries.map((entry) {
                      final playersList = gameState!['players'] as List;
-                     final myId = socketService.socketId;
+                     final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
                      final myIndex = playersList.indexWhere((p) => p['id'] == myId);
                      final int offset = myIndex != -1 ? myIndex : 0;
                      
@@ -724,7 +784,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                     builder: (context, child) {
                       // Determine if we should check or call based on current bet
                       final int currentBet = gameState?['currentBet'] ?? 0;
-                      final myId = Provider.of<SocketService>(context, listen: false).socketId;
+                      final myId = widget.isPracticeMode ? _localPlayerId : Provider.of<SocketService>(context, listen: false).socketId;
                       final myPlayer = (gameState?['players'] as List?)?.firstWhere(
                         (p) => p['id'] == myId,
                         orElse: () => null,

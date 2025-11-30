@@ -34,11 +34,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   void _navigateToGame(String roomId, [Map<String, dynamic>? initialState]) {
+    final bool isPractice = initialState?['isPracticeMode'] ?? false;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GameScreen(
           roomId: roomId,
-          initialGameState: initialState,
+          initialGameState: isPractice ? null : initialState, // Don't pass state for practice, let controller init it
+          isPracticeMode: isPractice,
         ),
       ),
     );
@@ -455,34 +457,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             constraints: const BoxConstraints(maxWidth: 400),
                             child: ElevatedButton(
                               onPressed: (_isCreating || _isJoining) ? null : () {
-                                if (_nameController.text.isNotEmpty) {
-                                  setState(() => _isCreating = true); 
-                                  socketService.createPracticeRoom(
-                                    _nameController.text,
-                                    onSuccess: (data) {
-                                      setState(() => _isCreating = false);
-                                      final roomId = data['roomId'];
-                                      if (roomId != null) {
-                                        try {
-                                          final Map<String, dynamic> state = Map<String, dynamic>.from(data as Map);
-                                          _navigateToGame(roomId, state);
-                                        } catch (e) {
-                                          print('Error casting game state: $e');
-                                          _navigateToGame(roomId);
-                                        }
-                                      }
-                                    },
-                                    onError: (error) {
-                                      setState(() => _isCreating = false);
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text('Error: $error'),
-                                          backgroundColor: Colors.red,
-                                        ),
-                                      );
-                                    },
-                                  );
-                                }
+                                _navigateToGame('practice', {'isPracticeMode': true});
                               },
                               style: ElevatedButton.styleFrom(
                                 minimumSize: const Size(double.infinity, 65),
