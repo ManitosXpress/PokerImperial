@@ -168,7 +168,7 @@ class HomeScreen extends StatelessWidget {
                     fontSize: 52,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 4.0,
-                    color: Color(0xFFE94560),
+                    color: Color(0xFFC89A4E), // Gold
                     shadows: [
                       Shadow(
                         color: Colors.black87,
@@ -189,11 +189,11 @@ class HomeScreen extends StatelessWidget {
                       );
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFE94560),
-                      foregroundColor: Colors.white,
+                      backgroundColor: const Color(0xFFC89A4E), // Gold
+                      foregroundColor: const Color(0xFF1C1C1C), // Black
                       minimumSize: const Size(double.infinity, 65),
                       elevation: 8,
-                      shadowColor: const Color(0xFFE94560).withOpacity(0.5),
+                      shadowColor: const Color(0xFFC89A4E).withOpacity(0.5), // Gold shadow
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),

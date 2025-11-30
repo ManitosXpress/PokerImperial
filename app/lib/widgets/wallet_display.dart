@@ -37,10 +37,10 @@ class WalletDisplay extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.monetization_on,
-              color: Color(0xFF1a1a2e),
-              size: 24,
+            Image.asset(
+              'assets/images/credits_icon.png',
+              width: 32,
+              height: 32,
             ),
             const SizedBox(width: 8),
             if (walletProvider.isLoading)

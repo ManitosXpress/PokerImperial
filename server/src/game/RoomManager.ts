@@ -10,8 +10,8 @@ export class RoomManager {
     public createPracticeRoom(hostId: string, hostName: string): Room {
         const room = this.createRoom(hostId, hostName);
 
-        // Add 3 Bots
-        for (let i = 1; i <= 3; i++) {
+        // Add 7 Bots (total 8 players including host)
+        for (let i = 1; i <= 7; i++) {
             const bot: Player = {
                 id: `bot-${i}`,
                 name: `Bot ${i}`,

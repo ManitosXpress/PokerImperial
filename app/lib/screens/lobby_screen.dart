@@ -120,6 +120,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final languageProvider = Provider.of<LanguageProvider>(context);
     final socketService = Provider.of<SocketService>(context);
 
+    // Imperial Palette Colors
+    const Color goldColor = Color(0xFFC89A4E);
+    const Color darkGreenColor = Color(0xFF4F7F6C);
+    const Color blackColor = Color(0xFF1C1C1C);
+    const Color beigeColor = Color(0xFFF1E3D3);
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -150,7 +156,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       // Sign out button
-                      // Sign out button
                       IconButton(
                         onPressed: () async {
                           final authProvider = context.read<AuthProvider>();
@@ -178,7 +183,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: const Color(0xFFE94560),
+                              color: goldColor,
                               width: 2,
                             ),
                           ),
@@ -187,7 +192,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               final user = authProvider.user;
                               return CircleAvatar(
                                 radius: 18,
-                                backgroundColor: const Color(0xFFE94560),
+                                backgroundColor: goldColor,
                                 backgroundImage: user?.photoURL != null
                                     ? NetworkImage(user!.photoURL!)
                                     : null,
@@ -224,7 +229,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFE94560),
+                                color: goldColor,
                                 borderRadius: BorderRadius.circular(20),
                                 boxShadow: [
                                   BoxShadow(
@@ -237,14 +242,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.account_balance_wallet, size: 18, color: Colors.white),
+                                  const Icon(Icons.account_balance_wallet, size: 18, color: blackColor),
                                   const SizedBox(width: 8),
                                   Text(
                                     languageProvider.currentLocale.languageCode == 'en' ? 'Wallet' : 'Billetera',
-                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: blackColor),
                                   ),
                                   const SizedBox(width: 4),
-                                  const Icon(Icons.keyboard_arrow_down, size: 18, color: Colors.white70),
+                                  const Icon(Icons.keyboard_arrow_down, size: 18, color: blackColor),
                                 ],
                               ),
                             ),
@@ -317,7 +322,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               decoration: BoxDecoration(
                                 color: Colors.white.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(25),
-                                border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                                border: Border.all(color: goldColor, width: 1.5),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.black.withOpacity(0.3),
@@ -365,7 +370,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             style: TextStyle(
                               fontSize: 52,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFFE94560),
+                              color: goldColor,
                               letterSpacing: 4,
                               shadows: [
                                 Shadow(
@@ -421,10 +426,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             constraints: const BoxConstraints(maxWidth: 400),
                             child: TextField(
                               controller: _nameController,
-                              style: const TextStyle(color: Colors.white, fontSize: 16),
+                              style: const TextStyle(color: beigeColor, fontSize: 16),
                               decoration: InputDecoration(
                                 labelText: languageProvider.getText('your_name'),
-                                labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                                labelStyle: const TextStyle(color: goldColor),
                                 filled: true,
                                 fillColor: Colors.white.withOpacity(0.1),
                                 border: OutlineInputBorder(
@@ -433,13 +438,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 ),
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+                                  borderSide: const BorderSide(color: goldColor, width: 1),
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: Color(0xFFE94560), width: 2),
+                                  borderSide: const BorderSide(color: goldColor, width: 2),
                                 ),
-                                prefixIcon: const Icon(Icons.person, color: Colors.white70),
+                                prefixIcon: const Icon(Icons.person, color: goldColor),
                               ),
                             ),
                           ),
@@ -451,7 +456,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             child: ElevatedButton(
                               onPressed: (_isCreating || _isJoining) ? null : () {
                                 if (_nameController.text.isNotEmpty) {
-                                  setState(() => _isCreating = true); // Reuse _isCreating for simplicity or add _isPracticeLoading
+                                  setState(() => _isCreating = true); 
                                   socketService.createPracticeRoom(
                                     _nameController.text,
                                     onSuccess: (data) {
@@ -481,10 +486,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               },
                               style: ElevatedButton.styleFrom(
                                 minimumSize: const Size(double.infinity, 65),
-                                backgroundColor: const Color(0xFFE94560),
-                                foregroundColor: Colors.white,
+                                backgroundColor: goldColor,
+                                foregroundColor: blackColor,
                                 elevation: 8,
-                                shadowColor: const Color(0xFFE94560).withOpacity(0.5),
+                                shadowColor: goldColor.withOpacity(0.5),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                 ),
@@ -493,7 +498,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 ? const SizedBox(
                                     height: 24,
                                     width: 24,
-                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                                    child: CircularProgressIndicator(color: blackColor, strokeWidth: 3),
                                   )
                                 : Text(
                                     languageProvider.getText('practice_bots').toUpperCase(),
@@ -539,9 +544,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               style: ElevatedButton.styleFrom(
                                 minimumSize: const Size(double.infinity, 65),
                                 backgroundColor: Colors.white.withOpacity(0.15),
-                                foregroundColor: Colors.white,
+                                foregroundColor: beigeColor,
                                 elevation: 4,
-                                side: BorderSide(color: Colors.white.withOpacity(0.5), width: 2),
+                                side: const BorderSide(color: goldColor, width: 2),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                 ),
@@ -550,7 +555,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 ? const SizedBox(
                                     height: 20,
                                     width: 20,
-                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                    child: CircularProgressIndicator(color: beigeColor, strokeWidth: 2),
                                   )
                                 : Text(
                                     languageProvider.getText('create_room').toUpperCase(),
@@ -604,10 +609,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     Expanded(
                                       child: TextField(
                                         controller: _roomController,
-                                        style: const TextStyle(color: Colors.white, fontSize: 16),
+                                        style: const TextStyle(color: beigeColor, fontSize: 16),
                                         decoration: InputDecoration(
                                           labelText: languageProvider.getText('room_id'),
-                                          labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                                          labelStyle: const TextStyle(color: goldColor),
                                           filled: true,
                                           fillColor: Colors.white.withOpacity(0.1),
                                           border: OutlineInputBorder(
@@ -616,13 +621,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                           ),
                                           enabledBorder: OutlineInputBorder(
                                             borderRadius: BorderRadius.circular(12),
-                                            borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+                                            borderSide: const BorderSide(color: goldColor, width: 1),
                                           ),
                                           focusedBorder: OutlineInputBorder(
                                             borderRadius: BorderRadius.circular(12),
-                                            borderSide: const BorderSide(color: Colors.blue, width: 2),
+                                            borderSide: const BorderSide(color: goldColor, width: 2),
                                           ),
-                                          prefixIcon: const Icon(Icons.meeting_room, color: Colors.white70),
+                                          prefixIcon: const Icon(Icons.meeting_room, color: goldColor),
                                         ),
                                       ),
                                     ),
@@ -656,7 +661,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                       },
                                       style: ElevatedButton.styleFrom(
                                         minimumSize: const Size(120, 56),
-                                        backgroundColor: Colors.blue.shade700,
+                                        backgroundColor: darkGreenColor,
                                         foregroundColor: Colors.white,
                                         elevation: 5,
                                         shape: RoundedRectangleBorder(
@@ -695,7 +700,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 context,
                                 icon: Icons.shield,
                                 label: 'Clubs',
-                                color: Colors.purple,
+                                color: darkGreenColor,
                                 onTap: () {
                                   Navigator.push(
                                     context,
@@ -708,7 +713,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 context,
                                 icon: Icons.emoji_events,
                                 label: 'Tournaments',
-                                color: Colors.amber,
+                                color: goldColor,
                                 onTap: () {
                                   Navigator.push(
                                     context,
@@ -756,7 +761,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
             const SizedBox(height: 8),
             Text(
               label,
-              style: TextStyle(
+              style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
                 fontSize: 16,

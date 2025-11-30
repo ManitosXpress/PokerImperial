@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -74,67 +76,70 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFF1a1a2e),
-              const Color(0xFF16213e),
-              const Color(0xFF0f3460),
-            ],
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/login_background.jpg'),
+            fit: BoxFit.cover,
           ),
         ),
-        child: SafeArea(
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withOpacity(0.8),
+                Colors.black.withOpacity(0.85),
+                Colors.black.withOpacity(0.9),
+              ],
+            ),
+          ),
+          child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Card(
-                elevation: 8,
-                color: Colors.white.withOpacity(0.1),
+                elevation: 12,
+                color: const Color(0xFF1C1C1C).withOpacity(0.95), // Black background
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
+                  side: const BorderSide(color: Color(0xFFC89A4E), width: 2), // Gold Border
                 ),
                 child: Container(
-                  padding: const EdgeInsets.all(32.0),
-                  constraints: const BoxConstraints(maxWidth: 400),
+                  padding: const EdgeInsets.all(24.0),
+                  constraints: const BoxConstraints(maxWidth: 340),
                   child: Form(
                     key: _formKey,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         // Logo/Title
-                        Icon(
-                          Icons.casino_outlined,
-                          size: 64,
-                          color: const Color(0xFFe94560),
+                        Image.asset(
+                          'assets/images/bingo_imperial_logo_v4.png',
+                          height: 180,
+                          fit: BoxFit.contain,
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Poker Imperial',
-                          style: GoogleFonts.montserrat(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 24),
 
                         // Email field
                         TextFormField(
                           controller: _emailController,
                           decoration: InputDecoration(
                             labelText: isSpanish ? 'Correo Electrónico' : 'Email',
-                            labelStyle: const TextStyle(color: Colors.white70),
-                            prefixIcon: const Icon(Icons.email, color: Colors.white70),
+                            labelStyle: const TextStyle(color: Color(0xFFC89A4E)), // Gold label
+                            prefixIcon: const Icon(Icons.email, color: Color(0xFFC89A4E)), // Gold icon
                             filled: true,
-                            fillColor: Colors.white.withOpacity(0.1),
-                            border: OutlineInputBorder(
+                            fillColor: const Color(0xFF2C2C2C), // Slightly lighter black for inputs
+                            enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
+                              borderSide: const BorderSide(color: Color(0xFFC89A4E), width: 1),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFFC89A4E), width: 2),
                             ),
                           ),
-                          style: const TextStyle(color: Colors.white),
+                          style: const TextStyle(color: Color(0xFFF1E3D3)), // Light Beige text
                           keyboardType: TextInputType.emailAddress,
                           validator: (value) {
                             if (value == null || value.isEmpty) {
@@ -156,16 +161,20 @@ class _LoginScreenState extends State<LoginScreen> {
                                 controller: _nicknameController,
                                 decoration: InputDecoration(
                                   labelText: isSpanish ? 'Apodo' : 'Nickname',
-                                  labelStyle: const TextStyle(color: Colors.white70),
-                                  prefixIcon: const Icon(Icons.person, color: Colors.white70),
+                                  labelStyle: const TextStyle(color: Color(0xFFC89A4E)),
+                                  prefixIcon: const Icon(Icons.person, color: Color(0xFFC89A4E)),
                                   filled: true,
-                                  fillColor: Colors.white.withOpacity(0.1),
-                                  border: OutlineInputBorder(
+                                  fillColor: const Color(0xFF2C2C2C),
+                                  enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide.none,
+                                    borderSide: const BorderSide(color: Color(0xFFC89A4E), width: 1),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(color: Color(0xFFC89A4E), width: 2),
                                   ),
                                 ),
-                                style: const TextStyle(color: Colors.white),
+                                style: const TextStyle(color: Color(0xFFF1E3D3)),
                                 validator: (value) {
                                   if (value == null || value.isEmpty) {
                                     return isSpanish ? 'Ingresa un apodo' : 'Enter nickname';
@@ -182,16 +191,20 @@ class _LoginScreenState extends State<LoginScreen> {
                           controller: _passwordController,
                           decoration: InputDecoration(
                             labelText: isSpanish ? 'Contraseña' : 'Password',
-                            labelStyle: const TextStyle(color: Colors.white70),
-                            prefixIcon: const Icon(Icons.lock, color: Colors.white70),
+                            labelStyle: const TextStyle(color: Color(0xFFC89A4E)),
+                            prefixIcon: const Icon(Icons.lock, color: Color(0xFFC89A4E)),
                             filled: true,
-                            fillColor: Colors.white.withOpacity(0.1),
-                            border: OutlineInputBorder(
+                            fillColor: const Color(0xFF2C2C2C),
+                            enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
+                              borderSide: const BorderSide(color: Color(0xFFC89A4E), width: 1),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFFC89A4E), width: 2),
                             ),
                           ),
-                          style: const TextStyle(color: Colors.white),
+                          style: const TextStyle(color: Color(0xFFF1E3D3)),
                           obscureText: true,
                           validator: (value) {
                             if (value == null || value.isEmpty) {
@@ -212,13 +225,15 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: ElevatedButton(
                             onPressed: authProvider.isLoading ? null : _handleEmailAuth,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFe94560),
+                              backgroundColor: const Color(0xFFC89A4E), // Gold button
+                              foregroundColor: const Color(0xFF1C1C1C), // Black text
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
+                              elevation: 5,
                             ),
                             child: authProvider.isLoading
-                                ? const CircularProgressIndicator(color: Colors.white)
+                                ? const CircularProgressIndicator(color: Color(0xFF1C1C1C))
                                 : Text(
                                     _isRegistering
                                         ? (isSpanish ? 'Registrarse' : 'Register')
@@ -226,7 +241,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     style: GoogleFonts.montserrat(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.white,
+                                      color: const Color(0xFF1C1C1C), // Black text
                                     ),
                                   ),
                           ),
@@ -244,7 +259,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             _isRegistering
                                 ? (isSpanish ? '¿Ya tienes cuenta? Inicia sesión' : 'Have account? Sign in')
                                 : (isSpanish ? '¿No tienes cuenta? Regístrate' : 'No account? Register'),
-                            style: const TextStyle(color: Colors.white70),
+                            style: const TextStyle(color: Color(0xFFF1E3D3)), // Beige text
                           ),
                         ),
                       ],
@@ -256,6 +271,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 }

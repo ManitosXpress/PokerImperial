@@ -47,7 +47,7 @@ class ProfileScreen extends StatelessWidget {
                     children: [
                       IconButton(
                         onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        icon: const Icon(Icons.arrow_back, color: Color(0xFFC89A4E)), // Gold
                       ),
                       const SizedBox(width: 8),
                       Text(
@@ -55,7 +55,7 @@ class ProfileScreen extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: Color(0xFFC89A4E), // Gold
                         ),
                       ),
                     ],
@@ -75,8 +75,8 @@ class ProfileScreen extends StatelessWidget {
                             color: Colors.white.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.2),
-                              width: 1,
+                              color: const Color(0xFFC89A4E), // Gold
+                              width: 2,
                             ),
                           ),
                           child: Column(
@@ -84,7 +84,7 @@ class ProfileScreen extends StatelessWidget {
                               // Avatar
                               CircleAvatar(
                                 radius: 50,
-                                backgroundColor: const Color(0xFFE94560),
+                                backgroundColor: const Color(0xFFC89A4E), // Gold
                                 backgroundImage: user?.photoURL != null
                                     ? NetworkImage(user!.photoURL!)
                                     : null,
@@ -96,7 +96,7 @@ class ProfileScreen extends StatelessWidget {
                                         style: const TextStyle(
                                           fontSize: 40,
                                           fontWeight: FontWeight.bold,
-                                          color: Colors.white,
+                                          color: Color(0xFF1C1C1C), // Black
                                         ),
                                       )
                                     : null,
@@ -108,16 +108,16 @@ class ProfileScreen extends StatelessWidget {
                                 style: const TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: Color(0xFFC89A4E), // Gold
                                 ),
                               ),
                               const SizedBox(height: 8),
                               // Email
                               Text(
                                 user?.email ?? '',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 14,
-                                  color: Colors.white.withOpacity(0.7),
+                                  color: Color(0xFFF1E3D3), // Beige
                                 ),
                               ),
                               const SizedBox(height: 20),
@@ -129,11 +129,11 @@ class ProfileScreen extends StatelessWidget {
                                     builder: (_) => const EditProfileDialog(),
                                   );
                                 },
-                                icon: const Icon(Icons.edit, size: 18),
+                                icon: const Icon(Icons.edit, size: 18,  color: Color(0xFFC89A4E),),
                                 label: Text(languageProvider.getText('edit_profile')),
                                 style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: BorderSide(color: Colors.white.withOpacity(0.5)),
+                                  foregroundColor: const Color(0xFFC89A4E), // Gold
+                                  side: const BorderSide(color: Color(0xFFC89A4E)), // Gold
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 24,
                                     vertical: 12,
@@ -152,8 +152,8 @@ class ProfileScreen extends StatelessWidget {
                             color: Colors.white.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.2),
-                              width: 1,
+                              color: const Color(0xFFC89A4E), // Gold
+                              width: 2,
                             ),
                           ),
                           child: Column(
@@ -167,7 +167,7 @@ class ProfileScreen extends StatelessWidget {
                                     style: const TextStyle(
                                       fontSize: 20,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.white,
+                                      color: Color(0xFFC89A4E), // Gold
                                     ),
                                   ),
                                   ElevatedButton.icon(
@@ -177,7 +177,11 @@ class ProfileScreen extends StatelessWidget {
                                         builder: (_) => const AddCreditsDialog(),
                                       );
                                     },
-                                    icon: const Icon(Icons.add, size: 16),
+                                    icon: const Icon(
+                                      Icons.add,
+                                      size: 16,
+                                      color: Colors.black,
+                                    ),
                                     label: Text(
                                       languageProvider.currentLocale.languageCode == 'en'
                                           ? 'Add'
@@ -185,8 +189,8 @@ class ProfileScreen extends StatelessWidget {
                                       style: const TextStyle(fontSize: 12),
                                     ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFE94560),
-                                      foregroundColor: Colors.white,
+                                      backgroundColor: const Color(0xFFC89A4E), // Gold
+                                      foregroundColor: const Color(0xFF1C1C1C), // Black
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 12,
                                         vertical: 8,
@@ -201,7 +205,7 @@ class ProfileScreen extends StatelessWidget {
                                 children: [
                                   const Icon(
                                     Icons.account_balance_wallet,
-                                    color: Color(0xFFFFD700),
+                                    color: Color(0xFFC89A4E), // Gold
                                     size: 32,
                                   ),
                                   const SizedBox(width: 12),
@@ -210,9 +214,9 @@ class ProfileScreen extends StatelessWidget {
                                     children: [
                                       Text(
                                         languageProvider.getText('balance'),
-                                        style: TextStyle(
+                                        style: const TextStyle(
                                           fontSize: 12,
-                                          color: Colors.white.withOpacity(0.7),
+                                          color: Color(0xFFF1E3D3), // Beige
                                         ),
                                       ),
                                       Text(
@@ -220,7 +224,7 @@ class ProfileScreen extends StatelessWidget {
                                         style: const TextStyle(
                                           fontSize: 28,
                                           fontWeight: FontWeight.bold,
-                                          color: Color(0xFFFFD700),
+                                          color: Color(0xFFC89A4E), // Gold
                                         ),
                                       ),
                                     ],
@@ -239,8 +243,8 @@ class ProfileScreen extends StatelessWidget {
                             color: Colors.white.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.2),
-                              width: 1,
+                              color: const Color(0xFFC89A4E), // Gold
+                              width: 2,
                             ),
                           ),
                           child: Column(
@@ -251,7 +255,7 @@ class ProfileScreen extends StatelessWidget {
                                 style: const TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: Color(0xFFC89A4E), // Gold
                                 ),
                               ),
                               const SizedBox(height: 16),
@@ -261,7 +265,7 @@ class ProfileScreen extends StatelessWidget {
                                   if (snapshot.connectionState == ConnectionState.waiting) {
                                     return const Center(
                                       child: CircularProgressIndicator(
-                                        color: Color(0xFFE94560),
+                                        color: Color(0xFFC89A4E), // Gold
                                       ),
                                     );
                                   }
@@ -273,7 +277,7 @@ class ProfileScreen extends StatelessWidget {
                                         child: Text(
                                           languageProvider.getText('no_transactions'),
                                           style: TextStyle(
-                                            color: Colors.white.withOpacity(0.5),
+                                            color: Color(0xFFF1E3D3), // Beige
                                           ),
                                         ),
                                       ),
@@ -316,7 +320,7 @@ class ProfileScreen extends StatelessWidget {
                                                 Text(
                                                   transaction.reason,
                                                   style: const TextStyle(
-                                                    color: Colors.white,
+                                                    color: Color(0xFFF1E3D3), // Beige
                                                     fontWeight: FontWeight.w500,
                                                   ),
                                                 ),
@@ -324,7 +328,7 @@ class ProfileScreen extends StatelessWidget {
                                                 Text(
                                                   _formatDate(transaction.timestamp),
                                                   style: TextStyle(
-                                                    color: Colors.white.withOpacity(0.5),
+                                                    color: Color(0xFFF1E3D3).withOpacity(0.7), // Beige dimmed
                                                     fontSize: 12,
                                                   ),
                                                 ),
@@ -484,17 +488,17 @@ class _EditProfileDialogState extends State<EditProfileDialog> {
     final languageProvider = Provider.of<LanguageProvider>(context);
     
     return AlertDialog(
-      backgroundColor: const Color(0xFF1A1A2E),
+      backgroundColor: const Color(0xFF1C1C1C), // Black
       title: Text(
         languageProvider.getText('edit_profile'),
-        style: const TextStyle(color: Colors.white),
+        style: const TextStyle(color: Color(0xFFC89A4E)), // Gold
       ),
       content: TextField(
         controller: _displayNameController,
-        style: const TextStyle(color: Colors.white),
+        style: const TextStyle(color: Color(0xFFF1E3D3)), // Beige
         decoration: InputDecoration(
           labelText: languageProvider.getText('display_name'),
-          labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+          labelStyle: const TextStyle(color: Color(0xFFC89A4E)), // Gold
           filled: true,
           fillColor: Colors.white.withOpacity(0.1),
           border: OutlineInputBorder(
@@ -503,11 +507,11 @@ class _EditProfileDialogState extends State<EditProfileDialog> {
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+            borderSide: const BorderSide(color: Color(0xFFC89A4E)), // Gold
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE94560), width: 2),
+            borderSide: const BorderSide(color: Color(0xFFC89A4E), width: 2), // Gold
           ),
         ),
       ),
@@ -516,14 +520,14 @@ class _EditProfileDialogState extends State<EditProfileDialog> {
           onPressed: _isLoading ? null : () => Navigator.pop(context),
           child: Text(
             languageProvider.getText('cancel'),
-            style: const TextStyle(color: Colors.white70),
+            style: const TextStyle(color: Color(0xFFF1E3D3)), // Beige
           ),
         ),
         ElevatedButton(
           onPressed: _isLoading ? null : _saveProfile,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFE94560),
-            foregroundColor: Colors.white,
+            backgroundColor: const Color(0xFFC89A4E), // Gold
+            foregroundColor: const Color(0xFF1C1C1C), // Black
           ),
           child: _isLoading
               ? const SizedBox(

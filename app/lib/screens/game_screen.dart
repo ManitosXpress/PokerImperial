@@ -276,10 +276,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     }
     
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A2E),
+      backgroundColor: Colors.black,
       appBar: AppBar(
         title: Text('${languageProvider.getText('room')}: ${widget.roomId}'),
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.black,
         elevation: 0,
         actions: [
           Padding(
@@ -306,8 +306,26 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           ),
         ],
       ),
-      body: gameState == null
-          ? Center(
+      body: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/game_background.png'),
+            fit: BoxFit.cover,
+          ),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withOpacity(0.5),
+                Colors.black.withOpacity(0.7),
+              ],
+            ),
+          ),
+          child: gameState == null
+              ? Center(
               child: Container(
                 padding: const EdgeInsets.all(32),
                 constraints: const BoxConstraints(maxWidth: 500),
@@ -465,8 +483,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                           height: tableHeight,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(150),
-                            border: Border.all(color: const Color(0xFF1A1A1A), width: 20), // Darker Rim
-                            color: const Color(0xFF2C5D3F),
+                            border: Border.all(color: const Color(0xFFC89A4E), width: 20), // Gold Rail
+                            color: const Color(0xFFF1E3D3), // Light Beige Felt
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withOpacity(0.9),
@@ -483,7 +501,18 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                   margin: const EdgeInsets.all(15),
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(130),
-                                    border: Border.all(color: Colors.white.withOpacity(0.1), width: 2),
+                                    border: Border.all(color: const Color(0xFF1C1C1C), width: 2), // Black Inner Line
+                                  ),
+                                ),
+                              ),
+                              // Table Logo (Background)
+                              Center(
+                                child: Opacity(
+                                  opacity: 0.3, // Semi-transparent
+                                  child: Image.asset(
+                                    'assets/images/table_center_logo_new.png',
+                                    width: tableWidth * 0.6, // Adjust size relative to table
+                                    fit: BoxFit.contain,
                                   ),
                                 ),
                               ),
@@ -494,7 +523,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                     Text(
                                       'POT: ${gameState!['pot']}',
                                       style: TextStyle(
-                                        color: const Color(0xFFFFD700),
+                                        color: const Color(0xFF1C1C1C), // Black Text
                                         fontWeight: FontWeight.bold,
                                         fontSize: ResponsiveUtils.fontSize(context, 18),
                                         shadows: const [Shadow(color: Colors.black, blurRadius: 2)],
@@ -1061,6 +1090,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                   ),
               ],
             ),
+        ),
+      ),
     );
   }
 }
