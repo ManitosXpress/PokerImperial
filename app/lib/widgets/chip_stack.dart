@@ -28,7 +28,7 @@ class ChipStack extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Image.asset(
-                'assets/images/coin.png',
+                'assets/images/moneda.png',
                 fit: BoxFit.contain,
               ),
             ),

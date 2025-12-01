@@ -11,6 +11,8 @@ class PlayerSeat extends StatelessWidget {
   final bool isDealer;
   final bool isFolded;
   final List<String>? cards;
+  final String? handRank; // Add hand rank for showdown
+  final bool isWinner; // Highlight winner
 
   const PlayerSeat({
     super.key,
@@ -21,6 +23,8 @@ class PlayerSeat extends StatelessWidget {
     this.isDealer = false,
     this.isFolded = false,
     this.cards,
+    this.handRank,
+    this.isWinner = false,
   });
 
 
@@ -45,13 +49,56 @@ class PlayerSeat extends StatelessWidget {
         if (cards != null && cards!.isNotEmpty)
           Container(
             margin: const EdgeInsets.only(bottom: 4),
-            height: cardHeight,
+            padding: isWinner ? const EdgeInsets.all(4) : EdgeInsets.zero,
+            decoration: isWinner
+                ? BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFFD700), width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFFD700).withOpacity(0.6),
+                        blurRadius: 12,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  )
+                : null,
+            height: cardHeight + (isWinner ? 8 : 0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: cards!.map((c) => Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2.0),
                 child: PokerCard(cardCode: c, width: cardWidth),
               )).toList(),
+            ),
+          ),
+        
+        // Hand Rank (shown at showdown)
+        if (handRank != null && handRank!.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: isWinner ? const Color(0xFFFFD700) : Colors.black.withOpacity(0.8),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFFFD700), width: isWinner ? 2 : 1),
+              boxShadow: isWinner
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFFFFD700).withOpacity(0.5),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Text(
+              handRank!,
+              style: TextStyle(
+                color: isWinner ? Colors.black : const Color(0xFFFFD700),
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         

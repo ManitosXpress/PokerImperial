@@ -369,7 +369,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage('assets/images/game_background.png'),
+            image: AssetImage('assets/images/poker2_background.jpg'),
             fit: BoxFit.cover,
           ),
         ),
@@ -568,10 +568,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                               // Table Logo (Background)
                               Center(
                                 child: Opacity(
-                                  opacity: 0.3, // Semi-transparent
+                                  opacity: 0.5, // Semi-transparent
                                   child: Image.asset(
-                                    'assets/images/table_center_logo_new.png',
-                                    width: tableWidth * 0.6, // Adjust size relative to table
+                                    'assets/images/mesa.png',
+                                    width: tableWidth * 0.4, // Adjust size relative to table
                                     fit: BoxFit.contain,
                                   ),
                                 ),
@@ -658,9 +658,32 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                      bool isMe = player['id'] == myId;
                      bool isDealer = player['id'] == gameState!['dealerId'];
                      
+                     
+                     // Show cards
                      List<String>? cards;
+                     final bool isShowdown = (gameState!['status'] == 'finished' || gameState!['stage'] == 'showdown');
+                     
                      if (isMe && !isFolded) {
+                        // Always show my cards if not folded
                         cards = (player['hand'] as List?)?.cast<String>();
+                     } else if (!isFolded && isShowdown) {
+                        // At showdown, show all active cards
+                        cards = (player['hand'] as List?)?.cast<String>();
+                     }
+                     
+                     
+                     // Get hand rank if available (at showdown)
+                     String? handRank;
+                     bool isWinner = false;
+                     if (isShowdown && !isFolded) {
+                       handRank = player['handRank'] as String?;
+                       
+                       // Check if this player is a winner
+                       final winners = gameState?['winners'];
+                       if (winners != null && winners['winners'] != null) {
+                         final winnersList = winners['winners'] as List;
+                         isWinner = winnersList.any((w) => w['playerId'] == player['id']);
+                       }
                      }
 
                      // Calculate bet position
@@ -688,6 +711,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                              isDealer: isDealer,
                              isFolded: isFolded,
                              cards: cards,
+                             handRank: handRank, // Pass hand rank
+                             isWinner: isWinner, // Pass winner flag
+
                            ),
                          ),
                          // Bet Chips
@@ -733,7 +759,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.monetization_on, color: Colors.amber, size: 20),
+                            Image.asset('assets/images/moneda.png', width: 20, height: 20),
                             const SizedBox(width: 6),
                             Text(
                               '${walletProvider.balance}',
@@ -1152,6 +1178,24 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
             ),
         ),
       ),
+      floatingActionButton: (widget.isPracticeMode && gameState?['status'] == 'finished')
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                _practiceController?.startNextHand();
+              },
+              backgroundColor: const Color(0xFFFFD700),
+              icon: const Icon(Icons.play_arrow, color: Colors.black),
+              label: Text(
+                languageProvider.getText('continue') ?? 'Continuar',
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 }

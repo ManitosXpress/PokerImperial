@@ -6,11 +6,13 @@ import '../tournament/create_tournament_screen.dart';
 class ClubTournamentsScreen extends StatefulWidget {
   final String clubId;
   final bool isOwner;
+  final bool isEmbedded;
 
   const ClubTournamentsScreen({
     super.key,
     required this.clubId,
     required this.isOwner,
+    this.isEmbedded = false,
   });
 
   @override
@@ -41,6 +43,10 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.isEmbedded) {
+      return _buildContent();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Club Tournaments'),
@@ -54,8 +60,17 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
             colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
           ),
         ),
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+        child: _buildContent(),
+      ),
+      floatingActionButton: _buildFloatingActionButton(),
+    );
+  }
+
+  Widget _buildContent() {
+    return Stack(
+      children: [
+        _isLoading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)))
             : _tournaments.isEmpty
                 ? Center(
                     child: Column(
@@ -103,23 +118,33 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
                       );
                     },
                   ),
-      ),
-      floatingActionButton: widget.isOwner
-          ? FloatingActionButton.extended(
-              onPressed: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CreateTournamentScreen(clubId: widget.clubId),
-                  ),
-                );
-                _loadTournaments();
-              },
-              label: const Text('Create Tournament'),
-              icon: const Icon(Icons.add),
-              backgroundColor: const Color(0xFFE94560),
-            )
-          : null,
+        // If embedded, show FAB in bottom right of the tab view
+        if (widget.isEmbedded && widget.isOwner)
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: _buildFloatingActionButton()!,
+          ),
+      ],
+    );
+  }
+
+  Widget? _buildFloatingActionButton() {
+    if (!widget.isOwner) return null;
+    
+    return FloatingActionButton.extended(
+      onPressed: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CreateTournamentScreen(clubId: widget.clubId),
+          ),
+        );
+        _loadTournaments();
+      },
+      label: const Text('Create Tournament'),
+      icon: const Icon(Icons.add),
+      backgroundColor: const Color(0xFFE94560),
     );
   }
 }

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'types.dart';
-import 'hand_evaluator.dart';
+import 'hand_evaluator.dart'; // Includes PokerHand
 import 'bot_ai.dart';
 import 'poker_state_machine.dart';
 
@@ -47,6 +47,14 @@ class PracticeGameController {
   }
 
   void _startNewHand() {
+    // Check for bankrupt players and rebuy
+    for (var p in gameState.players) {
+      if (p.chips <= 0) {
+        p.chips = 10000; // Auto-rebuy
+        // You might want to notify the UI about this, but for now silent rebuy keeps flow
+      }
+    }
+
     gameState.status = GameStatus.playing;
     gameState.stage = GameStage.preFlop;
     gameState.pot = 0;
@@ -141,12 +149,18 @@ class PracticeGameController {
       case 'bet':
       case 'raise':
         int totalBet = amount;
-        if (action == 'raise') totalBet += gameState.currentBet; // Simplified
-        // Actually amount usually means "add to pot" or "total bet" depending on UI
-        // Let's assume amount is the TOTAL bet the player wants to be at
-        if (amount < gameState.minBet) amount = gameState.minBet;
-        int diff = amount - player.currentBet;
-        _placeBet(player, diff);
+        if (action == 'raise') totalBet += gameState.currentBet; 
+        
+        // Validation: Cannot bet more than chips
+        int needed = totalBet - player.currentBet;
+        if (needed > player.chips) {
+          // If trying to bet more than chips, treat as All-In
+          _placeBet(player, player.chips);
+        } else {
+          if (amount < gameState.minBet) amount = gameState.minBet;
+          int diff = amount - player.currentBet;
+          _placeBet(player, diff);
+        }
         break;
       case 'allin':
         _placeBet(player, player.chips);
@@ -222,6 +236,26 @@ class PracticeGameController {
   }
 
   void _handleShowdown() {
+    // Evaluate all hands (not just winners)
+    final allHandsEvaluated = <String, Map<String, dynamic>>{};
+    
+    for (var player in gameState.players) {
+      if (!player.isFolded) {
+        try {
+          final allCards = [...player.hand, ...gameState.communityCards];
+          final pokerHand = PokerHand.fromStrings(allCards);
+          allHandsEvaluated[player.id] = {
+            'handRank': pokerHand.rankDescription,
+            'cards': pokerHand.cards,
+          };
+          player.handRank = pokerHand.rankDescription; // Set for display
+        } catch (e) {
+          print('Error evaluating hand for ${player.name}: $e');
+          player.handRank = 'Unknown';
+        }
+      }
+    }
+    
     final winners = HandEvaluator.determineWinners(gameState.players, gameState.communityCards);
     final distribution = HandEvaluator.calculatePotDistribution(gameState.players, winners, gameState.pot);
     
@@ -237,13 +271,15 @@ class PracticeGameController {
 
     _notifyState();
 
-    // Auto restart
-    Timer(Duration(seconds: 5), () {
-      // Move dealer
-      int dealerIdx = gameState.players.indexWhere((p) => p.id == gameState.dealerId);
-      gameState.dealerId = gameState.players[(dealerIdx + 1) % gameState.players.length].id;
-      _startNewHand();
-    });
+    // Don't auto-restart, wait for user to click "Continue"
+  }
+  
+  // Public method to start next hand (called from UI)
+  void startNextHand() {
+    // Move dealer
+    int dealerIdx = gameState.players.indexWhere((p) => p.id == gameState.dealerId);
+    gameState.dealerId = gameState.players[(dealerIdx + 1) % gameState.players.length].id;
+    _startNewHand();
   }
 
   void _notifyState() {

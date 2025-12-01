@@ -142,4 +142,28 @@ class ClubProvider with ChangeNotifier {
       rethrow; // Propagate error to UI
     }
   }
+
+  Future<void> transferClubToMember(String clubId, String memberId, int amount) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final result = await _functions.httpsCallable('transferClubToMemberFunction').call({
+        'clubId': clubId,
+        'memberId': memberId,
+        'amount': amount,
+      });
+
+      if (result.data['success'] == true) {
+        // Refresh club data to show new balance
+        await fetchClubs();
+      }
+    } catch (e) {
+      print('Error transferring credits: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 }

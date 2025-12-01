@@ -40,63 +40,66 @@ export const getClubLeaderboard = async (data: any, context: functions.https.Cal
         return { leaderboard: [] };
     }
 
+    let leaderboard: any[] = [];
+
+
     try {
         // Try to use the indexed query first
         console.log('📊 Attempting indexed query...');
         const usersSnapshot = await db.collection('users')
             .where('clubId', '==', clubId)
-            .orderBy('credits', 'desc') // Requires an index
+            .orderBy('credit', 'desc') // Correct field name is 'credit'
             .limit(50)
             .get();
 
-        const leaderboard = usersSnapshot.docs.map(doc => {
+        leaderboard = usersSnapshot.docs.map(doc => {
             const userData = doc.data();
             return {
                 uid: doc.id,
                 displayName: userData.displayName || 'Unknown',
                 photoURL: userData.photoURL || '',
-                credits: userData.credits || 0,
+                credits: userData.credit || 0, // Use 'credit' from DB
             };
         });
 
-        console.log(`✅ Successfully fetched ${leaderboard.length} leaderboard entries`);
-        return { leaderboard };
+        console.log(`✅ Indexed query found ${leaderboard.length} entries`);
 
     } catch (error: any) {
         console.log(`⚠️ Indexed query failed: ${error.message}`);
-
-        // If index is missing and club is small (<=10 members), fetch individually
-        if (error.message.includes('index') && members.length <= 10) {
-            console.log(`📊 Falling back to individual member fetch for ${members.length} members`);
-
-            const userDocs = await Promise.all(
-                members.map((uid: string) => db.collection('users').doc(uid).get())
-            );
-
-            const leaderboard = userDocs
-                .filter(doc => doc.exists)
-                .map(doc => {
-                    const userData = doc.data()!;
-                    return {
-                        uid: doc.id,
-                        displayName: userData.displayName || 'Unknown',
-                        photoURL: userData.photoURL || '',
-                        credits: userData.credits || 0,
-                    };
-                })
-                .sort((a, b) => b.credits - a.credits);
-
-            console.log(`✅ Fallback successful: ${leaderboard.length} members`);
-            return { leaderboard };
-        }
-
-        // Re-throw for other errors or large clubs
-        console.error(`❌ Cannot fetch leaderboard: ${error.message}`);
-        throw new functions.https.HttpsError(
-            'failed-precondition',
-            `Failed to fetch leaderboard. ${error.message.includes('index') ?
-                'Please create the required Firestore index. Check the Firebase Console Functions logs for the index creation link.' :
-                error.message}`
-        );
+        // We will fall through to the fallback check
     }
+
+    // FALLBACK: If query returned no results (or failed) BUT we have members, fetch individually
+    // This handles cases where:
+    // 1. Firestore index is missing (error caught above)
+    // 2. Users don't have 'clubId' field set (query returns empty)
+    // 3. Data inconsistency
+    if (leaderboard.length === 0 && members.length > 0) {
+        console.log(`📊 Falling back to individual member fetch for ${members.length} members`);
+
+
+        // Limit fallback to 50 members to prevent explosion
+        const membersToFetch = members.slice(0, 50);
+
+        const userDocs = await Promise.all(
+            membersToFetch.map((uid: string) => db.collection('users').doc(uid).get())
+        );
+
+        leaderboard = userDocs
+            .filter(doc => doc.exists)
+            .map(doc => {
+                const userData = doc.data()!;
+                return {
+                    uid: doc.id,
+                    displayName: userData.displayName || 'Unknown',
+                    photoURL: userData.photoURL || '',
+                    credits: userData.credit || 0, // Use 'credit' from DB, map to 'credits' for frontend
+                };
+            })
+            .sort((a, b) => b.credits - a.credits);
+
+        console.log(`✅ Fallback successful: ${leaderboard.length} members`);
+    }
+
+    return { leaderboard };
 };

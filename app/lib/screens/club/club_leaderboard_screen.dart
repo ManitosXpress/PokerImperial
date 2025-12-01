@@ -5,11 +5,13 @@ import '../../providers/club_provider.dart';
 class ClubLeaderboardScreen extends StatefulWidget {
   final String clubId;
   final String ownerId;
+  final bool isEmbedded;
 
   const ClubLeaderboardScreen({
     super.key,
     required this.clubId,
     required this.ownerId,
+    this.isEmbedded = false,
   });
 
   @override
@@ -54,6 +56,10 @@ class _ClubLeaderboardScreenState extends State<ClubLeaderboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.isEmbedded) {
+      return _buildContent();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Club Leaderboard'),

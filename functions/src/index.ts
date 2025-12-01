@@ -26,3 +26,7 @@ export const createTournamentFunction = functions.https.onCall(createTournament)
 // Leaderboard Functions
 import { getClubLeaderboard } from './functions/leaderboard';
 export const getClubLeaderboardFunction = functions.https.onCall(getClubLeaderboard);
+
+// Club Wallet Functions
+import { transferClubToMember } from './functions/clubWallet';
+export const transferClubToMemberFunction = functions.https.onCall(transferClubToMember);
