@@ -18,7 +18,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _nicknameController = TextEditingController();
 
@@ -26,27 +26,27 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _usernameController.dispose();
     _passwordController.dispose();
     _nicknameController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleEmailAuth() async {
+  Future<void> _handleAuth() async {
     if (!_formKey.currentState!.validate()) return;
 
     final authProvider = context.read<AuthProvider>();
     
     bool success;
     if (_isRegistering) {
-      success = await authProvider.registerWithEmail(
-        email: _emailController.text.trim(),
+      success = await authProvider.registerWithUsername(
+        username: _usernameController.text.trim(),
         password: _passwordController.text,
         nickname: _nicknameController.text.trim(),
       );
     } else {
-      success = await authProvider.signInWithEmail(
-        email: _emailController.text.trim(),
+      success = await authProvider.signInWithUsername(
+        username: _usernameController.text.trim(),
         password: _passwordController.text,
       );
     }
@@ -78,7 +78,7 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage('assets/images/login_background.jpg'),
+            image: AssetImage('assets/images/poker3_background.jpg'),
             fit: BoxFit.cover,
           ),
         ),
@@ -121,13 +121,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Email field
+                        // Username field
                         TextFormField(
-                          controller: _emailController,
+                          controller: _usernameController,
                           decoration: InputDecoration(
-                            labelText: isSpanish ? 'Correo Electrónico' : 'Email',
+                            labelText: isSpanish ? 'Usuario' : 'Username',
                             labelStyle: const TextStyle(color: Color(0xFFC89A4E)), // Gold label
-                            prefixIcon: const Icon(Icons.email, color: Color(0xFFC89A4E)), // Gold icon
+                            prefixIcon: const Icon(Icons.person, color: Color(0xFFC89A4E)), // Gold icon
                             filled: true,
                             fillColor: const Color(0xFF2C2C2C), // Slightly lighter black for inputs
                             enabledBorder: OutlineInputBorder(
@@ -140,13 +140,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           style: const TextStyle(color: Color(0xFFF1E3D3)), // Light Beige text
-                          keyboardType: TextInputType.emailAddress,
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return isSpanish ? 'Ingresa tu correo' : 'Enter email';
+                              return isSpanish ? 'Ingresa tu usuario' : 'Enter username';
                             }
-                            if (!value.contains('@')) {
-                              return isSpanish ? 'Correo inválido' : 'Invalid email';
+                            if (value.contains(' ')) {
+                              return isSpanish ? 'Sin espacios' : 'No spaces';
                             }
                             return null;
                           },
@@ -223,7 +222,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           width: double.infinity,
                           height: 50,
                           child: ElevatedButton(
-                            onPressed: authProvider.isLoading ? null : _handleEmailAuth,
+                            onPressed: authProvider.isLoading ? null : _handleAuth,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFFC89A4E), // Gold button
                               foregroundColor: const Color(0xFF1C1C1C), // Black text

@@ -24,9 +24,9 @@ class AuthProvider extends ChangeNotifier {
     });
   }
 
-  /// Register with email and password
-  Future<bool> registerWithEmail({
-    required String email,
+  /// Register with username and password
+  Future<bool> registerWithUsername({
+    required String username,
     required String password,
     required String nickname,
   }) async {
@@ -35,8 +35,8 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _authService.registerWithEmail(
-        email: email,
+      await _authService.registerWithUsername(
+        username: username,
         password: password,
         nickname: nickname,
       );
@@ -51,9 +51,9 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// Sign in with email and password
-  Future<bool> signInWithEmail({
-    required String email,
+  /// Sign in with username and password
+  Future<bool> signInWithUsername({
+    required String username,
     required String password,
   }) async {
     _isLoading = true;
@@ -61,8 +61,8 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _authService.signInWithEmail(
-        email: email,
+      await _authService.signInWithUsername(
+        username: username,
         password: password,
       );
       _isLoading = false;

@@ -27,9 +27,11 @@ class ChipStack extends StatelessWidget {
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
               ),
-              child: Image.asset(
-                'assets/images/moneda.png',
-                fit: BoxFit.contain,
+              child: ClipOval(
+                child: Image.asset(
+                  'assets/images/coin.png',
+                  fit: BoxFit.contain,
+                ),
               ),
             ),
           );

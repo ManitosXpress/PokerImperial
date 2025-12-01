@@ -543,8 +543,16 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                           height: tableHeight,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(150),
-                            border: Border.all(color: const Color(0xFFC89A4E), width: 20), // Gold Rail
-                            color: const Color(0xFFF1E3D3), // Light Beige Felt
+                            border: Border.all(color: const Color(0xFF3E2723), width: 25), // Dark Wood Rail
+                            gradient: const RadialGradient(
+                              colors: [
+                                Color(0xFFFFF8E1), // Light center (Spotlight)
+                                Color(0xFF5D4037), // Darker edge (Vignette)
+                              ],
+                              stops: [0.2, 1.0],
+                              center: Alignment.center,
+                              radius: 0.8,
+                            ),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withOpacity(0.9),
@@ -568,9 +576,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                               // Table Logo (Background)
                               Center(
                                 child: Opacity(
-                                  opacity: 0.5, // Semi-transparent
+                                  opacity: 0.25, // Reduced opacity for "printed on felt" look
                                   child: Image.asset(
-                                    'assets/images/mesa.png',
+                                    'assets/images/table.png',
                                     width: tableWidth * 0.4, // Adjust size relative to table
                                     fit: BoxFit.contain,
                                   ),
@@ -759,7 +767,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Image.asset('assets/images/moneda.png', width: 20, height: 20),
+                            Image.asset('assets/images/coin.png', width: 20, height: 20),
                             const SizedBox(width: 6),
                             Text(
                               '${walletProvider.balance}',

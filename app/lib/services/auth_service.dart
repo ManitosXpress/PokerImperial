@@ -17,14 +17,16 @@ class AuthService {
   /// Stream of auth state changes
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
-  /// Register with email and password
+  /// Register with username and password
   /// Creates user profile in Firestore automatically
-  Future<UserCredential> registerWithEmail({
-    required String email,
+  Future<UserCredential> registerWithUsername({
+    required String username,
     required String password,
     required String nickname,
   }) async {
     try {
+      final email = '$username@poker.app';
+      
       // Create user account
       final UserCredential userCredential =
           await _auth.createUserWithEmailAndPassword(
@@ -36,10 +38,10 @@ class AuthService {
       await userCredential.user?.updateDisplayName(nickname);
 
       // Create user profile in Firestore
-      // Note: credit will be set to 0 initially, then updated by backend on token verification
       await _createUserProfile(
         uid: userCredential.user!.uid,
         email: email,
+        username: username, // Store username explicitly
         nickname: nickname,
       );
 
@@ -49,12 +51,14 @@ class AuthService {
     }
   }
 
-  /// Sign in with email and password
-  Future<UserCredential> signInWithEmail({
-    required String email,
+  /// Sign in with username and password
+  Future<UserCredential> signInWithUsername({
+    required String username,
     required String password,
   }) async {
     try {
+      final email = '$username@poker.app';
+      
       return await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -75,12 +79,14 @@ class AuthService {
   Future<void> _createUserProfile({
     required String uid,
     required String email,
+    required String username,
     required String nickname,
   }) async {
     try {
       await _firestore.collection('users').doc(uid).set({
         'uid': uid,
         'email': email,
+        'username': username,
         'displayName': nickname, // Changed from 'nickname' to 'displayName'
         'photoURL': '', // Empty for email/password registration
         'createdAt': FieldValue.serverTimestamp(),

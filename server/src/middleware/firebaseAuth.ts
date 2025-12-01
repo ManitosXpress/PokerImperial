@@ -37,13 +37,24 @@ export async function verifyFirebaseToken(token: string): Promise<string | null>
         const userDoc = await userRef.get();
 
         if (!userDoc.exists) {
+            // Fetch latest user data from Auth to ensure we get the updated displayName
+            let displayName = decodedToken.name || 'Player';
+            try {
+                const userRecord = await admin.auth().getUser(uid);
+                if (userRecord.displayName) {
+                    displayName = userRecord.displayName;
+                }
+            } catch (e) {
+                console.warn('Could not fetch user record for displayName update:', e);
+            }
+
             const initialBalance = 1000;
             const now = admin.firestore.FieldValue.serverTimestamp();
 
             const userData = {
                 uid: uid,
                 email: decodedToken.email || '',
-                displayName: decodedToken.name || 'Player',
+                displayName: displayName,
                 photoURL: decodedToken.picture || '',
                 credit: initialBalance, // Changed from walletBalance to credit
                 createdAt: now,
