@@ -25,7 +25,11 @@ class ClubProvider with ChangeNotifier {
     try {
       // Fetch all clubs
       final snapshot = await _firestore.collection('clubs').get();
-      _clubs = snapshot.docs.map((doc) => doc.data()).toList();
+      _clubs = snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
 
       // Check if user has a club
       final userDoc = await _firestore.collection('users').doc(_auth.currentUser?.uid).get();
@@ -35,6 +39,7 @@ class ClubProvider with ChangeNotifier {
         final myClubDoc = await _firestore.collection('clubs').doc(clubId).get();
         if (myClubDoc.exists) {
           _myClub = myClubDoc.data();
+          _myClub!['id'] = myClubDoc.id;
         }
       } else {
         _myClub = null;
@@ -93,16 +98,42 @@ class ClubProvider with ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> fetchClubTournaments(String clubId) async {
+    print('🔍 Fetching tournaments for clubId: "$clubId" (Length: ${clubId.length})');
     try {
+      // Try with ordering first (requires index)
       final snapshot = await _firestore
           .collection('tournaments')
           .where('clubId', isEqualTo: clubId)
           .orderBy('createdAt', descending: true)
           .get();
+      print('✅ Found ${snapshot.docs.length} tournaments with sorted query.');
       return snapshot.docs.map((doc) => doc.data()).toList();
     } catch (e) {
-      print('Error fetching club tournaments: $e');
-      return [];
+      print('❌ Error fetching club tournaments with sort: $e');
+      
+      // Fallback: Try without ordering (no index required usually for simple equality)
+      try {
+        print('⚠️ Attempting fallback fetch without sorting...');
+        final snapshot = await _firestore
+            .collection('tournaments')
+            .where('clubId', isEqualTo: clubId)
+            .get();
+        
+        print('✅ Found ${snapshot.docs.length} tournaments with fallback query.');
+        
+        // Sort manually in memory
+        final docs = snapshot.docs.map((doc) => doc.data()).toList();
+        docs.sort((a, b) {
+          final aTime = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+          final bTime = (b['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+          return bTime.compareTo(aTime);
+        });
+        
+        return docs;
+      } catch (e2) {
+        print('❌ Error fetching club tournaments fallback: $e2');
+        return [];
+      }
     }
   }
 

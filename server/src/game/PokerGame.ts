@@ -310,8 +310,9 @@ export class PokerGame {
         if (winners.length === 1) {
             // Single winner
             const winner = winners[0].player;
+            const winnerHand = winners[0].hand;
             winner.totalRakePaid = (winner.totalRakePaid || 0) + rakeAmount;
-            this.endHand(winner, potAfterRake);
+            this.endHand(winner, potAfterRake, winnerHand, playerHands);
         } else {
             // Split pot
             const splitAmount = Math.floor(potAfterRake / winners.length);
@@ -329,10 +330,22 @@ export class PokerGame {
                     winners: winners.map(w => ({
                         id: w.player.id,
                         name: w.player.name,
-                        amount: splitAmount
+                        amount: splitAmount,
+                        handDescription: w.hand.descr || w.hand.name
                     })),
                     split: true,
                     rake: rakeAmount,
+                    // Include all players with their cards for display
+                    players: this.players.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        isFolded: p.isFolded,
+                        hand: p.isFolded ? null : p.hand,
+                        handDescription: !p.isFolded && p.hand ?
+                            Hand.solve([...p.hand, ...this.communityCards]).descr ||
+                            Hand.solve([...p.hand, ...this.communityCards]).name
+                            : null
+                    })),
                     gameState: this.getGameState()
                 });
             }
@@ -379,7 +392,8 @@ export class PokerGame {
         return this.deck.splice(0, count);
     }
 
-    private endHand(winner: Player, wonAmount?: number) {
+
+    private endHand(winner: Player, wonAmount?: number, winnerHand?: any, playerHands?: Array<{ player: Player, hand: any }>) {
         let finalAmount = wonAmount;
         let rakeAmount = 0;
 
@@ -400,14 +414,26 @@ export class PokerGame {
                 winner: {
                     id: winner.id,
                     name: winner.name,
-                    amount: finalAmount
+                    amount: finalAmount,
+                    handDescription: winnerHand ? (winnerHand.descr || winnerHand.name) : null
                 },
-                rake: rakeAmount > 0 ? rakeAmount : undefined, // Only send if calculated here, otherwise it was sent in evaluateWinner (wait, evaluateWinner calls endHand too)
+                rake: rakeAmount > 0 ? rakeAmount : undefined,
+                // Include all players with their cards for display
+                players: this.players.map(p => ({
+                    id: p.id,
+                    name: p.name,
+                    isFolded: p.isFolded,
+                    hand: p.isFolded ? null : p.hand,
+                    handDescription: !p.isFolded && p.hand ?
+                        Hand.solve([...p.hand, ...this.communityCards]).descr ||
+                        Hand.solve([...p.hand, ...this.communityCards]).name
+                        : null
+                })),
                 gameState: this.getGameState()
             });
         }
 
-        console.log(`${winner.name} wins ${wonAmount} chips!`);
+        console.log(`${winner.name} wins ${finalAmount} chips!`);
 
         // Auto-start next hand after 5 seconds
         setTimeout(() => {

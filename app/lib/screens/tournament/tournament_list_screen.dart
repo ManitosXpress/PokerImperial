@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/tournament_provider.dart';
 import 'create_tournament_screen.dart';
+import '../../widgets/poker_loading_indicator.dart';
 
 class TournamentListScreen extends StatefulWidget {
   const TournamentListScreen({super.key});
@@ -37,7 +38,12 @@ class _TournamentListScreenState extends State<TournamentListScreen> {
           ),
         ),
         child: provider.isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(
+                child: PokerLoadingIndicator(
+                  statusText: 'Loading Tournaments...',
+                  color: Color(0xFFFFD700),
+                ),
+              )
             : ListView.builder(
                 padding: const EdgeInsets.all(16),
                 itemCount: provider.tournaments.length,

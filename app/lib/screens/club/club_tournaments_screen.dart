@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/club_provider.dart';
+import '../../providers/wallet_provider.dart';
 import '../tournament/create_tournament_screen.dart';
+import '../../widgets/poker_loading_indicator.dart';
 
 class ClubTournamentsScreen extends StatefulWidget {
   final String clubId;
@@ -70,7 +72,12 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
     return Stack(
       children: [
         _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)))
+            ? const Center(
+                child: PokerLoadingIndicator(
+                  statusText: 'Loading Tournaments...',
+                  color: Color(0xFFFFD700),
+                ),
+              )
             : _tournaments.isEmpty
                 ? Center(
                     child: Column(
@@ -107,7 +114,32 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
                           ),
                           trailing: ElevatedButton(
                             onPressed: () {
-                              // Join logic
+                              final buyIn = (tournament['buyIn'] as num).toDouble();
+                              final balance = Provider.of<WalletProvider>(context, listen: false).balance;
+
+                              if (balance < buyIn) {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Saldo Insuficiente', style: TextStyle(color: Colors.red)),
+                                    content: const Text(
+                                      'No tienes créditos suficientes para entrar al torneo.\n\n'
+                                      'Por favor, comunícate con tu líder de club para cargar más crédito.',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Entendido'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              } else {
+                                // Proceed with join logic (to be implemented)
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Joining tournament... (Logic pending)')),
+                                );
+                              }
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,

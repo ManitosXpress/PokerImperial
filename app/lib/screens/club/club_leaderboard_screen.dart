@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/club_provider.dart';
+import '../../widgets/poker_loading_indicator.dart';
 
 class ClubLeaderboardScreen extends StatefulWidget {
   final String clubId;
@@ -86,7 +87,12 @@ class _ClubLeaderboardScreenState extends State<ClubLeaderboardScreen> {
 
   Widget _buildContent() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: PokerLoadingIndicator(
+          statusText: 'Loading Leaderboard...',
+          color: Color(0xFFFFD700),
+        ),
+      );
     }
 
     if (_errorMessage != null) {

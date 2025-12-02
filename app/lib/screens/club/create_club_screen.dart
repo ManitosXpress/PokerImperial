@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/club_provider.dart';
+import '../../widgets/poker_loading_indicator.dart';
 
 class CreateClubScreen extends StatefulWidget {
   const CreateClubScreen({super.key});
@@ -70,7 +71,17 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFE94560),
                 ),
-                child: const Text('Create Club'),
+                child: Consumer<ClubProvider>(
+                  builder: (context, provider, child) {
+                    return provider.isLoading
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: PokerLoadingIndicator(size: 24, color: Colors.white),
+                          )
+                        : const Text('Create Club');
+                  },
+                ),
               ),
             ),
           ],

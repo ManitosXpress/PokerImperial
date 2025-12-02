@@ -12,6 +12,7 @@ import '../widgets/withdraw_credits_dialog.dart';
 import '../widgets/wallet_display.dart';
 import 'club/club_dashboard_screen.dart';
 import 'tournament/tournament_list_screen.dart';
+import '../widgets/poker_loading_indicator.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -21,25 +22,40 @@ class LobbyScreen extends StatefulWidget {
 }
 
 class _LobbyScreenState extends State<LobbyScreen> {
-  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _roomController = TextEditingController();
   bool _isCreating = false;
   bool _isJoining = false;
+  bool _isLoadingClubs = false;
+  bool _isLoadingTournaments = false;
 
   @override
   void dispose() {
-    _nameController.dispose();
     _roomController.dispose();
     super.dispose();
   }
 
-  void _navigateToGame(String roomId, [Map<String, dynamic>? initialState]) {
+  void _navigateToGame(String roomId, [Map<String, dynamic>? initialState]) async {
+    // Show loading if not already shown by a button state
+    // For practice/create/join, the button state handles the UI loader.
+    // We just need to add the delay here or in the button handlers.
+    // Let's add it in the button handlers for better control, or here if generic.
+    // Since _navigateToGame is called after success, we can add delay here BUT
+    // we need to make sure the button loader stays active.
+    // The button handlers set _isCreating/_isJoining to true, call service, then false.
+    // We should modify the button handlers to keep it true until after navigation/delay.
+    
     final bool isPractice = initialState?['isPracticeMode'] ?? false;
+    
+    // Artificial delay
+    await Future.delayed(const Duration(seconds: 1));
+
+    if (!mounted) return;
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GameScreen(
           roomId: roomId,
-          initialGameState: isPractice ? null : initialState, // Don't pass state for practice, let controller init it
+          initialGameState: isPractice ? null : initialState,
           isPracticeMode: isPractice,
         ),
       ),
@@ -219,100 +235,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       // Wallet and controls
                       Row(
                         children: [
-                          // Wallet Menu Button
-                          PopupMenuButton<String>(
-                            offset: const Offset(0, 45),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              side: BorderSide(color: Colors.white.withOpacity(0.1)),
-                            ),
-                            color: const Color(0xFF1A1A1A),
-                            tooltip: languageProvider.currentLocale.languageCode == 'en' ? 'Wallet Options' : 'Opciones de Billetera',
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: goldColor,
-                                borderRadius: BorderRadius.circular(20),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.account_balance_wallet, size: 18, color: blackColor),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    languageProvider.currentLocale.languageCode == 'en' ? 'Wallet' : 'Billetera',
-                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: blackColor),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  const Icon(Icons.keyboard_arrow_down, size: 18, color: blackColor),
-                                ],
-                              ),
-                            ),
-                            onSelected: (value) {
-                              if (value == 'add') {
-                                showDialog(
-                                  context: context,
-                                  builder: (_) => const AddCreditsDialog(),
-                                );
-                              } else if (value == 'withdraw') {
-                                showDialog(
-                                  context: context,
-                                  builder: (_) => const WithdrawCreditsDialog(),
-                                );
-                              }
-                            },
-                            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                              PopupMenuItem<String>(
-                                value: 'add',
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(6),
-                                      decoration: BoxDecoration(
-                                        color: Colors.green.withOpacity(0.2),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(Icons.add, color: Colors.green, size: 16),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Text(
-                                      languageProvider.currentLocale.languageCode == 'en' ? 'Add Credits' : 'Agregar Créditos',
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuDivider(height: 1),
-                              PopupMenuItem<String>(
-                                value: 'withdraw',
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(6),
-                                      decoration: BoxDecoration(
-                                        color: Colors.blue.withOpacity(0.2),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(Icons.arrow_downward, color: Colors.blue, size: 16),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Text(
-                                      languageProvider.currentLocale.languageCode == 'en' ? 'Withdraw' : 'Retirar Créditos',
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 12),
                           // Wallet Display
                           const WalletDisplay(),
                           const SizedBox(width: 12),
@@ -384,7 +306,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             ),
                             textAlign: TextAlign.center,
                           ),
-                          const SizedBox(height: 60),
+                          const SizedBox(height: 40),
                           
                           // Connection Status
                           Container(
@@ -422,49 +344,234 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             ),
                           ),
                           const SizedBox(height: 40),
-                          
-                          // Name Input
-                          Container(
-                            constraints: const BoxConstraints(maxWidth: 400),
-                            child: TextField(
-                              controller: _nameController,
-                              style: const TextStyle(color: beigeColor, fontSize: 16),
-                              decoration: InputDecoration(
-                                labelText: languageProvider.getText('your_name'),
-                                labelStyle: const TextStyle(color: goldColor),
-                                filled: true,
-                                fillColor: Colors.white.withOpacity(0.1),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: goldColor, width: 1),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: goldColor, width: 2),
-                                ),
-                                prefixIcon: const Icon(Icons.person, color: goldColor),
+
+                          // Clubs and Tournaments Buttons (Moved to Top)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildFeatureButton(
+                                context,
+                                icon: Icons.shield,
+                                label: 'Clubs',
+                                color: darkGreenColor,
+                                isLoading: _isLoadingClubs,
+                                onTap: _isLoadingClubs ? null : () async {
+                                  setState(() => _isLoadingClubs = true);
+                                  await Future.delayed(const Duration(seconds: 1));
+                                  if (mounted) {
+                                    setState(() => _isLoadingClubs = false);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(builder: (_) => const ClubDashboardScreen()),
+                                    );
+                                  }
+                                },
                               ),
+                              const SizedBox(width: 20),
+                              _buildFeatureButton(
+                                context,
+                                icon: Icons.emoji_events,
+                                label: 'Tournaments',
+                                color: goldColor,
+                                isLoading: _isLoadingTournaments,
+                                onTap: _isLoadingTournaments ? null : () async {
+                                  setState(() => _isLoadingTournaments = true);
+                                  await Future.delayed(const Duration(seconds: 1));
+                                  if (mounted) {
+                                    setState(() => _isLoadingTournaments = false);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(builder: (_) => const TournamentListScreen()),
+                                    );
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 40),
+
+                          // --- JOIN ROOM SECTION ---
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 450),
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: goldColor.withOpacity(0.3)),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  languageProvider.currentLocale.languageCode == 'en' 
+                                      ? 'Join a Room' 
+                                      : 'Unirse a una Sala',
+                                  style: const TextStyle(
+                                    color: goldColor,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _roomController,
+                                        style: const TextStyle(color: beigeColor, fontSize: 16),
+                                        decoration: InputDecoration(
+                                          labelText: languageProvider.getText('room_id'),
+                                          labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+                                          filled: true,
+                                          fillColor: Colors.black.withOpacity(0.4),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            borderSide: BorderSide(color: goldColor.withOpacity(0.3), width: 1),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            borderSide: const BorderSide(color: goldColor, width: 2),
+                                          ),
+                                          prefixIcon: const Icon(Icons.meeting_room, color: goldColor),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(12),
+                                        gradient: const LinearGradient(
+                                          colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.green.withOpacity(0.3),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: ElevatedButton(
+                                        onPressed: _isJoining ? null : () {
+                                          final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                                          final userName = authProvider.user?.displayName ?? 'Player';
+                                          
+                                          if (_roomController.text.isNotEmpty) {
+                                            setState(() => _isJoining = true);
+                                            socketService.joinRoom(
+                                              _roomController.text,
+                                              userName,
+                                              onSuccess: (roomId) async {
+                                                // Delay handled in _navigateToGame, but we need to keep _isJoining true
+                                                // actually _navigateToGame is async now, so we await it?
+                                                // No, onSuccess is a callback. 
+                                                // We should wait here before calling _navigateToGame? 
+                                                // _navigateToGame has the delay.
+                                                // We just need to NOT set _isJoining = false immediately.
+                                                await _navigateToGameWithDelay(roomId);
+                                                if (mounted) setState(() => _isJoining = false);
+                                              },
+                                              onError: (error) {
+                                                setState(() => _isJoining = false);
+                                                if (error.contains('Insufficient balance')) {
+                                                  showDialog(
+                                                    context: context,
+                                                    builder: (_) => const AddCreditsDialog(),
+                                                  );
+                                                } else {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(content: Text('Error: $error')),
+                                                  );
+                                                }
+                                              },
+                                            );
+                                          }
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                          minimumSize: const Size(100, 56),
+                                          backgroundColor: Colors.transparent,
+                                          shadowColor: Colors.transparent,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                        ),
+                                        child: _isJoining
+                                          ? const SizedBox(
+                                              height: 24,
+                                              width: 24,
+                                                child: PokerLoadingIndicator(size: 24, color: Colors.white),
+                                            )
+                                          : Text(
+                                              languageProvider.getText('join').toUpperCase(),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                                color: Colors.white,
+                                                letterSpacing: 1.0,
+                                              ),
+                                            ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 50),
                           
-                          // Play Now Button (main CTA)
+                          const SizedBox(height: 40),
+                          
+                          // Divider
+                          Row(
+                            children: [
+                              Expanded(child: Divider(color: Colors.white.withOpacity(0.1), thickness: 1)),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Icon(Icons.star, color: goldColor.withOpacity(0.5), size: 16),
+                              ),
+                              Expanded(child: Divider(color: Colors.white.withOpacity(0.1), thickness: 1)),
+                            ],
+                          ),
+                          
+                          const SizedBox(height: 40),
+                          
+                          // --- ACTIONS SECTION (Practice & Create) ---
+                          
+                          // Play Now Button (Practice)
                           Container(
                             constraints: const BoxConstraints(maxWidth: 400),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFFFD700), Color(0xFFB8860B)], // Gold Gradient
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: goldColor.withOpacity(0.3),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
                             child: ElevatedButton(
-                              onPressed: (_isCreating || _isJoining) ? null : () {
-                                _navigateToGame('practice', {'isPracticeMode': true});
+                              onPressed: (_isCreating || _isJoining) ? null : () async {
+                                setState(() => _isCreating = true); // Reuse isCreating for practice loading
+                                await _navigateToGameWithDelay('practice', {'isPracticeMode': true});
+                                if (mounted) setState(() => _isCreating = false);
                               },
                               style: ElevatedButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 65),
-                                backgroundColor: goldColor,
+                                minimumSize: const Size(double.infinity, 60),
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
                                 foregroundColor: blackColor,
-                                elevation: 8,
-                                shadowColor: goldColor.withOpacity(0.5),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                 ),
@@ -473,54 +580,57 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 ? const SizedBox(
                                     height: 24,
                                     width: 24,
-                                    child: CircularProgressIndicator(color: blackColor, strokeWidth: 3),
+                                    child: PokerLoadingIndicator(size: 24, color: blackColor),
                                   )
                                 : Text(
                                     languageProvider.getText('practice_bots').toUpperCase(),
                                     style: const TextStyle(
-                                      fontSize: 20,
+                                      fontSize: 18,
                                       fontWeight: FontWeight.bold,
                                       letterSpacing: 2,
                                     ),
                                   ),
                             ),
                           ),
+                          
                           const SizedBox(height: 20),
                           
                           // Create Room Button
                           Container(
                             constraints: const BoxConstraints(maxWidth: 400),
-                            child: ElevatedButton(
+                            child: OutlinedButton(
                               onPressed: _isCreating ? null : () {
-                                if (_nameController.text.isNotEmpty) {
-                                  setState(() => _isCreating = true);
-                                  socketService.createRoom(
-                                    _nameController.text,
-                                    onSuccess: (roomId) {
+                                final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                                final userName = authProvider.user?.displayName ?? 'Player';
+                                
+                                setState(() => _isCreating = true);
+                                socketService.createRoom(
+                                  userName,
+                                  onSuccess: (roomId) async {
+                                    await Future.delayed(const Duration(seconds: 1));
+                                    if (mounted) {
                                       setState(() => _isCreating = false);
                                       _showShareDialog(roomId);
-                                    },
-                                    onError: (error) {
-                                      setState(() => _isCreating = false);
-                                      if (error.contains('Insufficient balance')) {
-                                        showDialog(
-                                          context: context,
-                                          builder: (_) => const AddCreditsDialog(),
-                                        );
-                                      } else {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Error: $error')),
-                                        );
-                                      }
-                                    },
-                                  );
-                                }
+                                    }
+                                  },
+                                  onError: (error) {
+                                    setState(() => _isCreating = false);
+                                    if (error.contains('Insufficient balance')) {
+                                      showDialog(
+                                        context: context,
+                                        builder: (_) => const AddCreditsDialog(),
+                                      );
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Error: $error')),
+                                      );
+                                    }
+                                  },
+                                );
                               },
-                              style: ElevatedButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 65),
-                                backgroundColor: Colors.white.withOpacity(0.15),
-                                foregroundColor: beigeColor,
-                                elevation: 4,
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(double.infinity, 60),
+                                foregroundColor: goldColor,
                                 side: const BorderSide(color: goldColor, width: 2),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
@@ -530,174 +640,19 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 ? const SizedBox(
                                     height: 20,
                                     width: 20,
-                                    child: CircularProgressIndicator(color: beigeColor, strokeWidth: 2),
+                                    child: PokerLoadingIndicator(size: 20, color: goldColor),
                                   )
                                 : Text(
                                     languageProvider.getText('create_room').toUpperCase(),
                                     style: const TextStyle(
-                                      fontSize: 20,
+                                      fontSize: 18,
                                       fontWeight: FontWeight.bold,
                                       letterSpacing: 2,
                                     ),
                                   ),
                             ),
                           ),
-                          const SizedBox(height: 50),
                           
-                          // Divider
-                          Row(
-                            children: [
-                              Expanded(child: Divider(color: Colors.white.withOpacity(0.2), thickness: 1)),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Text(
-                                  languageProvider.currentLocale.languageCode == 'en' ? 'OR' : 'O',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.5),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              Expanded(child: Divider(color: Colors.white.withOpacity(0.2), thickness: 1)),
-                            ],
-                          ),
-                          const SizedBox(height: 30),
-                          
-                          // Join Room Section
-                          Container(
-                            constraints: const BoxConstraints(maxWidth: 400),
-                            child: Column(
-                              children: [
-                                Text(
-                                  languageProvider.currentLocale.languageCode == 'en' 
-                                      ? 'Join a Friend\'s Room' 
-                                      : 'Unirse a una Sala',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.9),
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _roomController,
-                                        style: const TextStyle(color: beigeColor, fontSize: 16),
-                                        decoration: InputDecoration(
-                                          labelText: languageProvider.getText('room_id'),
-                                          labelStyle: const TextStyle(color: goldColor),
-                                          filled: true,
-                                          fillColor: Colors.white.withOpacity(0.1),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
-                                          ),
-                                          enabledBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: const BorderSide(color: goldColor, width: 1),
-                                          ),
-                                          focusedBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: const BorderSide(color: goldColor, width: 2),
-                                          ),
-                                          prefixIcon: const Icon(Icons.meeting_room, color: goldColor),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    ElevatedButton(
-                                      onPressed: _isJoining ? null : () {
-                                        if (_nameController.text.isNotEmpty && _roomController.text.isNotEmpty) {
-                                          setState(() => _isJoining = true);
-                                          socketService.joinRoom(
-                                            _roomController.text,
-                                            _nameController.text,
-                                            onSuccess: (roomId) {
-                                              setState(() => _isJoining = false);
-                                              _navigateToGame(roomId);
-                                            },
-                                            onError: (error) {
-                                              setState(() => _isJoining = false);
-                                              if (error.contains('Insufficient balance')) {
-                                                showDialog(
-                                                  context: context,
-                                                  builder: (_) => const AddCreditsDialog(),
-                                                );
-                                              } else {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(content: Text('Error: $error')),
-                                                );
-                                              }
-                                            },
-                                          );
-                                        }
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        minimumSize: const Size(120, 56),
-                                        backgroundColor: darkGreenColor,
-                                        foregroundColor: Colors.white,
-                                        elevation: 5,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                      child: _isJoining
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              color: Colors.white,
-                                              strokeWidth: 2,
-                                            ),
-                                          )
-                                        : Text(
-                                            languageProvider.getText('join').toUpperCase(),
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 40),
-
-                          // Clubs and Tournaments Buttons
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _buildFeatureButton(
-                                context,
-                                icon: Icons.shield,
-                                label: 'Clubs',
-                                color: darkGreenColor,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(builder: (_) => const ClubDashboardScreen()),
-                                  );
-                                },
-                              ),
-                              const SizedBox(width: 20),
-                              _buildFeatureButton(
-                                context,
-                                icon: Icons.emoji_events,
-                                label: 'Tournaments',
-                                color: goldColor,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(builder: (_) => const TournamentListScreen()),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
                           const SizedBox(height: 40),
                         ],
                       ),
@@ -712,12 +667,20 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
+  // Helper for async navigation with delay
+  Future<void> _navigateToGameWithDelay(String roomId, [Map<String, dynamic>? initialState]) async {
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+    _navigateToGame(roomId, initialState);
+  }
+
   Widget _buildFeatureButton(
     BuildContext context, {
     required IconData icon,
     required String label,
     required Color color,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
+    bool isLoading = false,
   }) {
     return InkWell(
       onTap: onTap,
@@ -732,7 +695,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
         ),
         child: Column(
           children: [
-            Icon(icon, color: color, size: 32),
+            isLoading 
+              ? SizedBox(
+                  height: 32,
+                  width: 32,
+                  child: PokerLoadingIndicator(size: 32, color: color),
+                )
+              : Icon(icon, color: color, size: 32),
             const SizedBox(height: 8),
             Text(
               label,

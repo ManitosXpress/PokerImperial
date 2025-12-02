@@ -1,6 +1,7 @@
   import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:math' as math;
+import 'dart:async';
 import '../services/socket_service.dart';
 import '../providers/language_provider.dart';
 import '../providers/wallet_provider.dart';
@@ -10,6 +11,7 @@ import '../utils/responsive_utils.dart';
 import '../widgets/chip_stack.dart';
 import '../widgets/game_wallet_dialog.dart';
 import '../game_controllers/practice_game_controller.dart'; // Import local controller
+import '../widgets/coin_stack_slider.dart';
 
 class GameScreen extends StatefulWidget {
   final String roomId;
@@ -42,6 +44,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   // Victory screen state
   bool _showVictoryScreen = false;
   Map<String, dynamic>? _winnerData;
+
+  // Turn Timer
+  Timer? _turnTimer;
+  int _secondsRemaining = 5;
 
   @override
   void initState() {
@@ -93,6 +99,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               });
             }
           });
+          _checkTurnTimer();
         }
       },
     );
@@ -177,6 +184,61 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
   void _updateState(dynamic data) {
     setState(() => gameState = data);
+    _checkTurnTimer();
+  }
+
+  void _checkTurnTimer() {
+    final socketService = Provider.of<SocketService>(context, listen: false);
+    final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
+    
+    if (gameState != null && gameState!['currentTurn'] == myId) {
+       if (_turnTimer == null || !_turnTimer!.isActive) {
+         _startTurnTimer();
+       }
+    } else {
+      _stopTurnTimer();
+    }
+  }
+
+  void _startTurnTimer() {
+    _stopTurnTimer();
+    setState(() => _secondsRemaining = 5);
+    _turnTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          if (_secondsRemaining > 0) {
+            _secondsRemaining--;
+          } else {
+            _handleTimeout();
+          }
+        });
+      }
+    });
+  }
+
+  void _stopTurnTimer() {
+    _turnTimer?.cancel();
+    _turnTimer = null;
+  }
+
+  void _handleTimeout() {
+    _stopTurnTimer();
+    // Auto check or fold
+    final int currentBet = gameState?['currentBet'] ?? 0;
+    final socketService = Provider.of<SocketService>(context, listen: false);
+    final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
+    final myPlayer = (gameState?['players'] as List?)?.firstWhere(
+      (p) => p['id'] == myId,
+      orElse: () => null,
+    );
+    final int myCurrentBet = myPlayer?['currentBet'] ?? 0;
+    
+    // If we can check (currentBet == myCurrentBet), we check. Otherwise fold.
+    if (currentBet <= myCurrentBet) {
+      _sendAction('check');
+    } else {
+      _sendAction('fold');
+    }
   }
 
   void _sendAction(String action, [int amount = 0]) {
@@ -210,6 +272,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     final int myCurrentBet = myPlayer['currentBet'] ?? 0;
     final int minBet = gameState?['minBet'] ?? (currentBet + 20);
     final int maxBet = myCurrentBet + myChips;
+    final int pot = gameState?['pot'] ?? 0;
     
     double sliderValue = minBet.toDouble();
     
@@ -218,98 +281,282 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       builder: (BuildContext dialogContext) {
         return StatefulBuilder(
           builder: (context, setState) {
-            return AlertDialog(
-              title: Text(languageProvider.getText('custom_bet')),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '${languageProvider.getText('enter_amount')}: ${sliderValue.toInt()}',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 20),
-                  Slider(
-                    value: sliderValue,
-                    min: minBet.toDouble(),
-                    max: maxBet.toDouble(),
-                    divisions: ((maxBet - minBet) / 10).ceil(),
-                    label: sliderValue.toInt().toString(),
-                    onChanged: (value) {
-                      setState(() {
-                        sliderValue = value;
-                      });
-                    },
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('${languageProvider.getText('min')}: $minBet'),
-                      Text('${languageProvider.getText('max')}: $maxBet'),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  // Preset buttons
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      if (minBet <= maxBet)
-                        ElevatedButton(
-                          onPressed: () {
-                            setState(() {
-                              sliderValue = minBet.toDouble();
-                            });
-                          },
-                          child: Text('${languageProvider.getText('min')}'),
+            
+            // --- Helper Widgets for Premium UI ---
+
+            // Quick Action Button (Transparent Black + Gold Border)
+            Widget buildOptionButton(String text, VoidCallback onPressed) {
+              return Container(
+                margin: const EdgeInsets.symmetric(vertical: 6),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.5), width: 1),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(30),
+                    splashColor: const Color(0xFFFFD700).withOpacity(0.2),
+                    onTap: onPressed,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      child: Text(
+                        text,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFFFFD700),
+                          fontSize: 13, 
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
                         ),
-                      if ((currentBet * 2) <= maxBet)
-                        ElevatedButton(
-                          onPressed: () {
-                            setState(() {
-                              sliderValue = (currentBet * 2).toDouble();
-                            });
-                          },
-                          child: const Text('2x'),
-                        ),
-                      if ((currentBet * 3) <= maxBet)
-                        ElevatedButton(
-                          onPressed: () {
-                            setState(() {
-                              sliderValue = (currentBet * 3).toDouble();
-                            });
-                          },
-                          child: const Text('3x'),
-                        ),
-                      ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            sliderValue = maxBet.toDouble();
-                          });
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.purple,
-                        ),
-                        child: Text(languageProvider.getText('all_in')),
                       ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            // Circular +/- Button (Gradient Gold)
+            Widget buildCircleButton(IconData icon, VoidCallback onPressed) {
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 10),
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFFFFD700), Color(0xFFB8860B)], // Gold to Dark Gold
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.4),
+                      offset: const Offset(2, 2),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onPressed,
+                    child: Icon(icon, color: Colors.black87, size: 28),
+                  ),
+                ),
+              );
+            }
+
+            // --- Main Dialog Structure ---
+            return Dialog(
+              backgroundColor: Colors.transparent, // Handle background in Container
+              insetPadding: const EdgeInsets.all(16),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                constraints: const BoxConstraints(maxWidth: 420, maxHeight: 650),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black,
+                      Color(0xFF2D1414), // Dark Chocolate/Brown
                     ],
                   ),
-                ],
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFFFD700), width: 1.5), // Gold Border
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.8),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // --- Amount Display (LCD Style) ---
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                      margin: const EdgeInsets.only(bottom: 24),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Text(
+                        '${sliderValue.toInt()} \$',
+                        style: const TextStyle(
+                          color: Color(0xFFFFD700), // Gold Text
+                          fontSize: 36,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Roboto', // Or any monospaced/tech font if available
+                          shadows: [
+                            Shadow(color: Color(0x88FFD700), blurRadius: 10),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // --- Left Column: Controls ---
+                          Expanded(
+                            flex: 3,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                // Quick Actions
+                                buildOptionButton('APOSTAR TODO', () {
+                                  setState(() => sliderValue = maxBet.toDouble());
+                                }),
+                                buildOptionButton('BOTE ENTERO', () {
+                                  double newAmount = pot.toDouble();
+                                  if (newAmount < minBet) newAmount = minBet.toDouble();
+                                  if (newAmount > maxBet) newAmount = maxBet.toDouble();
+                                  setState(() => sliderValue = newAmount);
+                                }),
+                                buildOptionButton('MEDIO BOTE', () {
+                                  double newAmount = (pot / 2).toDouble();
+                                  if (newAmount < minBet) newAmount = minBet.toDouble();
+                                  if (newAmount > maxBet) newAmount = maxBet.toDouble();
+                                  setState(() => sliderValue = newAmount);
+                                }),
+                                
+                                const Spacer(),
+                                
+                                // +/- Buttons
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    buildCircleButton(Icons.remove, () {
+                                      double newVal = sliderValue - 20;
+                                      if (newVal < minBet) newVal = minBet.toDouble();
+                                      setState(() => sliderValue = newVal);
+                                    }),
+                                    buildCircleButton(Icons.add, () {
+                                      double newVal = sliderValue + 20;
+                                      if (newVal > maxBet) newVal = maxBet.toDouble();
+                                      setState(() => sliderValue = newVal);
+                                    }),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                              ],
+                            ),
+                          ),
+                          
+                          const SizedBox(width: 24),
+                          
+                          // --- Right Column: Coin Slider (UNTOUCHED) ---
+                          Expanded(
+                            flex: 1,
+                            child: Column(
+                              children: [
+                                const Text(
+                                  'Apostar\ntodo',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Color(0xFFFFD700), 
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold
+                                  ),
+                                ),
+                                Expanded(
+                                  child: CoinStackSlider(
+                                    value: sliderValue,
+                                    min: minBet.toDouble(),
+                                    max: maxBet.toDouble(),
+                                    onChanged: (value) {
+                                      setState(() {
+                                        sliderValue = value;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Image.asset(
+                                  'assets/images/bet_slider_icon.png',
+                                  width: 50,
+                                  height: 50,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // --- Action Buttons (Cancel / Submit) ---
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Cancel Button (Simple Text)
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext),
+                          child: Text(
+                            'CANCELAR', 
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.6),
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.0,
+                            )
+                          ),
+                        ),
+                        
+                        // Submit Button (3D Green Gradient)
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)], // Light Green to Dark Green
+                            ),
+                            borderRadius: BorderRadius.circular(30),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.green.withOpacity(0.4),
+                                offset: const Offset(0, 4),
+                                blurRadius: 8,
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(dialogContext);
+                              _sendAction('bet', sliderValue.toInt());
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                            ),
+                            child: Text(
+                              languageProvider.getText('raise').toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 18, 
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: 1.2,
+                                shadows: [Shadow(color: Colors.black26, offset: Offset(1, 1), blurRadius: 2)],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(dialogContext);
-                    _sendAction('bet', sliderValue.toInt());
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                  ),
-                  child: Text(languageProvider.getText('raise')),
-                ),
-              ],
             );
           },
         );
@@ -576,9 +823,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                               // Table Logo (Background)
                               Center(
                                 child: Opacity(
-                                  opacity: 0.25, // Reduced opacity for "printed on felt" look
+                                  opacity: 0.5, // Increased opacity as requested
                                   child: Image.asset(
-                                    'assets/images/table.png',
+                                    'assets/images/table_logo_imperial.png',
                                     width: tableWidth * 0.4, // Adjust size relative to table
                                     fit: BoxFit.contain,
                                   ),
@@ -786,13 +1033,41 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
                 // Expandable Action Menu (Bottom Left)
                 if (isTurn) ...[
+                  // Turn Timer Widget
+                  Positioned(
+                    bottom: 30,
+                    left: ResponsiveUtils.screenWidth(context) / 2 - 120,
+                    child: SizedBox(
+                      width: 60,
+                      height: 60,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                            value: _secondsRemaining / 5,
+                            backgroundColor: Colors.grey.withOpacity(0.5),
+                            color: _secondsRemaining <= 2 ? Colors.red : Colors.green,
+                            strokeWidth: 6,
+                          ),
+                          Text(
+                            '$_secondsRemaining',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 24,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   // Custom Bet button (3rd button)
                   AnimatedBuilder(
                     animation: _animation,
                     builder: (context, child) {
                       return Positioned(
                         bottom: 30 + (70 * _animation.value * 3), // Bet button
-                        left: 30,
+                        left: ResponsiveUtils.screenWidth(context) / 2 + 80,
                         child: Opacity(
                           opacity: _animation.value,
                           child: ScaleTransition(
@@ -828,7 +1103,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                       
                       return Positioned(
                         bottom: 30 + (70 * _animation.value * 2), // Check/Call button
-                        left: 30,
+                        left: ResponsiveUtils.screenWidth(context) / 2 + 80,
                         child: Opacity(
                           opacity: _animation.value,
                           child: ScaleTransition(
@@ -854,7 +1129,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                     builder: (context, child) {
                       return Positioned(
                         bottom: 30 + (70 * _animation.value * 1), // Fold button
-                        left: 30,
+                        left: ResponsiveUtils.screenWidth(context) / 2 + 80,
                         child: Opacity(
                           opacity: _animation.value,
                           child: ScaleTransition(
@@ -874,7 +1149,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                   // Main toggle button
                   Positioned(
                     bottom: 30,
-                    left: 30,
+                    left: ResponsiveUtils.screenWidth(context) / 2 + 80,
                     child: FloatingActionButton(
                       onPressed: _toggleActionMenu,
                       backgroundColor: _isActionMenuExpanded ? Colors.grey[700] : Colors.amber,

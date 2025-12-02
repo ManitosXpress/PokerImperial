@@ -97,13 +97,26 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                     // but the provider method signature needs update.
                     // Let's assume we update the provider next.
                     
-                    await Provider.of<TournamentProvider>(context, listen: false).createTournament(
-                      _nameController.text,
-                      int.parse(_buyInController.text),
-                      type,
-                      clubId: widget.clubId,
-                    );
-                    if (mounted) Navigator.pop(context);
+                    try {
+                      await Provider.of<TournamentProvider>(context, listen: false).createTournament(
+                        _nameController.text,
+                        int.parse(_buyInController.text),
+                        type,
+                        clubId: widget.clubId,
+                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Tournament created successfully!'), backgroundColor: Colors.green),
+                        );
+                        Navigator.pop(context);
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error creating tournament: $e'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
                   }
                 },
                 style: ElevatedButton.styleFrom(

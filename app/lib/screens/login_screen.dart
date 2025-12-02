@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../providers/auth_provider.dart';
 import '../providers/language_provider.dart';
 import 'lobby_screen.dart';
+import '../widgets/poker_loading_indicator.dart';
 
 /// Login Screen
 /// Provides authentication UI with Email/Password
@@ -52,9 +53,13 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     if (success && mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LobbyScreen()),
-      );
+      // Artificial delay to show loading animation
+      await Future.delayed(const Duration(seconds: 1));
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const LobbyScreen()),
+        );
+      }
     } else if (authProvider.errorMessage != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -115,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         // Logo/Title
                         Image.asset(
-                          'assets/images/bingo_imperial_logo_v4.png',
+                          'assets/images/logo_imperial.png',
                           height: 180,
                           fit: BoxFit.contain,
                         ),
@@ -232,7 +237,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               elevation: 5,
                             ),
                             child: authProvider.isLoading
-                                ? const CircularProgressIndicator(color: Color(0xFF1C1C1C))
+                                ? const SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: PokerLoadingIndicator(size: 24, color: Color(0xFF1C1C1C)),
+                                  )
                                 : Text(
                                     _isRegistering
                                         ? (isSpanish ? 'Registrarse' : 'Register')

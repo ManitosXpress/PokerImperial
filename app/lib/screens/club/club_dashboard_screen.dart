@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/club_provider.dart';
 import 'create_club_screen.dart';
+import '../../widgets/club_request_modal.dart';
 import 'club_tournaments_screen.dart';
 import 'club_leaderboard_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../widgets/poker_loading_indicator.dart';
 
 class ClubDashboardScreen extends StatefulWidget {
   const ClubDashboardScreen({super.key});
@@ -101,9 +103,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
       floatingActionButton: myClub == null
           ? FloatingActionButton.extended(
               onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CreateClubScreen()),
+                showDialog(
+                  context: context,
+                  builder: (context) => const ClubRequestModal(),
                 );
               },
               label: const Text('CREATE CLUB', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -299,7 +301,12 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
 
   Widget _buildClubListView(ClubProvider provider) {
     if (provider.isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
+      return const Center(
+        child: PokerLoadingIndicator(
+          statusText: 'Loading Clubs...',
+          color: Color(0xFFFFD700),
+        ),
+      );
     }
 
     if (provider.errorMessage != null) {
@@ -388,7 +395,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
                 style: const TextStyle(color: Colors.white54),
               ),
               trailing: ElevatedButton(
-                onPressed: () => provider.joinClub(club['id']),
+                onPressed: () => _showJoinClubDialog(context, club['id'], club['name']),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blue.shade700,
                   foregroundColor: Colors.white,
@@ -403,6 +410,58 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
     );
   }
 
+
+  void _showJoinClubDialog(BuildContext context, String clubId, String clubName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: Text('Unirse a $clubName', style: const TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '¡Bienvenido al Club!',
+              style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Al unirte a este club, podrás participar en torneos exclusivos y ganar fichas.',
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Importante:',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Para jugar, necesitarás créditos. Debes contactar al líder del club para comprar créditos y recargar tu billetera.',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Provider.of<ClubProvider>(context, listen: false).joinClub(clubId);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFFD700),
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Entrar al Club'),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _showWalletManagementDialog(BuildContext context, String clubId, String clubName) {
     showDialog(
@@ -537,7 +596,7 @@ class _WalletManagementDialogState extends State<_WalletManagementDialog> {
       content: SizedBox(
         width: double.maxFinite,
         child: _isLoading && _members.isEmpty
-            ? const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)))
+            ? const Center(child: PokerLoadingIndicator(size: 40))
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -621,7 +680,7 @@ class _WalletManagementDialogState extends State<_WalletManagementDialog> {
             foregroundColor: Colors.black,
           ),
           child: _isLoading
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+              ? const SizedBox(width: 20, height: 20, child: PokerLoadingIndicator(size: 20, color: Colors.black))
               : const Text('Transferir'),
         ),
       ],

@@ -98,33 +98,8 @@ class PokerCard extends StatelessWidget {
 
   Widget _buildCenterContent(String rank, String suit, Color color, double width) {
     // Face Cards (J, Q, K) use specific assets
-    if (['J', 'Q', 'K'].contains(rank)) {
-      // Try specific suit asset first (e.g., card_q_h.png), fallback to generic (card_q.png)
-      String suitSuffix = suit.toLowerCase(); // h, d, c, s
-      String specificAsset = 'assets/images/card_${rank.toLowerCase()}_$suitSuffix.png';
-      String genericAsset = 'assets/images/card_${rank.toLowerCase()}.png';
-
-      return Image.asset(
-        specificAsset,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) {
-          // Fallback to generic asset
-          return Image.asset(
-            genericAsset,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) {
-              // Fallback to text if both missing
-              return Center(
-                child: Text(
-                  rank,
-                  style: TextStyle(color: color.withOpacity(0.2), fontSize: width * 0.8, fontWeight: FontWeight.bold),
-                ),
-              );
-            },
-          );
-        },
-      );
-    }
+    // Face Cards (J, Q, K) now use the same design as other cards
+    // The special image handling block has been removed.
 
     // For all other cards (A, 2-10), show simplified design (Big Suit in Center)
     return Center(
