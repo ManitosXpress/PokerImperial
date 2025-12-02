@@ -13,6 +13,8 @@ class ClubProvider with ChangeNotifier {
   Map<String, dynamic>? get myClub => _myClub;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  String? _currentUserRole;
+  String? get currentUserRole => _currentUserRole;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
@@ -33,7 +35,9 @@ class ClubProvider with ChangeNotifier {
 
       // Check if user has a club
       final userDoc = await _firestore.collection('users').doc(_auth.currentUser?.uid).get();
-      final clubId = userDoc.data()?['clubId'];
+      final userData = userDoc.data();
+      final clubId = userData?['clubId'];
+      _currentUserRole = userData?['role'];
 
       if (clubId != null) {
         final myClubDoc = await _firestore.collection('clubs').doc(clubId).get();
@@ -191,6 +195,54 @@ class ClubProvider with ChangeNotifier {
       }
     } catch (e) {
       print('Error transferring credits: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String> createClubInvite(String role, String referenceName) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final result = await _functions.httpsCallable('createClubInviteFunction').call({
+        'role': role,
+        'referenceName': referenceName,
+      });
+
+      if (result.data['success'] == true) {
+        return result.data['inviteUrl'];
+      } else {
+        throw Exception('Failed to create invite');
+      }
+    } catch (e) {
+      print('Error creating invite: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> completeInvitationRegistration(String token, String email, String password, String displayName) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final result = await _functions.httpsCallable('completeInvitationRegistrationFunction').call({
+        'token': token,
+        'email': email,
+        'password': password,
+        'displayName': displayName,
+      });
+
+      if (result.data['success'] != true) {
+        throw Exception(result.data['message'] ?? 'Registration failed');
+      }
+    } catch (e) {
+      print('Error completing registration: $e');
       rethrow;
     } finally {
       _isLoading = false;

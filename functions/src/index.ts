@@ -30,3 +30,8 @@ export const getClubLeaderboardFunction = functions.https.onCall(getClubLeaderbo
 // Club Wallet Functions
 import { transferClubToMember } from './functions/clubWallet';
 export const transferClubToMemberFunction = functions.https.onCall(transferClubToMember);
+
+// Invitation Functions
+import { createClubInvite, completeInvitationRegistration } from './functions/invitations';
+export const createClubInviteFunction = functions.https.onCall(createClubInvite);
+export const completeInvitationRegistrationFunction = functions.https.onCall(completeInvitationRegistration);

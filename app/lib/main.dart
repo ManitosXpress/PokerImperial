@@ -11,6 +11,7 @@ import 'providers/club_provider.dart';
 import 'providers/tournament_provider.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/setup_account_screen.dart';
 import 'firebase_options.dart';
 import 'dart:async';
 
@@ -97,7 +98,22 @@ class PokerApp extends StatelessWidget {
           ),
           useMaterial3: true,
         ),
-        home: const AuthGate(),
+        initialRoute: '/',
+        onGenerateRoute: (settings) {
+          if (settings.name != null && settings.name!.startsWith('/setup')) {
+            final uri = Uri.parse(settings.name!);
+            final token = uri.queryParameters['token'];
+            if (token != null) {
+              return MaterialPageRoute(
+                builder: (context) => SetupAccountScreen(token: token),
+              );
+            }
+          }
+          return null; // Let other routes be handled or fall through
+        },
+        routes: {
+          '/': (context) => const AuthGate(),
+        },
       ),
     );
   }

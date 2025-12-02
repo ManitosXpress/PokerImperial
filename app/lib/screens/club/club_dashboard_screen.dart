@@ -173,9 +173,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
         Consumer<ClubProvider>(
           builder: (context, provider, child) {
             final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-            final isOwner = club['ownerId'] == currentUserId;
+            // Check role from provider (ensure fetchClubs has run)
+            final isClubOwner = provider.currentUserRole == 'club' && club['ownerId'] == currentUserId;
             
-            // if (!isOwner) return const SizedBox.shrink(); // Removed to show balance to all
+            // if (!isClubOwner) return const SizedBox.shrink(); // Removed to show balance to all
 
             return Container(
               margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -226,10 +227,38 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      if (isClubOwner)
+                        InkWell(
+                          onTap: () => _showInviteMemberDialog(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.green),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.person_add, color: Colors.green, size: 16),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Add Members',
+                                  style: TextStyle(
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                   // Owner Controls Button
-                  if (isOwner)
+                  if (isClubOwner)
                     ElevatedButton(
                       onPressed: () => _showWalletManagementDialog(context, club['id'], club['name']),
                       style: ElevatedButton.styleFrom(
@@ -463,6 +492,13 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
     );
   }
 
+  void _showInviteMemberDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => const _InviteMemberDialog(),
+    );
+  }
+
   void _showWalletManagementDialog(BuildContext context, String clubId, String clubName) {
     showDialog(
       context: context,
@@ -683,6 +719,158 @@ class _WalletManagementDialogState extends State<_WalletManagementDialog> {
               ? const SizedBox(width: 20, height: 20, child: PokerLoadingIndicator(size: 20, color: Colors.black))
               : const Text('Transferir'),
         ),
+      ],
+    );
+  }
+}
+
+class _InviteMemberDialog extends StatefulWidget {
+  const _InviteMemberDialog();
+
+  @override
+  State<_InviteMemberDialog> createState() => _InviteMemberDialogState();
+}
+
+class _InviteMemberDialogState extends State<_InviteMemberDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  String _selectedRole = 'player';
+  bool _isLoading = false;
+  String? _inviteLink;
+
+  Future<void> _generateLink() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final link = await Provider.of<ClubProvider>(context, listen: false)
+          .createClubInvite(_selectedRole, _nameController.text);
+      
+      if (mounted) {
+        setState(() {
+          _inviteLink = link;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1A1A2E),
+      title: const Text('Invitar Miembro', style: TextStyle(color: Colors.white)),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: _inviteLink != null
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.green, size: 48),
+                  const SizedBox(height: 16),
+                  const Text(
+                    '¡Link Generado!',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: SelectableText(
+                      _inviteLink!,
+                      style: const TextStyle(color: Colors.amber),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: _inviteLink!));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Link copiado al portapapeles')),
+                      );
+                    },
+                    icon: const Icon(Icons.copy),
+                    label: const Text('Copiar Link'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFFD700),
+                      foregroundColor: Colors.black,
+                    ),
+                  ),
+                ],
+              )
+            : Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: _nameController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre de Referencia (Apodo)',
+                        labelStyle: TextStyle(color: Colors.white70),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.white24),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.amber),
+                        ),
+                      ),
+                      validator: (v) => v?.isEmpty == true ? 'Requerido' : null,
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: _selectedRole,
+                      dropdownColor: const Color(0xFF16213E),
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: 'Rol',
+                        labelStyle: TextStyle(color: Colors.white70),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.white24),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.amber),
+                        ),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'player', child: Text('Jugador')),
+                        DropdownMenuItem(value: 'seller', child: Text('Vendedor')),
+                      ],
+                      onChanged: (v) => setState(() => _selectedRole = v!),
+                    ),
+                  ],
+                ),
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cerrar', style: TextStyle(color: Colors.white54)),
+        ),
+        if (_inviteLink == null)
+          ElevatedButton(
+            onPressed: _isLoading ? null : _generateLink,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFFD700),
+              foregroundColor: Colors.black,
+            ),
+            child: _isLoading
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('Generar Link'),
+          ),
       ],
     );
   }
