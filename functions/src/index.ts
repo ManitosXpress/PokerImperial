@@ -35,3 +35,14 @@ export const transferClubToMemberFunction = functions.https.onCall(transferClubT
 import { createClubInvite, completeInvitationRegistration } from './functions/invitations';
 export const createClubInviteFunction = functions.https.onCall(createClubInvite);
 export const completeInvitationRegistrationFunction = functions.https.onCall(completeInvitationRegistration);
+
+// Auth Triggers
+import { onUserCreate } from './functions/auth';
+export const onUserCreateFunction = onUserCreate;
+
+// Admin Functions
+import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin } from './functions/admin';
+export const adminSetUserRoleFunction = functions.https.onCall(adminSetUserRole);
+export const adminMintCreditsFunction = functions.https.onCall(adminMintCredits);
+export const getSystemStatsFunction = functions.https.onCall(getSystemStats);
+export const bootstrapAdminFunction = functions.https.onCall(bootstrapAdmin);

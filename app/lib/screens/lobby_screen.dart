@@ -12,7 +12,9 @@ import '../widgets/withdraw_credits_dialog.dart';
 import '../widgets/wallet_display.dart';
 import 'club/club_dashboard_screen.dart';
 import 'tournament/tournament_list_screen.dart';
+import 'admin/admin_dashboard_screen.dart';
 import '../widgets/poker_loading_indicator.dart';
+import '../providers/club_provider.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -187,6 +189,27 @@ class _LobbyScreenState extends State<LobbyScreen> {
                         icon: const Icon(Icons.logout, color: Colors.white70),
                         tooltip: languageProvider.currentLocale.languageCode == 'en' ? 'Sign Out' : 'Cerrar Sesión',
                       ),
+                      
+                      // Admin Button (Only visible if admin)
+                      Consumer<ClubProvider>(
+                        builder: (context, clubProvider, _) {
+                          // Ensure we have the latest role
+                          if (clubProvider.currentUserRole == 'admin') {
+                            return IconButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                                );
+                              },
+                              icon: const Icon(Icons.admin_panel_settings, color: Colors.redAccent),
+                              tooltip: 'Super Admin Dashboard',
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
+
                       const Spacer(),
                       // Profile Avatar Button
                       GestureDetector(

@@ -91,6 +91,8 @@ class AuthService {
         'photoURL': '', // Empty for email/password registration
         'createdAt': FieldValue.serverTimestamp(),
         'credit': 0, // Changed from 'walletBalance' to 'credit'
+        'role': 'player', // Default role for public registration
+        'clubId': null, // No club assigned by default
         'lastUpdated': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (e) {
