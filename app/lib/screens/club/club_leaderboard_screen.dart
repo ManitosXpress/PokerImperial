@@ -3,16 +3,22 @@ import 'package:provider/provider.dart';
 import '../../providers/club_provider.dart';
 import '../../widgets/poker_loading_indicator.dart';
 
+/// Filter type for the leaderboard
+enum LeaderboardFilter { all, staff, players }
+
 class ClubLeaderboardScreen extends StatefulWidget {
   final String clubId;
   final String ownerId;
   final bool isEmbedded;
+  /// Filter to apply: 'staff' (owner+sellers), 'players' (players only), or null (all)
+  final LeaderboardFilter filter;
 
   const ClubLeaderboardScreen({
     super.key,
     required this.clubId,
     required this.ownerId,
     this.isEmbedded = false,
+    this.filter = LeaderboardFilter.all,
   });
 
   @override
@@ -42,6 +48,35 @@ class _ClubLeaderboardScreenState extends State<ClubLeaderboardScreen> {
       if (mounted) {
         setState(() {
           _leaderboard = leaderboard;
+          
+          // Apply role filter based on widget.filter
+          if (widget.filter == LeaderboardFilter.staff) {
+            // Staff: show only owner (club) and sellers
+            _leaderboard = _leaderboard.where((user) {
+              final role = user['role'] ?? 'player';
+              return role == 'club' || role == 'seller' || user['uid'] == widget.ownerId;
+            }).toList();
+          } else if (widget.filter == LeaderboardFilter.players) {
+            // Players: show only player role
+            _leaderboard = _leaderboard.where((user) {
+              final role = user['role'] ?? 'player';
+              return role == 'player' && user['uid'] != widget.ownerId;
+            }).toList();
+          }
+          
+          // Sort: Owner -> Seller -> Player
+          _leaderboard.sort((a, b) {
+            if (a['uid'] == widget.ownerId) return -1;
+            if (b['uid'] == widget.ownerId) return 1;
+            
+            final roleA = a['role'] ?? 'player';
+            final roleB = b['role'] ?? 'player';
+            
+            if (roleA == 'seller' && roleB != 'seller') return -1;
+            if (roleB == 'seller' && roleA != 'seller') return 1;
+            
+            return 0;
+          });
           _isLoading = false;
         });
       }
@@ -164,19 +199,25 @@ class _ClubLeaderboardScreenState extends State<ClubLeaderboardScreen> {
         final user = _leaderboard[index];
         final isTop3 = index < 3;
         final isOwner = user['uid'] == widget.ownerId;
+        final role = user['role'] ?? 'player';
+        final isSeller = role == 'seller';
 
         return Card(
           color: isOwner
               ? const Color(0xFFFFD700).withOpacity(0.2) // Gold for owner
-              : isTop3
-                  ? const Color(0xFFE94560).withOpacity(0.2)
-                  : Colors.white.withOpacity(0.05),
+              : isSeller
+                  ? const Color(0xFF0088cc).withOpacity(0.2) // Blue for seller
+                  : isTop3
+                      ? const Color(0xFFE94560).withOpacity(0.2)
+                      : Colors.white.withOpacity(0.05),
           margin: const EdgeInsets.only(bottom: 8),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: isOwner
                 ? const BorderSide(color: Color(0xFFFFD700), width: 2)
-                : BorderSide.none,
+                : isSeller
+                    ? const BorderSide(color: Color(0xFF0088cc), width: 1)
+                    : BorderSide.none,
           ),
           child: ListTile(
             leading: Row(
@@ -196,6 +237,10 @@ class _ClubLeaderboardScreenState extends State<ClubLeaderboardScreen> {
                   const SizedBox(width: 8),
                   const Icon(Icons.star, color: Color(0xFFFFD700), size: 24),
                 ],
+                if (isSeller) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.store, color: Color(0xFF0088cc), size: 24),
+                ],
               ],
             ),
             title: Row(
@@ -210,21 +255,9 @@ class _ClubLeaderboardScreenState extends State<ClubLeaderboardScreen> {
                   ),
                 ),
                 if (isOwner)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFD700).withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'OWNER',
-                      style: TextStyle(
-                        color: Color(0xFFFFD700),
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                  _buildRoleBadge('OWNER', const Color(0xFFFFD700)),
+                if (isSeller)
+                  _buildRoleBadge('SELLER', const Color(0xFF0088cc)),
               ],
             ),
             trailing: Text(
@@ -238,6 +271,26 @@ class _ClubLeaderboardScreenState extends State<ClubLeaderboardScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildRoleBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      margin: const EdgeInsets.only(left: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 }

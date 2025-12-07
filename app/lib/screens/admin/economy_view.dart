@@ -58,6 +58,39 @@ class _EconomyViewState extends State<EconomyView> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Stats Section
+                  FutureBuilder<HttpsCallableResult>(
+                    future: FirebaseFunctions.instance.httpsCallable('getSystemStatsFunction').call(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const SizedBox.shrink();
+                      final data = snapshot.data!.data as Map<String, dynamic>;
+                      final liquidity = data['totalCirculation'] ?? 0;
+                      
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 24),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          border: Border.all(color: Colors.green),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.monetization_on, color: Colors.green, size: 32),
+                            const SizedBox(width: 16),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Total Liquidity (Circulante)', style: TextStyle(color: Colors.white70)),
+                                Text('\$${liquidity.toString()}', style: const TextStyle(color: Colors.green, fontSize: 24, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+
                   const Text(
                     'Banco Central (Minting)',
                     style: TextStyle(color: Colors.amber, fontSize: 24, fontWeight: FontWeight.bold),

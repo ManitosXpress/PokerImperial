@@ -104,7 +104,7 @@ class LanguageProvider with ChangeNotifier {
     },
     'es': {
       'app_title': 'POKER IMPERIAL',
-      'play_now': 'JUGAR AHORA',
+      'play_now': 'JUEGA YA',
       'create_room': 'CREAR SALA',
       'practice_bots': 'PRACTICAR CON BOTS',
       'join_room': 'UNIRSE A SALA',

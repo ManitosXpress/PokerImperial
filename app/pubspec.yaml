@@ -48,6 +48,7 @@ dependencies:
   
   # URL launcher for WhatsApp
   url_launcher: ^6.2.5
+  intl: ^0.19.0
 
 dev_dependencies:
   flutter_test:

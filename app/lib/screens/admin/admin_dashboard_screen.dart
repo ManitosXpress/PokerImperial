@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/poker_loading_indicator.dart';
 import 'user_management_view.dart';
 import 'economy_view.dart';
+import 'finance_history_view.dart';
 import 'tournament_cms_view.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -19,7 +20,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -40,8 +41,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           labelColor: const Color(0xFFFFD700),
           unselectedLabelColor: Colors.white54,
           tabs: const [
-            Tab(icon: Icon(Icons.people), text: 'Usuarios'),
+              Tab(icon: Icon(Icons.people), text: 'Usuarios'),
             Tab(icon: Icon(Icons.account_balance), text: 'Economía'),
+            Tab(icon: Icon(Icons.history), text: 'Finanzas'),
             Tab(icon: Icon(Icons.emoji_events), text: 'Torneos'),
             Tab(icon: Icon(Icons.analytics), text: 'Live Feed'),
           ],
@@ -61,6 +63,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             children: const [
               UserManagementView(),
               EconomyView(),
+              FinanceHistoryView(),
               TournamentCMSView(),
               Center(child: Text('Live Feed (Coming Soon)', style: TextStyle(color: Colors.white))),
             ],

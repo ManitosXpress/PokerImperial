@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import '../providers/auth_provider.dart' as app_auth;
 import '../providers/language_provider.dart';
 import '../services/socket_service.dart';
 import 'game_screen.dart';
@@ -11,6 +12,7 @@ import '../widgets/add_credits_dialog.dart';
 import '../widgets/withdraw_credits_dialog.dart';
 import '../widgets/wallet_display.dart';
 import 'club/club_dashboard_screen.dart';
+import 'game_zone_screen.dart';
 import 'tournament/tournament_list_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import '../widgets/poker_loading_indicator.dart';
@@ -29,6 +31,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
   bool _isJoining = false;
   bool _isLoadingClubs = false;
   bool _isLoadingTournaments = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetch club data and user role when lobby loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<ClubProvider>(context, listen: false).fetchClubs();
+    });
+  }
 
   @override
   void dispose() {
@@ -178,7 +189,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       // Sign out button
                       IconButton(
                         onPressed: () async {
-                          final authProvider = context.read<AuthProvider>();
+                          final authProvider = context.read<app_auth.AuthProvider>();
                           await authProvider.signOut();
                           if (context.mounted) {
                             Navigator.of(context).pushReplacement(
@@ -228,7 +239,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               width: 2,
                             ),
                           ),
-                          child: Consumer<AuthProvider>(
+                          child: Consumer<app_auth.AuthProvider>(
                             builder: (context, authProvider, _) {
                               final user = authProvider.user;
                               return CircleAvatar(
@@ -386,31 +397,52 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(builder: (_) => const ClubDashboardScreen()),
-                                    );
-                                  }
-                                },
-                              ),
-                              const SizedBox(width: 20),
-                              _buildFeatureButton(
-                                context,
-                                icon: Icons.emoji_events,
-                                label: 'Tournaments',
-                                color: goldColor,
-                                isLoading: _isLoadingTournaments,
-                                onTap: _isLoadingTournaments ? null : () async {
-                                  setState(() => _isLoadingTournaments = true);
-                                  await Future.delayed(const Duration(seconds: 1));
-                                  if (mounted) {
-                                    setState(() => _isLoadingTournaments = false);
-                                    Navigator.push(
+                                  );
+                                }
+                              },
+                            ),
+                            const SizedBox(width: 20),
+                            
+                            // Game Zone Button
+                            _buildFeatureButton(
+                              context,
+                              icon: Icons.casino,
+                              label: 'Game Zone',
+                              color: const Color(0xFFFFD700),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const GameZoneScreen()),
+                                );
+                              },
+                            ),
+                            
+                            // Admin Button
+                            Consumer<ClubProvider>(
+                              builder: (context, clubProvider, _) {
+                                if (clubProvider.currentUserRole == 'admin') {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(left: 20),
+                                    child: _buildFeatureButton(
                                       context,
-                                      MaterialPageRoute(builder: (_) => const TournamentListScreen()),
-                                    );
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
+                                      icon: Icons.admin_panel_settings_outlined,
+                                      label: 'Admin',
+                                      color: Colors.redAccent,
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                                        );
+                                      },
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
+                            ),
+                          ],
+                        ),
+
                           const SizedBox(height: 40),
 
                           // --- JOIN ROOM SECTION ---
@@ -483,7 +515,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                       ),
                                       child: ElevatedButton(
                                         onPressed: _isJoining ? null : () {
-                                          final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                                          final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
                                           final userName = authProvider.user?.displayName ?? 'Player';
                                           
                                           if (_roomController.text.isNotEmpty) {
@@ -623,7 +655,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             constraints: const BoxConstraints(maxWidth: 400),
                             child: OutlinedButton(
                               onPressed: _isCreating ? null : () {
-                                final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                                final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
                                 final userName = authProvider.user?.displayName ?? 'Player';
                                 
                                 setState(() => _isCreating = true);

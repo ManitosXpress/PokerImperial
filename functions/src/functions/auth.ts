@@ -9,21 +9,28 @@ export const onUserCreate = functions.auth.user().onCreate(async (user) => {
     const userRef = db.collection('users').doc(uid);
 
     try {
+        const doc = await userRef.get();
+
+        if (doc.exists) {
+            // Document exists (likely created by ownerCreateMember or sellerCreatePlayer)
+            // We only fill in missing fields if necessary, but definitely DO NOT overwrite role/clubId
+            // if they are already set.
+            console.log(`User ${uid} already has a profile. Skipping default creation.`);
+            return;
+        }
+
+        // Document doesn't exist, create with defaults (for self-registration)
         await userRef.set({
             uid,
             email,
             displayName: displayName || '',
             photoURL: photoURL || '',
-            role: 'player', // Enforce default role
-            clubId: null,   // Enforce no club
+            role: 'player', // Default role for self-signup
+            clubId: null,   // Default no club
             credit: 0,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-            // We use merge: true to avoid overwriting if the client created the doc first
-            // However, we WANT to enforce role/clubId, so we might want to be careful.
-            // But since this runs async, client might have written something.
-            // Let's ensure role and clubId are set correctly.
-        }, { merge: true });
+        });
 
         console.log(`User ${uid} created with default role 'player'.`);
 

@@ -59,6 +59,7 @@ export const getClubLeaderboard = async (data: any, context: functions.https.Cal
                 displayName: userData.displayName || 'Unknown',
                 photoURL: userData.photoURL || '',
                 credits: userData.credit || 0, // Use 'credit' from DB
+                role: userData.role || 'player', // Include role
             };
         });
 
@@ -94,6 +95,7 @@ export const getClubLeaderboard = async (data: any, context: functions.https.Cal
                     displayName: userData.displayName || 'Unknown',
                     photoURL: userData.photoURL || '',
                     credits: userData.credit || 0, // Use 'credit' from DB, map to 'credits' for frontend
+                    role: userData.role || 'player', // Include role
                 };
             })
             .sort((a, b) => b.credits - a.credits);

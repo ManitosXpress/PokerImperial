@@ -20,7 +20,7 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
   bool _isLoading = false;
 
   // Bot de Telegram
-  static const String telegramBotUrl = 'http://t.me/AgenteBingobot';
+  static const String telegramBotUrl = 'https://t.me/AgenteImperialbot';
 
   Future<void> _requestCreditsViaTelegram() async {
     setState(() => _isLoading = true);

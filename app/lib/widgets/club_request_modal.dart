@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
+import '../providers/club_provider.dart';
 
 class ClubRequestModal extends StatefulWidget {
   const ClubRequestModal({super.key});
@@ -22,7 +24,7 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
 
   int _currentPage = 0;
   bool _isSubmitting = false;
-  static const String telegramBotUrl = 'http://t.me/AgenteBingobot';
+  static const String telegramBotUrl = 'https://t.me/AgenteImperialbot';
 
   @override
   void dispose() {
@@ -54,16 +56,54 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
     final logoUrl = _logoUrlController.text.trim();
     final credits = _creditsController.text.trim();
     
+    /* DIRECT CREATION - DISABLED
+    try {
+      // Crear el club automáticamente usando ClubProvider
+      final clubProvider = Provider.of<ClubProvider>(context, listen: false);
+      await clubProvider.createClub(name, description.isEmpty ? 'Club de poker' : description);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎉 ¡Club creado exitosamente!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        
+        // Close modal
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint('Error creating club: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al crear el club: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+    */
+    
+    // TELEGRAM INTEGRATION - ENABLED
     // Pre-formatted message for Telegram
     final message = '🎰 Solicitud de Nuevo Club\n\n'
         '📋 Nombre: $name\n'
         '📝 Descripción: ${description.isEmpty ? 'N/A' : description}\n'
         '🖼️ Logo: ${logoUrl.isEmpty ? 'N/A' : logoUrl}\n'
         '💰 Créditos Iniciales: $credits\n\n'
+        '     Club ID: \n'
         '👤 Usuario ID: ${user.uid}\n'
         '📧 Email: ${user.email ?? 'N/A'}\n'
-        '📱 Nombre: ${user.displayName ?? 'N/A'}\n\n'
-        '✅ Acepto el esquema de comisiones 60/30/10.';
+        '📱 Nombre: ${user.displayName ?? 'N/A'}\n'
+        '     Role: club\n\n'
+        '✅ Acepto el esquema de comisiones 50/30/20.';
 
     // Copy to clipboard
     await Clipboard.setData(ClipboardData(text: message));
@@ -76,9 +116,6 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
           duration: Duration(seconds: 2),
         ),
       );
-      
-      // Close modal
-      Navigator.pop(context);
     }
 
     // Launch Telegram
@@ -98,8 +135,10 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
         );
       }
     }
-
-    setState(() => _isSubmitting = false);
+    
+    if (mounted) {
+      setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -451,7 +490,7 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
                       )
                     : const Icon(Icons.telegram, size: 24),
                 label: Text(
-                  _isSubmitting ? 'ENVIANDO...' : 'ENVIAR SOLICITUD',
+                  _isSubmitting ? 'ABRIENDO TELEGRAM...' : 'SOLICITAR EN TELEGRAM',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,

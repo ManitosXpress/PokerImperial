@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../providers/auth_provider.dart';
+import '../providers/auth_provider.dart' as app_auth;
 import '../providers/language_provider.dart';
 
 class WithdrawCreditsDialog extends StatefulWidget {
@@ -26,10 +26,10 @@ class _WithdrawCreditsDialogState extends State<WithdrawCreditsDialog> {
   }
 
   // Bot de Telegram
-  static const String telegramBotUrl = 'http://t.me/AgenteBingobot';
+  static const String telegramBotUrl = 'https://t.me/AgenteImperialbot';
 
   Future<void> _requestWithdrawalViaTelegram() async {
-    final user = context.read<AuthProvider>().user;
+    final user = context.read<app_auth.AuthProvider>().user;
     if (user == null) return;
 
     final amount = double.tryParse(_amountController.text);

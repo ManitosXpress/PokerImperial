@@ -5,6 +5,7 @@ import '../providers/language_provider.dart';
 import '../providers/wallet_provider.dart';
 import '../providers/auth_provider.dart' as app_auth;
 import '../widgets/add_credits_dialog.dart';
+import '../widgets/change_password_dialog.dart';
 import '../services/credits_service.dart';
 import 'login_screen.dart';
 
@@ -121,24 +122,60 @@ class ProfileScreen extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(height: 20),
-                              // Edit Profile Button
-                              OutlinedButton.icon(
-                                onPressed: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (_) => const EditProfileDialog(),
-                                  );
-                                },
-                                icon: const Icon(Icons.edit, size: 18,  color: Color(0xFFC89A4E),),
-                                label: Text(languageProvider.getText('edit_profile')),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFFC89A4E), // Gold
-                                  side: const BorderSide(color: Color(0xFFC89A4E)), // Gold
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 12,
+                              // Buttons Row
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  // Edit Profile Button
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          builder: (_) => const EditProfileDialog(),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.edit, size: 18, color: Color(0xFFC89A4E)),
+                                      label: Text(languageProvider.getText('edit_profile')),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: const Color(0xFFC89A4E),
+                                        side: const BorderSide(color: Color(0xFFC89A4E)),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 12,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 12),
+                                  // Change Password Button
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          barrierDismissible: false,
+                                          builder: (_) => const ChangePasswordDialog(),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.lock_reset, size: 18, color: Color(0xFFC89A4E)),
+                                      label: Text(
+                                        languageProvider.currentLocale.languageCode == 'en'
+                                            ? 'Password'
+                                            : 'Contraseña',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: const Color(0xFFC89A4E),
+                                        side: const BorderSide(color: Color(0xFFC89A4E)),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),

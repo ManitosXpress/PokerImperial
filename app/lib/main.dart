@@ -180,6 +180,7 @@ class HomeScreen extends StatelessWidget {
               children: [
                 const Text(
                   'POKER IMPERIAL',
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 52,
                     fontWeight: FontWeight.bold,
@@ -214,9 +215,9 @@ class HomeScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                    child: const Text(
-                      'PLAY NOW',
-                      style: TextStyle(
+                    child: Text(
+                      Provider.of<LanguageProvider>(context).getText('play_now'),
+                      style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 2,

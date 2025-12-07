@@ -5,10 +5,13 @@ import 'create_club_screen.dart';
 import '../../widgets/club_request_modal.dart';
 import 'club_tournaments_screen.dart';
 import 'club_leaderboard_screen.dart';
+import 'tabs/live_tables_tab.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../widgets/poker_loading_indicator.dart';
+import '../../widgets/club_owner_dashboard.dart';
+import '../../widgets/seller_dashboard.dart';
 
 class ClubDashboardScreen extends StatefulWidget {
   const ClubDashboardScreen({super.key});
@@ -19,34 +22,19 @@ class ClubDashboardScreen extends StatefulWidget {
 
 class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  int _totalMemberCredits = 0;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     Future.microtask(() async {
       final provider = Provider.of<ClubProvider>(context, listen: false);
       await provider.fetchClubs();
       if (provider.myClub != null) {
-        _fetchTotalMemberCredits(provider.myClub!['id']);
+        // We removed _fetchTotalMemberCredits, so this block might be empty or removed.
+        // If we need to do something else, we can do it here.
       }
     });
-  }
-
-  Future<void> _fetchTotalMemberCredits(String clubId) async {
-    try {
-      final members = await Provider.of<ClubProvider>(context, listen: false)
-          .fetchClubLeaderboard(clubId);
-      final total = members.fold<int>(0, (sum, member) => sum + (member['credits'] as int? ?? 0));
-      if (mounted) {
-        setState(() {
-          _totalMemberCredits = total;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error calculating total credits: $e');
-    }
   }
 
   @override
@@ -118,213 +106,149 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
   }
 
   Widget _buildMyClubView(Map<String, dynamic> club) {
-    return Column(
-      children: [
-        const SizedBox(height: 100), // AppBar spacer
-        // Club Header
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFFFFD700), width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFFD700).withOpacity(0.3),
-                      blurRadius: 15,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: const CircleAvatar(
-                  radius: 40,
-                  backgroundColor: Color(0xFF1A1A2E),
-                  child: Icon(Icons.shield, size: 40, color: Color(0xFFFFD700)),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                club['name'],
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  letterSpacing: 1.2,
-                  shadows: [Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, 2))],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                club['description'],
-                style: const TextStyle(color: Colors.white70, fontSize: 14),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-        
-        const SizedBox(height: 24),
-        
-        // Club Wallet Card
-        // Club Wallet Card (Only visible to Owner)
-        Consumer<ClubProvider>(
-          builder: (context, provider, child) {
-            final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-            // Check role from provider (ensure fetchClubs has run)
-            final isClubOwner = provider.currentUserRole == 'club' && club['ownerId'] == currentUserId;
-            
-            // if (!isClubOwner) return const SizedBox.shrink(); // Removed to show balance to all
-
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF2A2A2A), Color(0xFF1A1A1A)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white10),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    return NestedScrollView(
+      headerSliverBuilder: (context, innerBoxIsScrolled) {
+        return [
+          SliverToBoxAdapter(
+            child: Column(
+              children: [
+                const SizedBox(height: 100), // AppBar spacer
+                // Club Header
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                  child: Column(
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.account_balance_wallet, color: Colors.amber.shade400, size: 16),
-                          const SizedBox(width: 8),
-                          Text(
-                            'CLUB WALLET',
-                            style: TextStyle(
-                              color: Colors.amber.shade400,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                              letterSpacing: 1.5,
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: const Color(0xFFFFD700), width: 2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFFFD700).withOpacity(0.3),
+                              blurRadius: 15,
+                              spreadRadius: 2,
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                        child: const CircleAvatar(
+                          radius: 40,
+                          backgroundColor: Color(0xFF1A1A2E),
+                          child: Icon(Icons.shield, size: 40, color: Color(0xFFFFD700)),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        club['name'],
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          letterSpacing: 1.2,
+                          shadows: [Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, 2))],
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '$_totalMemberCredits',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        club['description'],
+                        style: const TextStyle(color: Colors.white70, fontSize: 14),
+                        textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 8),
-                      if (isClubOwner)
-                        InkWell(
-                          onTap: () => _showInviteMemberDialog(context),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.green),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.person_add, color: Colors.green, size: 16),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Add Members',
-                                  style: TextStyle(
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
                     ],
                   ),
-                  // Owner Controls Button
-                  if (isClubOwner)
-                    ElevatedButton(
-                      onPressed: () => _showWalletManagementDialog(context, club['id'], club['name']),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFFD700),
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      ),
-                      child: const Text('Manage', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // Role-Based Dashboard (Executive Panel / Seller Panel)
+                Consumer<ClubProvider>(
+                  builder: (context, provider, child) {
+                    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+                    final role = provider.currentUserRole;
+                    
+                    // Owner (club role) sees Executive Panel
+                    if (role == 'club' && club['ownerId'] == currentUserId) {
+                      return ClubOwnerDashboard(
+                        clubId: club['id'],
+                        clubName: club['name'],
+                      );
+                    }
+                    
+                    // Seller sees Seller Panel
+                    if (role == 'seller') {
+                      return SellerDashboard(
+                        clubId: club['id'],
+                        clubName: club['name'],
+                      );
+                    }
+                    
+                    // Player sees no panel
+                    return const SizedBox.shrink();
+                  },
+                ),
+
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+          
+          // Sticky TabBar
+          SliverPersistentHeader(
+            delegate: _SliverAppBarDelegate(
+              TabBar(
+                controller: _tabController,
+                isScrollable: true, // Make scrollable to fit 4 tabs
+                indicator: BoxDecoration(
+                  color: const Color(0xFFFFD700),
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                labelColor: Colors.black,
+                unselectedLabelColor: Colors.white60,
+                labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+                tabs: const [
+                  Tab(text: 'STAFF'),
+                  Tab(text: 'PLAYERS'),
+                  Tab(text: 'LIVE TABLES'),
+                  Tab(text: 'TOURNAMENTS'),
                 ],
               ),
-            );
-          },
-        ),
-
-        const SizedBox(height: 24),
-
-        // Tabs
-        Container(
-          height: 50,
-          margin: const EdgeInsets.symmetric(horizontal: 24),
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(25),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: TabBar(
-            controller: _tabController,
-            indicator: BoxDecoration(
-              color: const Color(0xFFFFD700),
-              borderRadius: BorderRadius.circular(25),
             ),
-            labelColor: Colors.black,
-            unselectedLabelColor: Colors.white60,
-            labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-            tabs: const [
-              Tab(text: 'MEMBERS'),
-              Tab(text: 'TOURNAMENTS'),
-            ],
+            pinned: true,
           ),
+        ];
+      },
+      body: Container(
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.5), // Darken background for list readability
         ),
-
-        const SizedBox(height: 16),
-
-        // Tab Content
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              // Members Tab (Embedded Leaderboard)
-              ClubLeaderboardScreen(
-                clubId: club['id'],
-                ownerId: club['ownerId'],
-                isEmbedded: true, // We'll add this flag
-              ),
-              // Tournaments Tab
-              ClubTournamentsScreen(
-                clubId: club['id'],
-                isOwner: club['ownerId'] == Provider.of<ClubProvider>(context, listen: false).myClub?['ownerId'],
-                isEmbedded: true, // We'll add this flag
-              ),
-            ],
-          ),
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            // Staff Tab (Owner + Sellers)
+            ClubLeaderboardScreen(
+              clubId: club['id'],
+              ownerId: club['ownerId'],
+              isEmbedded: true,
+              filter: LeaderboardFilter.staff,
+            ),
+            // Players Tab
+            ClubLeaderboardScreen(
+              clubId: club['id'],
+              ownerId: club['ownerId'],
+              isEmbedded: true,
+              filter: LeaderboardFilter.players,
+            ),
+            // Live Tables Tab
+            LiveTablesTab(clubId: club['id']),
+            // Tournaments Tab
+            ClubTournamentsScreen(
+              clubId: club['id'],
+              isOwner: club['ownerId'] == Provider.of<ClubProvider>(context, listen: false).myClub?['ownerId'],
+              isEmbedded: true,
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -440,438 +364,171 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
   }
 
 
-  void _showJoinClubDialog(BuildContext context, String clubId, String clubName) {
+
+  void _showJoinClubDialog(BuildContext context, String clubId, String clubName) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Get club details to obtain ownerId
+    final clubProvider = Provider.of<ClubProvider>(context, listen: false);
+    final club = clubProvider.clubs.firstWhere((c) => c['id'] == clubId, orElse: () => {});
+    final ownerId = club['ownerId'] ?? 'N/A';
+
+    final creditsController = TextEditingController();
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A2E),
         title: Text('Unirse a $clubName', style: const TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '¡Bienvenido al Club!',
-              style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Al unirte a este club, podrás participar en torneos exclusivos y ganar fichas.',
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Importante:',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Para jugar, necesitarás créditos. Debes contactar al líder del club para comprar créditos y recargar tu billetera.',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '¡Solicita unirte a este Club!',
+                style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Al enviar esta solicitud, el administrador del club recibirá tu petición y podrá aprobarte.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Importante:',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Una vez aprobado, podrás participar en las mesas y torneos del club.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: creditsController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Créditos a Cargar',
+                  labelStyle: const TextStyle(color: Colors.white70),
+                  hintText: 'Ej: 10000',
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  enabledBorder: const OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white24),
+                  ),
+                  focusedBorder: const OutlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFFFFD700)),
+                  ),
+                  prefixIcon: const Icon(Icons.monetization_on, color: Color(0xFFFFD700)),
+                  suffixText: 'créditos',
+                  suffixStyle: const TextStyle(color: Color(0xFFFFD700)),
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              creditsController.dispose();
+              Navigator.pop(context);
+            },
             child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
+              final credits = creditsController.text.trim();
+              if (credits.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Por favor ingresa la cantidad de créditos')),
+                );
+                return;
+              }
+
               Navigator.pop(context); // Close dialog
-              Provider.of<ClubProvider>(context, listen: false).joinClub(clubId);
+              creditsController.dispose();
+              
+              // Generate the message
+              final message = '''
+🤝 Solicitud de Ingreso a Club
+
+🏢 Datos del Club Destino
+🆔 Club ID: $clubId
+👑 Owner ID: $ownerId
+
+👤 Datos del Solicitante
+🆔 Usuario ID: ${user.uid}
+📧 Email: ${user.email ?? 'No email'}
+📱 Nombre: ${user.displayName ?? 'Sin nombre'}
+💰 Créditos: $credits
+
+This message was sent automatically with n8n''';
+
+              final encodedMessage = Uri.encodeComponent(message);
+              final urlString = 'https://t.me/AgenteBingobot?text=$encodedMessage';
+              final url = Uri.parse(urlString);
+
+              try {
+                // Copy message to clipboard
+                await Clipboard.setData(ClipboardData(text: message));
+                
+                // Open Telegram
+                await launchUrl(url, mode: LaunchMode.externalApplication);
+                
+                // Show confirmation
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ Mensaje copiado al portapapeles y enviado a Telegram'),
+                      backgroundColor: Colors.green,
+                      duration: Duration(seconds: 3),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('No se pudo abrir Telegram: $e')),
+                  );
+                }
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFFFD700),
               foregroundColor: Colors.black,
             ),
-            child: const Text('Entrar al Club'),
+            child: const Text('Enviar Solicitud'),
           ),
         ],
       ),
     );
   }
 
-  void _showInviteMemberDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => const _InviteMemberDialog(),
+}
+
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar _tabBar;
+
+  _SliverAppBarDelegate(this._tabBar);
+
+  @override
+  double get minExtent => _tabBar.preferredSize.height;
+  @override
+  double get maxExtent => _tabBar.preferredSize.height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: const Color(0xFF1A1A2E), // Match background color
+      child: _tabBar,
     );
   }
 
-  void _showWalletManagementDialog(BuildContext context, String clubId, String clubName) {
-    showDialog(
-      context: context,
-      builder: (context) => _WalletManagementDialog(clubId: clubId, clubName: clubName),
-    );
+  @override
+  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
+    return false;
   }
 }
 
-class _WalletManagementDialog extends StatefulWidget {
-  final String clubId;
-  final String clubName;
-
-  const _WalletManagementDialog({
-    required this.clubId,
-    required this.clubName,
-  });
-
-  @override
-  State<_WalletManagementDialog> createState() => _WalletManagementDialogState();
-}
-
-class _WalletManagementDialogState extends State<_WalletManagementDialog> {
-  bool _isLoading = false;
-  List<Map<String, dynamic>> _members = [];
-  String? _selectedMemberId;
-  final TextEditingController _amountController = TextEditingController();
-  static const String telegramBotUrl = 'http://t.me/AgenteBingobot';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadMembers();
-  }
-
-  Future<void> _loadMembers() async {
-    setState(() => _isLoading = true);
-    try {
-      // Reuse leaderboard fetch to get members
-      final members = await Provider.of<ClubProvider>(context, listen: false)
-          .fetchClubLeaderboard(widget.clubId);
-      if (mounted) {
-        setState(() {
-          _members = members;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar miembros: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _transferCredits() async {
-    if (_selectedMemberId == null || _amountController.text.isEmpty) return;
-
-    final amount = int.tryParse(_amountController.text);
-    if (amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor ingresa una cantidad válida')),
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      await Provider.of<ClubProvider>(context, listen: false)
-          .transferClubToMember(widget.clubId, _selectedMemberId!, amount);
-      
-      if (mounted) {
-        Navigator.pop(context); // Close dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('¡Transferencia exitosa!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error en la transferencia: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _requestCreditsViaTelegram() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final amountText = _amountController.text.isEmpty ? '0.00' : _amountController.text;
-    
-    // 1. Create message with specific format
-    final message = 'Solicitud de recarga:\n'
-        'ID: ${user.uid}\n'
-        'Email: ${user.email ?? "No email"}\n'
-        'Monto: $amountText';
-    
-    // 2. Copy to clipboard
-    await Clipboard.setData(ClipboardData(text: message));
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mensaje copiado. Pégalo en Telegram.')),
-      );
-      
-      // 3. Close dialog
-      Navigator.pop(context);
-    }
-
-    // 4. Launch Telegram
-    final Uri url = Uri.parse(telegramBotUrl);
-    try {
-      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-        throw Exception('No se pudo abrir Telegram');
-      }
-    } catch (e) {
-      debugPrint('Error launching Telegram: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: const Color(0xFF1A1A2E),
-      title: const Text('Gestionar Billetera del Club', style: TextStyle(color: Colors.white)),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: _isLoading && _members.isEmpty
-            ? const Center(child: PokerLoadingIndicator(size: 40))
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Transferir a Miembro',
-                    style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    value: _selectedMemberId,
-                    dropdownColor: const Color(0xFF16213E),
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Seleccionar Miembro',
-                      labelStyle: TextStyle(color: Colors.white70),
-                      enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.white24),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.amber),
-                      ),
-                    ),
-                    items: _members.map((member) {
-                      return DropdownMenuItem(
-                        value: member['uid'] as String,
-                        child: Text(
-                          member['displayName'] ?? 'Desconocido',
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (value) => setState(() => _selectedMemberId = value),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _amountController,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Cantidad',
-                      labelStyle: TextStyle(color: Colors.white70),
-                      enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.white24),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.amber),
-                      ),
-                      suffixText: 'Créditos',
-                      suffixStyle: TextStyle(color: Colors.amber),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Divider(color: Colors.white24),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _requestCreditsViaTelegram,
-                      icon: const Icon(Icons.telegram, size: 28),
-                      label: const Text('Solicitar Recarga (Telegram)'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0088cc), // Telegram Blue
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _transferCredits,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFFFD700),
-            foregroundColor: Colors.black,
-          ),
-          child: _isLoading
-              ? const SizedBox(width: 20, height: 20, child: PokerLoadingIndicator(size: 20, color: Colors.black))
-              : const Text('Transferir'),
-        ),
-      ],
-    );
-  }
-}
-
-class _InviteMemberDialog extends StatefulWidget {
-  const _InviteMemberDialog();
-
-  @override
-  State<_InviteMemberDialog> createState() => _InviteMemberDialogState();
-}
-
-class _InviteMemberDialogState extends State<_InviteMemberDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  String _selectedRole = 'player';
-  bool _isLoading = false;
-  String? _inviteLink;
-
-  Future<void> _generateLink() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      final link = await Provider.of<ClubProvider>(context, listen: false)
-          .createClubInvite(_selectedRole, _nameController.text);
-      
-      if (mounted) {
-        setState(() {
-          _inviteLink = link;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: const Color(0xFF1A1A2E),
-      title: const Text('Invitar Miembro', style: TextStyle(color: Colors.white)),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: _inviteLink != null
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.green, size: 48),
-                  const SizedBox(height: 16),
-                  const Text(
-                    '¡Link Generado!',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.black26,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: SelectableText(
-                      _inviteLink!,
-                      style: const TextStyle(color: Colors.amber),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: _inviteLink!));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Link copiado al portapapeles')),
-                      );
-                    },
-                    icon: const Icon(Icons.copy),
-                    label: const Text('Copiar Link'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFFD700),
-                      foregroundColor: Colors.black,
-                    ),
-                  ),
-                ],
-              )
-            : Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(
-                      controller: _nameController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre de Referencia (Apodo)',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white24),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.amber),
-                        ),
-                      ),
-                      validator: (v) => v?.isEmpty == true ? 'Requerido' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedRole,
-                      dropdownColor: const Color(0xFF16213E),
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Rol',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white24),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.amber),
-                        ),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'player', child: Text('Jugador')),
-                        DropdownMenuItem(value: 'seller', child: Text('Vendedor')),
-                      ],
-                      onChanged: (v) => setState(() => _selectedRole = v!),
-                    ),
-                  ],
-                ),
-              ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cerrar', style: TextStyle(color: Colors.white54)),
-        ),
-        if (_inviteLink == null)
-          ElevatedButton(
-            onPressed: _isLoading ? null : _generateLink,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFFD700),
-              foregroundColor: Colors.black,
-            ),
-            child: _isLoading
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('Generar Link'),
-          ),
-      ],
-    );
-  }
-}

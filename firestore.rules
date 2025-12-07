@@ -8,9 +8,10 @@ service cloud.firestore {
       return currentUser.role == 'club' && currentUser.clubId == targetData.clubId;
     }
     
-    // Helper function to check if user is admin (using Custom Claims)
+    // Helper function to check if user is admin (using Custom Claims OR Firestore Doc)
     function isAdmin() {
-      return request.auth.token.role == 'admin';
+      return request.auth.token.role == 'admin' || 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     // Users collection
@@ -74,6 +75,12 @@ service cloud.firestore {
     match /tournaments/{tournamentId} {
       allow read: if request.auth != null;
       allow write: if false; // Use Cloud Functions
+    }
+
+    // Poker Tables
+    match /poker_tables/{tableId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Managed via Cloud Functions
     }
     
     match /{document=**} {

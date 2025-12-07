@@ -1,12 +1,13 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../providers/auth_provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../providers/auth_provider.dart' as app_auth;
 import '../providers/language_provider.dart';
 import 'lobby_screen.dart';
 import '../widgets/poker_loading_indicator.dart';
+import '../widgets/change_password_dialog.dart';
 
 /// Login Screen
 /// Provides authentication UI with Email/Password
@@ -36,7 +37,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleAuth() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final authProvider = context.read<AuthProvider>();
+    final authProvider = context.read<app_auth.AuthProvider>();
     
     bool success;
     if (_isRegistering) {
@@ -53,6 +54,26 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     if (success && mounted) {
+      // Check if password change is required
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        if (userDoc.exists && userDoc.data()?['passwordChangeRequired'] == true) {
+          // Show password change dialog (cannot be dismissed)
+          if (mounted) {
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => const ChangePasswordDialog(),
+            );
+          }
+        }
+      }
+
       // Artificial delay to show loading animation
       await Future.delayed(const Duration(seconds: 1));
       if (mounted) {
@@ -75,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = context.watch<AuthProvider>();
+    final authProvider = context.watch<app_auth.AuthProvider>();
     final lang = context.read<LanguageProvider>();
     final isSpanish = lang.currentLocale.languageCode == 'es';
 
