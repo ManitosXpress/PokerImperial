@@ -180,11 +180,19 @@ export const startGameFunction = functions.https.onCall(async (data, context) =>
         }
 
         const tableData = tableDoc.data();
-        if (tableData?.hostId !== uid) {
-            throw new functions.https.HttpsError('permission-denied', 'Only the host can start the game');
+        
+        const players = tableData?.players || [];
+        const readyPlayers = tableData?.readyPlayers || [];
+        const isHost = tableData?.hostId === uid;
+        const isPlayer = players.some((p: any) => p.id === uid);
+        // Allow start if host OR if player and all players are ready (min 2 players)
+        const allReady = players.length >= 2 && players.every((p: any) => readyPlayers.includes(p.id));
+
+        if (!isHost && !(isPlayer && allReady)) {
+            throw new functions.https.HttpsError('permission-denied', 'Only the host or a player (when all are ready) can start the game');
         }
 
-        if (tableData.status !== 'waiting') {
+        if (tableData?.status !== 'waiting') {
             throw new functions.https.HttpsError('failed-precondition', 'Table is not in waiting state');
         }
 

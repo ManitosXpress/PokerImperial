@@ -2,55 +2,105 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // ============================================
-    // USERS COLLECTION - Server-Authoritative
-    // ============================================
-    // Users can READ their own data but CANNOT WRITE
-    // Only Cloud Functions (Admin SDK) can modify wallet balance
-    match /users/{userId} {
-      // Allow read only if authenticated and accessing own document
-      allow read: if request.auth != null && request.auth.uid == userId;
-      
-      // BLOCK ALL CLIENT WRITES
-      // This prevents users from modifying their own balance
-      allow write: if false;
+    // Helper function to check if user is club owner of the target's club
+    function isClubOwnerOf(targetData) {
+      let currentUser = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return currentUser.role == 'club' && currentUser.clubId == targetData.clubId;
     }
     
-    // ============================================
-    // TRANSACTION LOGS - Immutable Audit Trail
-    // ============================================
-    // Users can READ their own logs but CANNOT WRITE
-    // Only Cloud Functions can create transaction logs
-    // Transaction logs - read-only for users
-    match /transaction_logs/{logId} {
-      // Allow read only if authenticated and log belongs to user
-      allow read: if request.auth != null && 
-                     resource.data.userId == request.auth.uid;
+    // Helper function to check if user is admin (using Custom Claims OR Firestore Doc)
+    function isAdmin() {
+      return request.auth.token.role == 'admin' || 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // Users can read their own document
+      // Club owners can read their members' documents
+      // Admins can read ALL documents
+      allow read: if request.auth != null && (
+        request.auth.uid == userId || 
+        isClubOwnerOf(resource.data) ||
+        isAdmin()
+      );
       
-      // BLOCK ALL CLIENT WRITES
-      // Logs are immutable - only Cloud Functions can create them
+      // Users can create their own document during registration (public reg)
+      allow create: if request.auth != null 
+                    && request.auth.uid == userId
+                    && request.resource.data.credit == 0;
+      
+      // Users can update their profile fields
+      // Club owners can update their members? (Maybe not needed if using functions, but requested)
+      // Admins can update via Cloud Functions (rules don't apply to Admin SDK), 
+      // but if they use client SDK, we might allow it. 
+      // Generally, admin updates should go through Cloud Functions for safety/logging.
+      allow update: if request.auth != null && (
+        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['credit', 'role', 'clubId'])) ||
+        isClubOwnerOf(resource.data)
+      );
+    }
+    
+    // Invitations - Public read for setup (to validate token on client if needed)
+    match /invitations/{token} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false; // Only Cloud Functions
+    }
+
+    // Transaction logs
+    match /transaction_logs/{logId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.userId ||
+        request.auth.uid == resource.data.fromId ||
+        request.auth.uid == resource.data.toId ||
+        isAdmin()
+      );
       allow write: if false;
     }
 
-    // ============================================
-    // CLUBS & TOURNAMENTS
-    // ============================================
-    // Public read for authenticated users
-    
+    // Financial Ledger - Admin only
+    match /financial_ledger/{ledgerId} {
+      allow read: if request.auth != null && isAdmin();
+      allow write: if false;
+    }
+
+    // Clubs - Public read
     match /clubs/{clubId} {
       allow read: if request.auth != null;
       allow write: if false;
     }
 
+    // Tournaments - Public read, Admin write (if using client SDK, but we use Functions)
     match /tournaments/{tournamentId} {
       allow read: if request.auth != null;
-      allow write: if false;
+      allow write: if false; // Use Cloud Functions
+    }
+
+    // Poker Tables
+    match /poker_tables/{tableId} {
+      allow read: if request.auth != null;
+      // Allow users to update 'players' array (join/leave) and 'readyPlayers' status
+      allow update: if request.auth != null && (
+        // Allow joining/leaving (modifying players array)
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players']) ||
+        // Allow toggling ready status
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readyPlayers']) ||
+        // Allow both
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'readyPlayers'])
+      );
+      allow create: if false; // Only via Cloud Functions
     }
     
-    // ============================================
-    // DEFAULT DENY ALL
-    // ============================================
-    // Any other collection is completely blocked
+    // Poker Sessions (In-Game Balance)
+    match /poker_sessions/{sessionId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.userId || 
+        isAdmin()
+      );
+      allow write: if false; // Only Cloud Functions
+    }
+    
     match /{document=**} {
       allow read, write: if false;
     }

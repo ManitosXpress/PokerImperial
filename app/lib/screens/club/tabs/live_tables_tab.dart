@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
+import '../../../providers/club_provider.dart';
 import '../../game_screen.dart';
 import '../../table_lobby_screen.dart';
 import '../../../widgets/poker_loading_indicator.dart';
@@ -48,6 +50,9 @@ class LiveTablesTab extends StatelessWidget {
         }
 
         final tables = snapshot.data!.docs;
+        final clubProvider = Provider.of<ClubProvider>(context, listen: false);
+        final userRole = clubProvider.currentUserRole; // 'player', 'club', 'admin', 'seller'
+        final canPlay = userRole == 'player' || userRole == null; // Default to player if null?
 
         return ListView.builder(
           padding: const EdgeInsets.all(16),
@@ -58,7 +63,13 @@ class LiveTablesTab extends StatelessWidget {
             final players = table['players'] as List? ?? [];
             final maxPlayers = table['maxPlayers'] ?? 9;
             final isWaiting = table['status'] == 'waiting';
-
+            
+            // Logic for button
+            // If player: Join Lobby if waiting, Spectate if active (or maybe just spectate logic is handled by GameScreen)
+            // If Club/Seller: Always Spectate
+            
+            final bool showJoinLobby = canPlay && isWaiting;
+            
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
@@ -116,7 +127,7 @@ class LiveTablesTab extends StatelessWidget {
                 ),
                 trailing: ElevatedButton(
                   onPressed: () {
-                    if (isWaiting) {
+                    if (showJoinLobby) {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -127,6 +138,7 @@ class LiveTablesTab extends StatelessWidget {
                         ),
                       );
                     } else {
+                      // Spectate mode
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -139,11 +151,11 @@ class LiveTablesTab extends StatelessWidget {
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isWaiting ? const Color(0xFFFFD700) : Colors.blueAccent,
-                    foregroundColor: isWaiting ? Colors.black : Colors.white,
+                    backgroundColor: showJoinLobby ? const Color(0xFFFFD700) : Colors.blueGrey,
+                    foregroundColor: showJoinLobby ? Colors.black : Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   ),
-                  child: Text(isWaiting ? 'JOIN LOBBY' : 'SPECTATE'),
+                  child: Text(showJoinLobby ? 'JOIN LOBBY' : 'SPECTATE'),
                 ),
               ),
             );

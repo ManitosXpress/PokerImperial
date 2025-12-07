@@ -4,109 +4,192 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 
 class SocketService extends ChangeNotifier {
-  late IO.Socket _socket;
+  IO.Socket? _socket;
   bool _isConnected = false;
+  bool _isConnecting = false;
+  DateTime? _lastConnectionAttempt;
+  int _connectionAttempts = 0;
+  static const int _maxConnectionAttempts = 3;
+  static const Duration _minRetryDelay = Duration(seconds: 5);
 
-  bool get isConnected => _isConnected;
-  IO.Socket get socket => _socket;
-  String? get socketId => _socket.id;
+  bool get isConnected => _isConnected && _socket != null;
+  IO.Socket get socket {
+    if (_socket == null) {
+      throw Exception('Socket not initialized. Call connect() first.');
+    }
+    return _socket!;
+  }
+  String? get socketId => _socket?.id;
 
   Future<void> connect() async {
-    // Adjust URL based on platform
-    String uri = kIsWeb 
-      ? 'https://poker-server-s8yj.onrender.com'  // Production backend (Render)
-      : 'http://10.0.2.2:3000';  // Android emulator (local)
-    
-    // Get Firebase token
-    final user = FirebaseAuth.instance.currentUser;
-    String? token;
-    if (user != null) {
-      token = await user.getIdToken();
+    // Prevent multiple simultaneous connection attempts
+    if (_isConnecting) {
+      print('Connection already in progress, skipping...');
+      return;
     }
 
-    _socket = IO.io(uri, IO.OptionBuilder()
-      .setTransports(['websocket'])
-      .disableAutoConnect()
-      .build());
+    // Check if already connected
+    if (_isConnected && _socket != null && _socket!.connected) {
+      print('Socket already connected');
+      return;
+    }
 
-    _socket.connect();
+    // Rate limiting: Don't retry too quickly
+    if (_lastConnectionAttempt != null) {
+      final timeSinceLastAttempt = DateTime.now().difference(_lastConnectionAttempt!);
+      if (timeSinceLastAttempt < _minRetryDelay) {
+        print('Too soon to retry connection. Waiting...');
+        return;
+      }
+    }
 
-    _socket.onConnect((_) async {
-      print('Connected to server');
+    // Check max attempts
+    if (_connectionAttempts >= _maxConnectionAttempts) {
+      print('Max connection attempts reached. Stopping retries.');
+      return;
+    }
+
+    _isConnecting = true;
+    _lastConnectionAttempt = DateTime.now();
+    _connectionAttempts++;
+
+    try {
+      // Adjust URL based on platform
+      String uri = kIsWeb 
+        ? 'https://poker-server-s8yj.onrender.com'  // Production backend (Render)
+        : 'http://10.0.2.2:3000';  // Android emulator (local)
       
-      // Get fresh token on every connection
+      // Dispose existing socket if any
+      _socket?.dispose();
+      _socket?.disconnect();
+
+      // Get Firebase token
       final user = FirebaseAuth.instance.currentUser;
-      String? freshToken;
+      String? token;
       if (user != null) {
-        freshToken = await user.getIdToken();
-      }
-      
-      // Authenticate
-      if (freshToken != null) {
-        print('Sending authenticate event with token');
-        _socket.emit('authenticate', {'token': freshToken});
-      } else {
-        print('No user logged in, skipping authentication');
+        token = await user.getIdToken();
       }
 
-      _isConnected = true;
-      notifyListeners();
-    });
+      _socket = IO.io(uri, IO.OptionBuilder()
+        .setTransports(['websocket'])
+        .disableAutoConnect() // We handle connection manually to control retry logic
+        .build());
 
-    _socket.onDisconnect((_) {
-      print('Disconnected from server');
+      _socket!.connect();
+
+      _socket!.onConnect((_) async {
+        print('Connected to server');
+        _isConnecting = false;
+        _connectionAttempts = 0; // Reset on successful connection
+        
+        // Get fresh token on every connection
+        final user = FirebaseAuth.instance.currentUser;
+        String? freshToken;
+        if (user != null) {
+          freshToken = await user.getIdToken();
+        }
+        
+        // Authenticate
+        if (freshToken != null) {
+          print('Sending authenticate event with token');
+          _socket!.emit('authenticate', {'token': freshToken});
+        } else {
+          print('No user logged in, skipping authentication');
+        }
+
+        _isConnected = true;
+        notifyListeners();
+      });
+
+      _socket!.onDisconnect((_) {
+        print('Disconnected from server');
+        _isConnected = false;
+        _isConnecting = false;
+        notifyListeners();
+      });
+
+      _socket!.onConnectError((error) {
+        print('Socket connection error: $error');
+        _isConnecting = false;
+        _isConnected = false;
+        notifyListeners();
+        // Don't print repeatedly, only log once per attempt
+      });
+
+      // Only log errors once, not repeatedly
+      bool errorLogged = false;
+      _socket!.onError((data) {
+        if (!errorLogged) {
+          print('Socket Error: $data');
+          errorLogged = true;
+          // Reset flag after a delay to allow occasional error logging
+          Future.delayed(const Duration(seconds: 10), () {
+            errorLogged = false;
+          });
+        }
+      });
+    
+      _socket!.on('insufficient_balance', (data) {
+        print('Insufficient balance: ${data['required']} required, ${data['current']} available');
+        _socketEventStream.add({'type': 'insufficient_balance', 'data': data});
+      });
+    } catch (e) {
+      print('Error connecting socket: $e');
+      _isConnecting = false;
       _isConnected = false;
       notifyListeners();
-    });
+    }
+  }
 
-    _socket.onError((data) => print('Socket Error: $data'));
-    
-    _socket.on('insufficient_balance', (data) {
-      print('Insufficient balance: ${data['required']} required, ${data['current']} available');
-      // We can notify listeners or use a stream controller if we want the UI to react globally
-      // For now, we'll let the specific room callbacks handle errors if they come as errors, 
-      // but insufficient_balance is a specific event. 
-      // Ideally, we should expose a stream or callback for this.
-      // However, since createRoom/joinRoom have onError, we can also emit an error there if we want,
-      // but the server emits 'insufficient_balance' separately.
-      // Let's forward it as an error to the active listeners if possible, or just print for now 
-      // and let the UI handle it via a global listener if we add one.
-      // Actually, let's add a global stream for events like this.
-      _socketEventStream.add({'type': 'insufficient_balance', 'data': data});
-    });
+  void disconnect() {
+    _socket?.dispose();
+    _socket?.disconnect();
+    _socket = null;
+    _isConnected = false;
+    _isConnecting = false;
+    _connectionAttempts = 0;
+    notifyListeners();
   }
 
   // Add a stream controller for socket events
   final _socketEventStream = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get socketEventStream => _socketEventStream.stream;
 
-  Future<void> createRoom(String playerName, {Function(String roomId)? onSuccess, Function(String error)? onError}) async {
-    print('Emitting create_room event for $playerName');
+  Future<void> createRoom(String playerName, {String? roomId, Function(String roomId)? onSuccess, Function(String error)? onError}) async {
+    if (_socket == null || !_socket!.connected) {
+      if (onError != null) {
+        onError('Socket no conectado. Intenta nuevamente.');
+      }
+      return;
+    }
+
+    print('Emitting create_room event for $playerName${roomId != null ? ' with ID $roomId' : ''}');
     
     final user = FirebaseAuth.instance.currentUser;
     final token = await user?.getIdToken();
 
-    _socket.emit('create_room', {
+    _socket!.emit('create_room', {
       'playerName': playerName,
-      'token': token
+      'token': token,
+      'roomId': roomId
     });
     
     // Set up one-time listeners for response
-    _socket.once('room_created', (data) {
+    _socket!.once('room_created', (data) {
       print('Room created successfully: ${data['id']}');
       if (onSuccess != null) {
         onSuccess(data['id']);
       }
     });
     
-    _socket.once('error', (data) {
+    _socket!.once('error', (data) {
       print('Room creation error: $data');
       if (onError != null) {
         onError(data.toString());
       }
     });
 
-    _socket.once('insufficient_balance', (data) {
+    _socket!.once('insufficient_balance', (data) {
        if (onError != null) {
          onError('Insufficient balance. Required: ${data['required']}, Available: ${data['current']}');
        }
@@ -114,33 +197,40 @@ class SocketService extends ChangeNotifier {
   }
 
   Future<void> joinRoom(String roomId, String playerName, {Function(String roomId)? onSuccess, Function(String error)? onError}) async {
+    if (_socket == null || !_socket!.connected) {
+      if (onError != null) {
+        onError('Socket no conectado. Intenta nuevamente.');
+      }
+      return;
+    }
+
     print('Emitting join_room event for $playerName to room $roomId');
     
     final user = FirebaseAuth.instance.currentUser;
     final token = await user?.getIdToken();
 
-    _socket.emit('join_room', {
+    _socket!.emit('join_room', {
       'roomId': roomId, 
       'playerName': playerName,
       'token': token
     });
     
     // Set up one-time listeners for response
-    _socket.once('room_joined', (data) {
+    _socket!.once('room_joined', (data) {
       print('Room joined successfully: ${data['id']}');
       if (onSuccess != null) {
         onSuccess(data['id']);
       }
     });
     
-    _socket.once('error', (data) {
+    _socket!.once('error', (data) {
       print('Room join error: $data');
       if (onError != null) {
         onError(data.toString());
       }
     });
 
-    _socket.once('insufficient_balance', (data) {
+    _socket!.once('insufficient_balance', (data) {
        if (onError != null) {
          onError('Insufficient balance. Required: ${data['required']}, Available: ${data['current']}');
        }
@@ -148,14 +238,21 @@ class SocketService extends ChangeNotifier {
   }
 
   void createPracticeRoom(String playerName, {Function(dynamic data)? onSuccess, Function(String error)? onError}) {
+    if (_socket == null || !_socket!.connected) {
+      if (onError != null) {
+        onError('Socket no conectado. Intenta nuevamente.');
+      }
+      return;
+    }
+
     String? capturedRoomId;
     bool navigationCompleted = false;
     
     // Declare cleanup function first
     void cleanup() {
-      _socket.off('room_created');
-      _socket.off('game_started');
-      _socket.off('error');
+      _socket!.off('room_created');
+      _socket!.off('game_started');
+      _socket!.off('error');
     }
     
     // Listen for room_created first (server emits this immediately)
@@ -201,12 +298,12 @@ class SocketService extends ChangeNotifier {
     }
     
     // Set up listeners first to avoid race conditions
-    _socket.on('room_created', handleRoomCreated);
-    _socket.on('game_started', handleGameStarted);
-    _socket.on('error', handleError);
+    _socket!.on('room_created', handleRoomCreated);
+    _socket!.on('game_started', handleGameStarted);
+    _socket!.on('error', handleError);
 
     print('Emitting create_practice_room event for $playerName');
-    _socket.emit('create_practice_room', playerName);
+    _socket!.emit('create_practice_room', playerName);
     
     // Timeout to show error if server doesn't respond (but don't navigate!)
     Future.delayed(const Duration(seconds: 10), () {
@@ -222,25 +319,32 @@ class SocketService extends ChangeNotifier {
   }
 
   Future<void> topUp(String roomId, double amount, {Function(double amount)? onSuccess, Function(String error)? onError}) async {
+    if (_socket == null || !_socket!.connected) {
+      if (onError != null) {
+        onError('Socket no conectado. Intenta nuevamente.');
+      }
+      return;
+    }
+
     print('Emitting request_top_up event for room $roomId with amount $amount');
     
     final user = FirebaseAuth.instance.currentUser;
     final token = await user?.getIdToken();
 
-    _socket.emit('request_top_up', {
+    _socket!.emit('request_top_up', {
       'roomId': roomId,
       'amount': amount,
       'token': token
     });
     
-    _socket.once('top_up_success', (data) {
+    _socket!.once('top_up_success', (data) {
       print('Top up successful: ${data['amount']}');
       if (onSuccess != null) {
         onSuccess((data['amount'] as num).toDouble());
       }
     });
     
-    _socket.once('error', (data) {
+    _socket!.once('error', (data) {
       print('Top up error: $data');
       if (onError != null) {
         // Handle both simple string errors and object errors

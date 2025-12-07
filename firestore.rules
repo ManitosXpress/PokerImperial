@@ -80,7 +80,25 @@ service cloud.firestore {
     // Poker Tables
     match /poker_tables/{tableId} {
       allow read: if request.auth != null;
-      allow write: if false; // Managed via Cloud Functions
+      // Allow users to update 'players' array (join/leave) and 'readyPlayers' status
+      allow update: if request.auth != null && (
+        // Allow joining/leaving (modifying players array)
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players']) ||
+        // Allow toggling ready status
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readyPlayers']) ||
+        // Allow both
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'readyPlayers'])
+      );
+      allow create: if false; // Only via Cloud Functions
+    }
+    
+    // Poker Sessions (In-Game Balance)
+    match /poker_sessions/{sessionId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.userId || 
+        isAdmin()
+      );
+      allow write: if false; // Only Cloud Functions
     }
     
     match /{document=**} {

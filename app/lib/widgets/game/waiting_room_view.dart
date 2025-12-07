@@ -6,17 +6,28 @@ class WaitingRoomView extends StatelessWidget {
   final String roomId;
   final Map<String, dynamic>? roomState;
   final VoidCallback onStartGame;
+  final String? userRole;
+  final bool isHost;
 
   const WaitingRoomView({
     super.key,
     required this.roomId,
     required this.roomState,
     required this.onStartGame,
+    this.userRole,
+    this.isHost = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final languageProvider = Provider.of<LanguageProvider>(context);
+    final playerCount = (roomState?['players'] as List?)?.length ?? 0;
+    final maxPlayers = roomState?['maxPlayers'] ?? 8;
+    // Determine if we should show the start mechanism
+    // Only players can see start related UI (even if it's just status)
+    // Club/Admin see Observer status
+    final isObserver = userRole == 'club' || userRole == 'admin';
+    final canStart = !isObserver && isHost && playerCount >= 4;
 
     return Center(
       child: Container(
@@ -46,15 +57,14 @@ class WaitingRoomView extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  if (roomState != null && roomState!['players'] != null)
-                    Text(
-                      '${(roomState!['players'] as List).length} / ${roomState!['maxPlayers'] ?? 8} Jugadores',
-                      style: const TextStyle(
-                        color: Color(0xFFE94560),
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  Text(
+                    isObserver ? 'MODO OBSERVADOR' : '$playerCount / $maxPlayers Jugadores',
+                    style: TextStyle(
+                      color: isObserver ? Colors.amber : const Color(0xFFE94560),
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
+                  ),
                 ],
               ),
             ),
@@ -105,44 +115,43 @@ class WaitingRoomView extends StatelessWidget {
             
             const SizedBox(height: 32),
 
-            // Start button
-            if (roomState == null || (roomState!['players'] != null && (roomState!['players'] as List).length >= 2))
-              ElevatedButton.icon(
-                onPressed: onStartGame,
-                icon: const Icon(Icons.play_arrow, size: 28),
-                label: Text(languageProvider.getText('start_game')),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-                  textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange, width: 2),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.info_outline, color: Colors.orange),
-                    const SizedBox(width: 12),
-                    Text(
-                      languageProvider.getText('waiting_for_players'),
-                      style: const TextStyle(
-                        color: Colors.orange,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
+            // Status / Action Area
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.black45,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: canStart ? Colors.green : Colors.white24, 
+                  width: 2
                 ),
               ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    canStart ? Icons.check_circle : Icons.info_outline, 
+                    color: canStart ? Colors.green : Colors.white70
+                  ),
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: Text(
+                      isObserver 
+                          ? 'Esperando a que inicie la partida...'
+                          : playerCount < 4 
+                              ? 'Esperando jugadores (min 4)...'
+                              : 'Esperando confirmación para iniciar...',
+                      style: TextStyle(
+                        color: canStart ? Colors.green : Colors.white70,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

@@ -52,12 +52,21 @@ io.on('connection', (socket) => {
         console.log(`User authenticated: ${uid}`);
     });
 
-    socket.on('create_room', async (data: { playerName: string, token?: string }) => {
+    socket.on('create_room', async (data: { playerName: string, token?: string, roomId?: string }) => {
         // Handle both string (old format) and object (new format)
         const playerName = typeof data === 'string' ? data : data.playerName;
         const token = typeof data === 'object' ? data.token : null;
+        const customRoomId = typeof data === 'object' ? data.roomId : null;
 
         try {
+            // Check if room already exists if custom ID provided
+            if (customRoomId && roomManager.getRoom(customRoomId)) {
+                // If room exists, treat as join (or error? For now error to be explicit, client should call join)
+                // Actually, if client retries create, we might want to tell them it exists.
+                socket.emit('error', 'Room already exists');
+                return;
+            }
+
             let sessionId: string | undefined;
             const entryFee = 1000; // Standard buy-in
 
@@ -93,7 +102,7 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee);
+            const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee, customRoomId || undefined);
             socket.join(room.id);
             socket.emit('room_created', room);
             console.log(`Room created: ${room.id} by ${playerName} (Session: ${sessionId})`);

@@ -26,8 +26,14 @@ export class RoomManager {
         return room;
     }
 
-    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000): Room {
-        const roomId = this.generateRoomId();
+    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string): Room {
+        const roomId = customRoomId || this.generateRoomId();
+        
+        // Check if room already exists to prevent overwrite
+        if (this.rooms.has(roomId)) {
+            throw new Error(`Room ${roomId} already exists`);
+        }
+
         const host: Player = {
             id: hostId,
             name: hostName,

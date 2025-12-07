@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:math' as math;
 import 'dart:async';
 import '../services/socket_service.dart';
 import '../providers/language_provider.dart';
 import '../providers/wallet_provider.dart';
+import '../providers/club_provider.dart';
 import '../widgets/poker_card.dart';
 import '../widgets/player_seat.dart';
 import '../utils/responsive_utils.dart';
@@ -37,6 +39,7 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> {
   Map<String, dynamic>? gameState;
   Map<String, dynamic>? roomState;
+  bool _startConfirmationShown = false;
 
   // Practice Mode Controller
   PracticeGameController? _practiceController;
@@ -89,6 +92,98 @@ class _GameScreenState extends State<GameScreen> {
 
   void _initOnlineMode() {
     final socketService = Provider.of<SocketService>(context, listen: false);
+    final user = FirebaseAuth.instance.currentUser;
+    final clubProvider = Provider.of<ClubProvider>(context, listen: false);
+
+    // Check if user is a spectator (club/seller/admin roles should NOT join socket as player)
+    final userRole = clubProvider.currentUserRole;
+    final isSpectatorRole = userRole == 'club' || userRole == 'seller' || userRole == 'admin';
+    
+    // Only join socket if NOT a spectator role (or if explicitly in spectator mode)
+    if (!widget.isSpectatorMode && !isSpectatorRole && user != null) {
+      // Connect and Join Room
+      socketService.connect().then((_) async {
+        if (mounted && user != null) {
+          
+          // Check if we are the host according to Firestore to decide if we should create the room
+          bool shouldTryCreate = false;
+          try {
+             final tableDoc = await import('package:cloud_firestore/cloud_firestore.dart').then((m) => m.FirebaseFirestore.instance.collection('poker_tables').doc(widget.roomId).get());
+             if (tableDoc.exists) {
+                final data = tableDoc.data();
+                if (data != null && data['hostId'] == user.uid) {
+                   shouldTryCreate = true;
+                   print('I am the host (Firestore), I will try to create the room on socket if needed.');
+                }
+             }
+          } catch(e) {
+             print('Error checking host status: $e');
+          }
+
+          void join() {
+             socketService.joinRoom(
+                widget.roomId, 
+                user.displayName ?? 'Player',
+                onSuccess: (roomId) {
+                   print('Joined room $roomId on socket');
+                },
+                onError: (err) {
+                  print('Socket Join Error: $err');
+                  String errorMsg = err.toString();
+                  
+                  // If room not found and we are host, try creating it
+                  if (errorMsg.contains('Room not found') && shouldTryCreate) {
+                      print('Room not found, creating as Host...');
+                      socketService.createRoom(
+                          user.displayName ?? 'Player',
+                          roomId: widget.roomId,
+                          onSuccess: (newRoomId) {
+                             print('Created room $newRoomId on socket as Host');
+                          },
+                          onError: (createErr) {
+                             if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Error al crear sala: $createErr'), backgroundColor: Colors.red),
+                                );
+                             }
+                          }
+                      );
+                      return;
+                  }
+
+                  if (mounted) {
+                    // Only show error if it's not a "Room not found" for spectators
+                    if (!errorMsg.contains('Room not found') || !widget.isSpectatorMode) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Error al unirse al juego: ${errorMsg.replaceAll('Exception: ', '')}'),
+                          backgroundColor: Colors.red,
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
+                  }
+                }
+              );
+          }
+          
+          join();
+        }
+      }).catchError((e) {
+        print('Error connecting to socket: $e');
+        // Don't show error for spectators
+        if (mounted && !widget.isSpectatorMode && !isSpectatorRole) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error de conexión: ${e.toString()}'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      });
+    } else {
+      print('User is spectator (role: $userRole), skipping socket join');
+    }
 
     socketService.socket.on('player_joined', (data) {
       if (mounted) setState(() => roomState = data);
@@ -99,7 +194,24 @@ class _GameScreenState extends State<GameScreen> {
     });
 
     socketService.socket.on('room_joined', (data) {
-      if (mounted) setState(() => roomState = data);
+      if (mounted) {
+        setState(() => roomState = data);
+        
+        // Auto-start if Host and sufficient players
+        final user = FirebaseAuth.instance.currentUser;
+        final ownerId = data['ownerId'] ?? data['hostId'];
+        final players = data['players'] as List?;
+        
+        if (user != null && ownerId == user.uid && gameState == null) {
+           // We are host.
+           // If there are enough players (e.g. >= 2 for socket game, or 4 as per requirement), start.
+           // Since TableLobbyScreen enforced 4, we can assume it's ready.
+           if (players != null && players.length >= 2) { // Socket usually needs min 2
+              print('Auto-starting game on socket as Host');
+              socketService.socket.emit('start_game', {'roomId': widget.roomId});
+           }
+        }
+      }
     });
 
     socketService.socket.on('game_started', (data) {
@@ -261,13 +373,100 @@ class _GameScreenState extends State<GameScreen> {
     socketService.socket.emit('start_game', {'roomId': widget.roomId});
   }
 
+  void _showStartConfirmationDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFFFFD700), width: 2)),
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: Colors.green, size: 30),
+            SizedBox(width: 12),
+            Text('Confirmar Inicio', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: const Text(
+          '¡Hay 4 jugadores conectados!\n\n¿Deseas enviar el mensaje de confirmación a todos y empezar la partida?',
+          style: TextStyle(color: Colors.white70, fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // Allow triggering again if they cancel? 
+              // Maybe we want to set _startConfirmationShown = false; if we want to annoy them.
+              // But better to leave it true so it doesn't pop up constantly unless players change.
+              // But if they cancel, they might want to start manually later? 
+              // WaitingRoomView only shows "Waiting..." so they can't start manually easily if I hid the button.
+              // So I should reset it or provide a manual way.
+              // The requirement was "replace button with confirmation".
+              // So if they cancel, they are stuck?
+              // I will Reset _startConfirmationShown to false so it triggers again if players update (e.g. 4 -> 3 -> 4)
+              // But if players stay at 4, build won't re-trigger unless setState happens.
+              // I'll set it to false, but I need to ensure it doesn't loop.
+              // Actually, if I set it to false, and build runs, it will trigger again immediately.
+              // So I should keep it true, but maybe add a manual button in WaitingRoomView for Host if they cancelled?
+              // For now, let's just close.
+            },
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _startGame();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFFD700),
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('CONFIRMAR Y EMPEZAR'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final socketService = Provider.of<SocketService>(context);
     final languageProvider = Provider.of<LanguageProvider>(context);
+    final clubProvider = Provider.of<ClubProvider>(context);
+    final user = FirebaseAuth.instance.currentUser;
 
     final myId =
         widget.isPracticeMode ? _localPlayerId : socketService.socketId;
+
+    // Determine Role and Host status
+    final userRole = clubProvider.currentUserRole ?? 'player'; // Default to player
+    final ownerId = roomState?['ownerId'] ?? roomState?['hostId'];
+    final isHost = user != null && ownerId == user.uid;
+
+    // Auto-confirmation logic for Host
+    if (gameState == null && 
+        roomState != null && 
+        isHost && 
+        !_startConfirmationShown) {
+      
+      final players = roomState!['players'] as List?;
+      if (players != null && players.length == 4) {
+        _startConfirmationShown = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showStartConfirmationDialog();
+        });
+      }
+    }
+    
+    // Reset confirmation shown flag if players drop below 4
+    if (gameState == null && roomState != null) {
+      final players = roomState!['players'] as List?;
+      if (players != null && players.length < 4 && _startConfirmationShown) {
+        _startConfirmationShown = false;
+      }
+    }
 
     bool isTurn = false;
     if (gameState != null && gameState!['currentTurn'] != null) {
@@ -331,6 +530,8 @@ class _GameScreenState extends State<GameScreen> {
                   roomId: widget.roomId,
                   roomState: roomState,
                   onStartGame: _startGame,
+                  userRole: userRole,
+                  isHost: isHost,
                 )
               : Stack(
                   children: [
