@@ -421,14 +421,49 @@ io.on('connection', (socket) => {
         const result = roomManager.removePlayer(socket.id);
         if (result) {
             const { roomId, player } = result;
+            const uid = (socket as any).userId;
 
             // 1. Process leaver (with 100 credit penalty)
-            if (player.pokerSessionId && (socket as any).userId) {
-                const uid = (socket as any).userId;
+            if (player.pokerSessionId && uid) {
                 await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, 100);
             }
 
-            // 2. Check remaining room state
+            // 2. Update Firestore - Remove player from players array and readyPlayers
+            if (uid) {
+                try {
+                    const tableRef = admin.firestore().collection('poker_tables').doc(roomId);
+                    const tableDoc = await tableRef.get();
+                    
+                    if (tableDoc.exists) {
+                        const tableData = tableDoc.data();
+                        if (tableData) {
+                            // Remove player from players array
+                            const players = Array.isArray(tableData.players) ? [...tableData.players] : [];
+                            const updatedPlayers = players.filter((p: any) => {
+                                // Handle both object format {id: uid} and direct uid string
+                                const playerId = typeof p === 'object' ? p.id : p;
+                                return playerId !== uid;
+                            });
+
+                            // Remove from readyPlayers array
+                            const readyPlayers = Array.isArray(tableData.readyPlayers) ? [...tableData.readyPlayers] : [];
+                            const updatedReadyPlayers = readyPlayers.filter((id: string) => id !== uid);
+
+                            // Update Firestore
+                            await tableRef.update({
+                                players: updatedPlayers,
+                                readyPlayers: updatedReadyPlayers
+                            });
+
+                            console.log(`Removed player ${uid} from Firestore table ${roomId}`);
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Error updating Firestore when player left: ${error}`);
+                }
+            }
+
+            // 3. Check remaining room state
             const room = roomManager.getRoom(roomId);
             if (room) {
                 const roomWithPublicFlag = { ...room, isPublic: room.isPublic ?? false };

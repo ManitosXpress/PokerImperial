@@ -427,7 +427,22 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   void _startGame() {
-    // This can still be used for manual start if needed, but we prefer auto-start
+    // Update Firestore to trigger game start for all clients
+    try {
+      FirebaseFirestore.instance.collection('poker_tables').doc(widget.roomId).update({
+        'status': 'playing',
+        'gameStartTime': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error updating game status: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al iniciar: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+
+    // Also emit socket event as before
     final socketService = Provider.of<SocketService>(context, listen: false);
     socketService.socket.emit('start_game', {'roomId': widget.roomId});
   }
@@ -446,8 +461,6 @@ class _GameScreenState extends State<GameScreen> {
 
     // Determine Role and Host status
     final userRole = clubProvider.currentUserRole ?? 'player'; // Default to player
-    final ownerId = roomState?['ownerId'] ?? roomState?['hostId'];
-    final isHost = user != null && ownerId == user.uid;
     
     bool isTurn = false;
     if (gameState != null && gameState!['currentTurn'] != null) {
@@ -507,13 +520,48 @@ class _GameScreenState extends State<GameScreen> {
             ),
           ),
           child: gameState == null
-              ? WaitingRoomView(
-                  roomId: widget.roomId,
-                  roomState: roomState,
-                  onStartGame: _startGame, // Kept as fallback
-                  userRole: userRole,
-                  isHost: isHost,
-                  isPublic: roomState?['isPublic'] ?? true, // Default to public if not specified
+              ? StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('poker_tables')
+                      .doc(widget.roomId)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    // Calculate isHost from Firestore document
+                    bool isHost = false;
+                    bool isPublic = true;
+                    Map<String, dynamic>? firestoreRoomState;
+                    
+                    if (snapshot.hasData && snapshot.data!.exists) {
+                      final tableData = snapshot.data!.data() as Map<String, dynamic>?;
+                      if (tableData != null) {
+                        final hostId = tableData['hostId'];
+                        isHost = user != null && hostId != null && hostId.toString() == user.uid.toString();
+                        isPublic = tableData['isPublic'] ?? true;
+                        
+                        // Merge Firestore data with socket roomState
+                        firestoreRoomState = {
+                          ...tableData,
+                          // Keep players from socket if available, otherwise use Firestore
+                          'players': roomState?['players'] ?? tableData['players'] ?? [],
+                        };
+                        
+                        // Debug log
+                        print('🔍 Host Check - hostId: $hostId, user.uid: ${user?.uid}, isHost: $isHost');
+                      }
+                    }
+                    
+                    // Use Firestore roomState if available, otherwise fallback to socket roomState
+                    final effectiveRoomState = firestoreRoomState ?? roomState;
+                    
+                    return WaitingRoomView(
+                      roomId: widget.roomId,
+                      roomState: effectiveRoomState,
+                      onStartGame: _startGame,
+                      userRole: userRole,
+                      isHost: isHost,
+                      isPublic: isPublic,
+                    );
+                  },
                 )
               : Stack(
                   children: [

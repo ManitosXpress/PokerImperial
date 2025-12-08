@@ -351,8 +351,8 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
                         style: TextStyle(color: Colors.white)));
               }
 
-              // Check status - if active, navigate to game
-              if (tableData['status'] == 'active') {
+              // Check status - if active or playing, navigate to game
+              if (tableData['status'] == 'active' || tableData['status'] == 'playing') {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   Navigator.pushReplacement(
                     context,
