@@ -152,7 +152,8 @@ export class RoomManager {
             communityCards: [],
             currentTurn: players.length > 0 ? players[0].id : '',
             dealerId: players.length > 0 ? players[0].id : '',
-            isPublic: isPublic
+            isPublic: isPublic,
+            hostId: hostId // Store the creator as the host
         };
 
         this.rooms.set(roomId, newRoom);

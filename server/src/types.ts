@@ -21,4 +21,5 @@ export interface Room {
     currentTurn: string; // Player ID
     dealerId: string;
     isPublic?: boolean; // If true or undefined, auto-start. If false (private), require host to start manually.
+    hostId?: string; // ID of the player who created the room (for frontend to determine host privileges)
 }

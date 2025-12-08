@@ -526,12 +526,21 @@ class _GameScreenState extends State<GameScreen> {
                       .doc(widget.roomId)
                       .snapshots(),
                   builder: (context, snapshot) {
-                    // Calculate isHost from Firestore document
+                    // Calculate isHost - prioritize roomState (socket) over Firestore
                     bool isHost = false;
                     bool isPublic = true;
                     Map<String, dynamic>? firestoreRoomState;
                     
-                    if (snapshot.hasData && snapshot.data!.exists) {
+                    // First check roomState from socket (if available)
+                    if (roomState != null) {
+                      final socketHostId = roomState['hostId'];
+                      if (user != null && socketHostId != null) {
+                        isHost = socketHostId.toString() == user.uid.toString();
+                      }
+                      isPublic = roomState['isPublic'] ?? true;
+                    }
+                    // Fallback to Firestore if socket hasn't provided roomState yet
+                    else if (snapshot.hasData && snapshot.data!.exists) {
                       final tableData = snapshot.data!.data() as Map<String, dynamic>?;
                       if (tableData != null) {
                         final hostId = tableData['hostId'];
