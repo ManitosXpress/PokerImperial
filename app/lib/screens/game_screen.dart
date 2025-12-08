@@ -243,6 +243,15 @@ class _GameScreenState extends State<GameScreen> {
             } else {
                  // Other errors
                  if (mounted && !widget.isSpectatorMode) {
+                    // Check for insufficient balance
+                    if (errorMsg.contains('Insufficient balance') || errorMsg.contains('Crédito insuficiente')) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error: $errorMsg'), backgroundColor: Colors.red),
+                        );
+                        setState(() => _isJoining = false);
+                        return; // Do not retry
+                    }
+
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Error: $errorMsg'), backgroundColor: Colors.red),
                     );

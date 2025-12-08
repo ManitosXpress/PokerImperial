@@ -196,7 +196,35 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            const room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
+            let room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
+
+            if (!room) {
+                // Room not found in memory, check Firestore (Hydration)
+                try {
+                    const roomDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
+                    if (roomDoc.exists) {
+                        const roomData = roomDoc.data();
+                        // Only hydrate if status is active or waiting (or whatever valid status)
+                        // Assuming 'active' or 'waiting' or 'created' are valid.
+                        // Let's assume if it exists and not 'finished', we can hydrate.
+                        if (roomData && roomData.status !== 'finished') {
+                            console.log(`Hydrating room ${roomId} from Firestore...`);
+                            // Create room without adding host as player immediately
+                            // We need hostId and hostName from Firestore
+                            const hostId = roomData.hostId || 'unknown';
+                            const hostName = roomData.hostName || 'Host'; // You might need to store hostName in Firestore if not already
+
+                            room = roomManager.createRoom(hostId, hostName, undefined, entryFee, roomId, { addHostAsPlayer: false });
+
+                            // Now try joining again
+                            room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
+                        }
+                    }
+                } catch (err) {
+                    console.error(`Error hydrating room ${roomId}:`, err);
+                }
+            }
+
             if (room) {
                 socket.join(roomId);
                 io.to(roomId).emit('player_joined', room); // Notify everyone in room

@@ -88,33 +88,38 @@ export class RoomManager {
         return room;
     }
 
-    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string): Room {
+    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean } = {}): Room {
         const roomId = customRoomId || this.generateRoomId();
+        const { addHostAsPlayer = true } = options;
 
         // Check if room already exists to prevent overwrite
         if (this.rooms.has(roomId)) {
             throw new Error(`Room ${roomId} already exists`);
         }
 
-        const host: Player = {
-            id: hostId,
-            name: hostName,
-            chips: buyInAmount,
-            isFolded: false,
-            currentBet: 0,
-            pokerSessionId: sessionId,
-            totalRakePaid: 0
-        };
+        const players: Player[] = [];
+        if (addHostAsPlayer) {
+            const host: Player = {
+                id: hostId,
+                name: hostName,
+                chips: buyInAmount,
+                isFolded: false,
+                currentBet: 0,
+                pokerSessionId: sessionId,
+                totalRakePaid: 0
+            };
+            players.push(host);
+        }
 
         const newRoom: Room = {
             id: roomId,
-            players: [host],
+            players: players,
             maxPlayers: 8,
             gameState: 'waiting',
             pot: 0,
             communityCards: [],
-            currentTurn: hostId,
-            dealerId: hostId
+            currentTurn: players.length > 0 ? players[0].id : '',
+            dealerId: players.length > 0 ? players[0].id : ''
         };
 
         this.rooms.set(roomId, newRoom);

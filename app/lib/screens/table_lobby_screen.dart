@@ -217,7 +217,6 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
         );
       }
     }
-    }
   }
   
   void _setupSocketListeners() {
