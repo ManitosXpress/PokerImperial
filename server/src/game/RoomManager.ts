@@ -23,6 +23,13 @@ export class RoomManager {
         const room = this.rooms.get(roomId);
         if (!room) return;
 
+        // Private rooms (isPublic: false) require manual start by host
+        // Only auto-start for public rooms or practice rooms (isPublic: true or undefined)
+        if (room.isPublic === false) {
+            console.log(`Room ${roomId} is PRIVATE. Auto-start disabled. Host must manually start.`);
+            return;
+        }
+
         // Count ready players (excluding bots if we want, but bots are usually ready immediately or handled differently. 
         // For now, let's assume bots are always "ready" effectively, or we just check human players readiness if mixed?
         // The user requirement says "Esperar a 4 jugadores -> Ready".
@@ -95,7 +102,7 @@ export class RoomManager {
     }
 
     public createPracticeRoom(hostId: string, hostName: string): Room {
-        const room = this.createRoom(hostId, hostName);
+        const room = this.createRoom(hostId, hostName, undefined, 1000, undefined, { addHostAsPlayer: true, isPublic: true });
 
         // Add 7 Bots (total 8 players including host)
         for (let i = 1; i <= 7; i++) {
@@ -113,9 +120,9 @@ export class RoomManager {
         return room;
     }
 
-    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean } = {}): Room {
+    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean } = {}): Room {
         const roomId = customRoomId || this.generateRoomId();
-        const { addHostAsPlayer = true } = options;
+        const { addHostAsPlayer = true, isPublic = true } = options;
 
         // Check if room already exists to prevent overwrite
         if (this.rooms.has(roomId)) {
@@ -144,7 +151,8 @@ export class RoomManager {
             pot: 0,
             communityCards: [],
             currentTurn: players.length > 0 ? players[0].id : '',
-            dealerId: players.length > 0 ? players[0].id : ''
+            dealerId: players.length > 0 ? players[0].id : '',
+            isPublic: isPublic
         };
 
         this.rooms.set(roomId, newRoom);

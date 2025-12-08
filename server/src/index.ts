@@ -215,11 +215,12 @@ io.on('connection', (socket) => {
                             // We need hostId and hostName from Firestore
                             const hostId = roomData.hostId || 'unknown';
                             const hostName = roomData.hostName || 'Host'; // You might need to store hostName in Firestore if not already
+                            const isPublic = roomData.isPublic !== undefined ? roomData.isPublic : true; // Default to public if not specified
 
                             // Double check if room exists (race condition protection)
                             if (!roomManager.getRoom(roomId)) {
                                 try {
-                                    roomManager.createRoom(hostId, hostName, undefined, entryFee, roomId, { addHostAsPlayer: false });
+                                    roomManager.createRoom(hostId, hostName, undefined, entryFee, roomId, { addHostAsPlayer: false, isPublic });
                                 } catch (err: any) {
                                     console.log(`Room ${roomId} created concurrently during hydration.`);
                                 }

@@ -20,4 +20,5 @@ export interface Room {
     communityCards: string[];
     currentTurn: string; // Player ID
     dealerId: string;
+    isPublic?: boolean; // If true or undefined, auto-start. If false (private), require host to start manually.
 }
