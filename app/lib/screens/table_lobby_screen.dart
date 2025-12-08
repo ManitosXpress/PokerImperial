@@ -8,6 +8,7 @@ import '../widgets/poker_loading_indicator.dart';
 import '../providers/wallet_provider.dart';
 import '../providers/club_provider.dart'; // Import ClubProvider
 import '../services/credits_service.dart'; // Import CreditsService
+import '../services/socket_service.dart'; // Import SocketService
 import 'game_screen.dart';
 
 class TableLobbyScreen extends StatefulWidget {
@@ -28,28 +29,41 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
   bool _isStarting = false;
   bool _isTogglingReady = false;
   bool _autoStartFailed = false; // Flag to prevent infinite retry loops (updated)
-  Timer? _countdownTimer;
   int _countdownSeconds = 0;
+  Timer? _countdownDisplayTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _joinTable();
+      _setupSocketListeners();
     });
   }
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
+    _countdownDisplayTimer?.cancel();
+    
+    // Remove listeners
+    try {
+      final socketService = Provider.of<SocketService>(context, listen: false);
+      socketService.socket.off('countdown_start');
+      socketService.socket.off('countdown_cancel');
+      socketService.socket.off('game_started');
+      socketService.socket.off('room_update');
+    } catch(e) {
+      // Socket might be disposed
+    }
+    
     super.dispose();
   }
 
-  void _startCountdown() {
-    _countdownTimer?.cancel();
-    setState(() => _countdownSeconds = 5);
+  void _startCountdownDisplay(int seconds) {
+    _countdownDisplayTimer?.cancel();
+    setState(() => _countdownSeconds = seconds);
     
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _countdownDisplayTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
@@ -60,17 +74,16 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
           _countdownSeconds--;
         } else {
           timer.cancel();
-          _countdownTimer = null;
-          // Auto-start game
-          _startGame(context);
+          _countdownDisplayTimer = null;
+          // Do NOT auto-start here. Wait for server 'game_started' event.
         }
       });
     });
   }
 
   void _cancelCountdown() {
-    _countdownTimer?.cancel();
-    _countdownTimer = null;
+    _countdownDisplayTimer?.cancel();
+    _countdownDisplayTimer = null;
     if (mounted) {
       setState(() => _countdownSeconds = 0);
     }
@@ -204,6 +217,57 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
         );
       }
     }
+    }
+  }
+  
+  void _setupSocketListeners() {
+    final socketService = Provider.of<SocketService>(context, listen: false);
+    
+    socketService.socket.on('countdown_start', (data) {
+      if (mounted) {
+        print('Server started countdown: $data');
+        final seconds = data['seconds'] ?? 5;
+        _startCountdownDisplay(seconds);
+      }
+    });
+
+    socketService.socket.on('countdown_cancel', (_) {
+      if (mounted) {
+        print('Server cancelled countdown');
+        _cancelCountdown();
+      }
+    });
+
+    socketService.socket.on('game_started', (data) {
+      if (mounted) {
+        print('Game Started by Server! Navigating...');
+        _cancelCountdown();
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => GameScreen(
+              roomId: widget.tableId,
+              initialGameState: data,
+            ),
+          ),
+        );
+      }
+    });
+
+    socketService.socket.on('request_game_start', (data) {
+      if (mounted) {
+        final targetId = data['targetId'];
+        final currentUser = FirebaseAuth.instance.currentUser;
+        if (currentUser != null && targetId == currentUser.uid) {
+           print('Server requested ME to start the game. Executing...');
+           _startGame(context);
+        }
+      }
+    });
+    
+    // Optional: Listen to room_update if we want real-time ready status without Firestore latency
+    // But we are using Firestore Stream for UI, so it might be redundant or conflicting.
+    // Let's stick to Firestore for UI state to avoid complexity, but use Socket for events.
   }
 
   @override
@@ -304,17 +368,14 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
               final canStartLogic = players.length >= 4;
               final allReady = canStartLogic && players.every((p) => readyPlayers.contains(p['id']));
 
-              // Auto-start countdown when all 4 players are ready
-              if (allReady && !_isStarting && _countdownSeconds == 0) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _startCountdown();
-                });
-              } else if (!allReady && _countdownSeconds > 0) {
-                // Cancel countdown if someone unreadies
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _cancelCountdown();
-                });
-              }
+              // Auto-start logic removed from here. Server handles it.
+              // We just display the countdown if _countdownSeconds > 0
+              
+              // If we wanted to be super robust, we could check if allReady is false and cancel local countdown
+              // but the server should send countdown_cancel.
+              // However, Firestore updates might be slower than socket. 
+              // If we see not all ready in Firestore, we can probably safely assume countdown is invalid?
+              // No, let's trust the socket events.
 
               // Determine if current user is a Spectator/Host (not in player list)
               final bool isSpectator = !players.any((p) => p['id'] == currentUserId);
@@ -721,6 +782,14 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
         'readyPlayers': ready ? FieldValue.arrayUnion([currentUser.uid]) : FieldValue.arrayRemove([currentUser.uid]),
       });
       
+      // Notify Server
+      final socketService = Provider.of<SocketService>(context, listen: false);
+      socketService.socket.emit('player_ready', {
+        'roomId': tableId,
+        'isReady': ready
+      });
+      
+      
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -745,7 +814,12 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
       await functions.httpsCallable('startGameFunction').call({
         'tableId': widget.tableId,
       });
-      // Navigation handled by stream
+      
+      // Success! Now tell the Socket Server to initialize the game memory
+      final socketService = Provider.of<SocketService>(context, listen: false);
+      socketService.socket.emit('start_game', {'roomId': widget.tableId});
+      
+      // Navigation handled by stream/socket listener
     } catch (e) {
       if (mounted) {
         print('Error starting game: $e');

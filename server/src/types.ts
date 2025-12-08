@@ -8,6 +8,7 @@ export interface Player {
     isBot?: boolean;
     pokerSessionId?: string;
     totalRakePaid?: number;
+    isReady?: boolean;
 }
 
 export interface Room {

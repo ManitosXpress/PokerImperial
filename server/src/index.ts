@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { RoomManager } from './game/RoomManager';
 import { verifyFirebaseToken, getUserBalance, reservePokerSession, endPokerSession, addChipsToSession } from './middleware/firebaseAuth';
+import * as admin from 'firebase-admin';
 
 const app = express();
 const httpServer = createServer(app);
@@ -35,6 +36,24 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 3000;
 const roomManager = new RoomManager();
+
+// Set up RoomManager callback to emit events via IO
+roomManager.setEmitCallback((roomId, event, data) => {
+    io.to(roomId).emit(event, data);
+
+    // Sync Game Start to Firestore
+    if (event === 'game_started') {
+        try {
+            admin.firestore().collection('poker_tables').doc(roomId).update({
+                status: 'active',
+                lastActionTime: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`Synced game start to Firestore for room ${roomId}`);
+        } catch (e) {
+            console.error('Failed to sync game start to Firestore:', e);
+        }
+    }
+});
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -213,6 +232,17 @@ io.on('connection', (socket) => {
         try {
             const gameState = roomManager.handleGameAction(roomId, socket.id, action, amount);
             io.to(roomId).emit('game_update', gameState);
+        } catch (e: any) {
+            socket.emit('error', e.message);
+        }
+    });
+
+    socket.on('player_ready', ({ roomId, isReady }: { roomId: string, isReady: boolean }) => {
+        try {
+            const room = roomManager.toggleReady(roomId, socket.id, isReady);
+            if (room) {
+                io.to(roomId).emit('room_update', room); // Sync room state (including ready status)
+            }
         } catch (e: any) {
             socket.emit('error', e.message);
         }

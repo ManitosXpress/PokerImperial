@@ -2,11 +2,43 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../game_screen.dart';
+import '../table_lobby_screen.dart';
+import '../../services/socket_service.dart';
+import 'package:provider/provider.dart';
 
-class CashTablesView extends StatelessWidget {
+class CashTablesView extends StatefulWidget {
   final String? userRole;
 
   const CashTablesView({super.key, this.userRole});
+
+  @override
+  State<CashTablesView> createState() => _CashTablesViewState();
+}
+
+class _CashTablesViewState extends State<CashTablesView> {
+  final TextEditingController _roomIdController = TextEditingController();
+
+  @override
+  void dispose() {
+    _roomIdController.dispose();
+    super.dispose();
+  }
+
+  void _joinByInput(BuildContext context) {
+    final roomId = _roomIdController.text.trim();
+    if (roomId.isEmpty) return;
+    
+    // Navigate to Lobby
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TableLobbyScreen(
+          tableId: roomId,
+          tableName: 'Sala $roomId', // We don't have the name yet, but Lobby will fetch it
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,84 +53,128 @@ class CashTablesView extends StatelessWidget {
           ],
         ),
       ),
-      child: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('poker_tables')
-            .where('status', isEqualTo: 'active')
-            .where('isPublic', isEqualTo: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(color: Color(0xFFFFD700)),
-            );
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'Error: ${snapshot.error}',
-                style: const TextStyle(color: Colors.red),
-              ),
-            );
-          }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.table_chart_outlined,
-                    size: 80,
-                    color: Colors.white.withOpacity(0.3),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No hay mesas disponibles',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 18,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (userRole == 'club')
-                    Text(
-                      'Presiona + para crear una mesa',
-                      style: TextStyle(
-                        color: const Color(0xFFFFD700).withOpacity(0.8),
-                        fontSize: 14,
+      child: Column(
+        children: [
+          // Join by ID Input
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _roomIdController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Ingresar ID de Sala...',
+                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.1),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
                       ),
+                      prefixIcon: const Icon(Icons.search, color: Color(0xFFFFD700)),
                     ),
-                ],
-              ),
-            );
-          }
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: () => _joinByInput(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFD700),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('ENTRAR', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ),
+          
+          // List of Tables
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('poker_tables')
+                  .where('status', isEqualTo: 'active') // Should we include 'waiting'/'lobby'? User said "waiting" or "lobby".
+                  // But the code previously used 'active'. 
+                  // Let's check TableLobbyScreen logic. It checks for 'active' to go to game.
+                  // If status is 'waiting', it stays in lobby.
+                  // So we should probably fetch 'waiting' AND 'active' (if late join allowed) or just 'waiting'?
+                  // User said: "status == 'waiting' o status == 'lobby'"
+                  // Let's update the query. Firestore doesn't support OR in where clauses easily without 'in'.
+                  .where('status', whereIn: ['waiting', 'lobby', 'active']) 
+                  .where('isPublic', isEqualTo: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Color(0xFFFFD700)),
+                  );
+                }
 
-          final tables = snapshot.data!.docs;
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'Error: ${snapshot.error}',
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  );
+                }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: tables.length,
-            itemBuilder: (context, index) {
-              final table = tables[index].data() as Map<String, dynamic>;
-              final tableId = tables[index].id;
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.table_chart_outlined,
+                          size: 80,
+                          color: Colors.white.withOpacity(0.3),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No hay mesas públicas activas',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.6),
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
 
-              return _TableCard(
-                tableId: tableId,
-                tableName: table['name'] ?? 'Mesa $index',
-                smallBlind: table['smallBlind'] ?? 10,
-                bigBlind: table['bigBlind'] ?? 20,
-                minBuyIn: table['minBuyIn'] ?? 100,
-                maxBuyIn: table['maxBuyIn'] ?? 1000,
-                playerCount: (table['players'] as List?)?.length ?? 0,
-                maxPlayers: 8,
-                createdByName: table['createdByName'] ?? 'Club',
-                userRole: userRole,
-              );
-            },
-          );
-        },
+                final tables = snapshot.data!.docs;
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  itemCount: tables.length,
+                  itemBuilder: (context, index) {
+                    final table = tables[index].data() as Map<String, dynamic>;
+                    final tableId = tables[index].id;
+
+                    return _TableCard(
+                      tableId: tableId,
+                      tableName: table['name'] ?? 'Mesa $index',
+                      smallBlind: table['smallBlind'] ?? 10,
+                      bigBlind: table['bigBlind'] ?? 20,
+                      minBuyIn: table['minBuyIn'] ?? 100,
+                      maxBuyIn: table['maxBuyIn'] ?? 1000,
+                      playerCount: (table['players'] as List?)?.length ?? 0,
+                      maxPlayers: 8,
+                      createdByName: table['createdByName'] ?? 'Club',
+                      userRole: widget.userRole,
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -293,9 +369,9 @@ class _TableCard extends StatelessWidget {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => GameScreen(
-            roomId: tableId,
-            isSpectatorMode: isSpectator,
+          builder: (_) => TableLobbyScreen(
+            tableId: tableId,
+            tableName: tableName,
           ),
         ),
       );
