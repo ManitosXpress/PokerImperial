@@ -104,6 +104,19 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
     const db = admin.firestore();
 
     try {
+        // Check for existing active session for this user in this room
+        const existingSessionQuery = await db.collection('poker_sessions')
+            .where('userId', '==', uid)
+            .where('roomId', '==', roomId)
+            .where('status', '==', 'active')
+            .limit(1)
+            .get();
+
+        if (!existingSessionQuery.empty) {
+            console.log(`User ${uid} already has an active session in room ${roomId}. Reusing.`);
+            return existingSessionQuery.docs[0].id;
+        }
+
         const sessionId = await db.runTransaction(async (transaction) => {
             const userRef = db.collection('users').doc(uid);
             const userDoc = await transaction.get(userRef);
@@ -126,7 +139,7 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
 
             // Create Poker Session
             const sessionRef = db.collection('poker_sessions').doc();
-            const sessionId = sessionRef.id;
+            const newSessionId = sessionRef.id;
 
             transaction.set(sessionRef, {
                 userId: uid,
@@ -144,11 +157,11 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
                 type: 'poker_buyin',
                 amount: -amount,
                 reason: `Poker Room Buy-in: ${roomId}`,
-                sessionId: sessionId,
+                sessionId: newSessionId,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            return sessionId;
+            return newSessionId;
         });
 
         console.log(`Reserved poker session ${sessionId} for user ${uid} in room ${roomId}`);
