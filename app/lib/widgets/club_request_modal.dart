@@ -24,7 +24,7 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
 
   int _currentPage = 0;
   bool _isSubmitting = false;
-  static const String telegramBotUrl = 'https://t.me/AgenteImperialbot';
+  static const String telegramBotUrl = 'https://t.me/AgenteBingobot';
 
   @override
   void dispose() {
@@ -282,7 +282,7 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
           const SizedBox(height: 16),
           _buildDistributionItem('30%', 'TÚ (Club Owner)', const Color(0xFFFFD700), isHighlight: true),
           const SizedBox(height: 16),
-          _buildDistributionItem('20%', 'Tus Jugadores', Colors.greenAccent),
+          _buildDistributionItem('20%', 'Tus Vendedores', Colors.greenAccent),
 
           const SizedBox(height: 24),
           Container(
