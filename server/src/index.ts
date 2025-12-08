@@ -461,6 +461,27 @@ app.get('/', (req, res) => {
     res.send('Poker Server is running');
 });
 
+app.get('/debug/rooms', (req, res) => {
+    // Expose internal state for debugging
+    // We need to access RoomManager's rooms. 
+    // Since roomManager is available in this scope:
+    const rooms = Array.from((roomManager as any).rooms.entries());
+    res.json({
+        count: rooms.length,
+        rooms: rooms.map(([id, room]: [string, any]) => ({
+            id,
+            players: room.players.map((p: any) => ({
+                id: p.id,
+                name: p.name,
+                isReady: p.isReady,
+                isBot: p.isBot
+            })),
+            readyCount: room.players.filter((p: any) => p.isReady).length,
+            gameState: room.gameState
+        }))
+    });
+});
+
 httpServer.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
