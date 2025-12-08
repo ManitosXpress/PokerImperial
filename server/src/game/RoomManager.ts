@@ -36,24 +36,49 @@ export class RoomManager {
         const readyCount = room.players.filter(p => p.isReady).length;
         const totalPlayers = room.players.length;
 
-        // Requirement: Min 4 players to start
-        if (totalPlayers >= 4 && readyCount === totalPlayers) {
-            // Start Countdown if not already starting
-            // We need a way to track if countdown is active. 
-            // Maybe add a temporary flag to Room or just manage it here?
-            // Since RoomManager is persistent, we can store a timer ID?
-            // But `Room` interface is shared with client, we shouldn't add internal timer there.
-            // We can use a separate map for timers.
-
+        // Requirement: Min 2 players to start
+        if (totalPlayers >= 2 && readyCount === totalPlayers) {
+            
             if (this.countdownTimers.has(roomId)) return; // Already counting down
 
             console.log(`Starting countdown for room ${roomId}`);
 
             // Emit countdown start
+            if (this.emitCallback) {
+                this.emitCallback(roomId, 'countdown_start', { seconds: 3 });
+            }
+
+            const timer = setTimeout(() => {
+                console.log(`Countdown finished for room ${roomId}. Starting game.`);
+                this.countdownTimers.delete(roomId);
+                try {
+                    // Use the first player as "initiator" or just start it directly
+                    // Since startGame logic might require a valid player ID for some checks, 
+                    // we can use the first available player ID or bypass checks in startGame.
+                    // Let's use the first player ID.
+                    if (room.players.length > 0) {
+                        this.startGame(roomId, room.players[0].id, (data) => {
+                             if (this.emitCallback) {
+                                 if (data.type === 'hand_winner') {
+                                     this.emitCallback!(roomId, 'hand_winner', data);
+                                 } else {
+                                     this.emitCallback!(roomId, 'game_update', data);
+                                 }
+                             }
+                        });
+                    }
+                } catch (e) {
+                    console.error(`Failed to auto-start game for room ${roomId}:`, e);
+                }
+            }, 3000); // 3 seconds delay
+
+            this.countdownTimers.set(roomId, timer);
+        } else {
+            console.log(`Countdown condition failed. Total: ${totalPlayers}, Ready: ${readyCount}`);
             // Cancel countdown if conditions no longer met
             if (this.countdownTimers.has(roomId)) {
                 console.log(`Cancelling countdown for room ${roomId}`);
-                clearTimeout(this.countdownTimers.get(roomId));
+                clearTimeout(this.countdownTimers.get(roomId)!);
                 this.countdownTimers.delete(roomId);
                 if (this.emitCallback) {
                     this.emitCallback(roomId, 'countdown_cancel', {});
