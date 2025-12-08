@@ -132,6 +132,18 @@ export class RoomManager {
         const room = this.rooms.get(roomId);
         if (!room) return null;
 
+        // Check if player already exists
+        const existingPlayer = room.players.find(p => p.id === playerId);
+        if (existingPlayer) {
+            // Update existing player info if needed (e.g. name update, or just return room)
+            // We might want to update sessionId if it changed
+            if (sessionId) existingPlayer.pokerSessionId = sessionId;
+            // Ensure they are not marked as folded if they are just re-joining (unless game is running?)
+            // If game is waiting, we can reset them?
+            // For now, just return the room. This makes join idempotent.
+            return room;
+        }
+
         if (room.players.length >= room.maxPlayers) {
             throw new Error('Room is full');
         }
