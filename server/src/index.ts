@@ -216,7 +216,14 @@ io.on('connection', (socket) => {
                             const hostId = roomData.hostId || 'unknown';
                             const hostName = roomData.hostName || 'Host'; // You might need to store hostName in Firestore if not already
 
-                            room = roomManager.createRoom(hostId, hostName, undefined, entryFee, roomId, { addHostAsPlayer: false });
+                            // Double check if room exists (race condition protection)
+                            if (!roomManager.getRoom(roomId)) {
+                                try {
+                                    roomManager.createRoom(hostId, hostName, undefined, entryFee, roomId, { addHostAsPlayer: false });
+                                } catch (err: any) {
+                                    console.log(`Room ${roomId} created concurrently during hydration.`);
+                                }
+                            }
 
                             // Now try joining again
                             room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
