@@ -473,6 +473,7 @@ app.get('/debug/rooms', (req, res) => {
     // We need to access RoomManager's rooms. 
     // Since roomManager is available in this scope:
     const rooms = Array.from((roomManager as any).rooms.entries());
+    console.log('Debug endpoint called. Current rooms:', rooms.length);
     res.json({
         count: rooms.length,
         rooms: rooms.map((entry: any) => {
