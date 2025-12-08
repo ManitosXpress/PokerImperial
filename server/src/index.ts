@@ -468,17 +468,20 @@ app.get('/debug/rooms', (req, res) => {
     const rooms = Array.from((roomManager as any).rooms.entries());
     res.json({
         count: rooms.length,
-        rooms: rooms.map(([id, room]: [string, any]) => ({
-            id,
-            players: room.players.map((p: any) => ({
-                id: p.id,
-                name: p.name,
-                isReady: p.isReady,
-                isBot: p.isBot
-            })),
-            readyCount: room.players.filter((p: any) => p.isReady).length,
-            gameState: room.gameState
-        }))
+        rooms: rooms.map((entry: any) => {
+            const [id, room] = entry;
+            return {
+                id,
+                players: room.players.map((p: any) => ({
+                    id: p.id,
+                    name: p.name,
+                    isReady: p.isReady,
+                    isBot: p.isBot
+                })),
+                readyCount: room.players.filter((p: any) => p.isReady).length,
+                gameState: room.gameState
+            };
+        })
     });
 });
 
