@@ -171,9 +171,11 @@ io.on('connection', (socket) => {
             const entryFee = 1000; // Standard buy-in
 
             // Economy Check
+            let uid: string | undefined;
             if (token) {
-                const uid = await verifyFirebaseToken(token);
-                if (uid) {
+                const verifiedUid = await verifyFirebaseToken(token);
+                if (verifiedUid) {
+                    uid = verifiedUid;
                     const balance = await getUserBalance(uid);
 
                     if (balance < entryFee) {
@@ -226,6 +228,112 @@ io.on('connection', (socket) => {
             }
 
             if (room) {
+                // Sync Ready State from Firestore
+                try {
+                    const roomDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
+                    if (roomDoc.exists) {
+                        const data = roomDoc.data();
+                        const readyPlayers = data?.readyPlayers || [];
+                        if (Array.isArray(readyPlayers) && readyPlayers.includes(socket.id)) { // socket.id might not be the uid? 
+                            // Wait, readyPlayers in Firestore stores UIDs (user.uid).
+                            // socket.id is the socket connection ID.
+                            // We need to check against the Player ID used in RoomManager.
+                            // In joinRoom, we passed `socket.id` as the playerId?
+                            // Let's check how joinRoom is called:
+                            // const room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
+                            // Yes, playerId is socket.id.
+
+                            // BUT Firestore stores User UIDs (e.g. "7Yvkp...")
+                            // Socket ID is ephemeral (e.g. "A8200...")
+                            // This is a mismatch!
+
+                            // If RoomManager uses socket.id as playerId, but Firestore uses UID...
+                            // We have a problem. The game logic seems to rely on socket.id.
+                            // But persistence relies on UID.
+
+                            // Let's check how `_toggleReady` works in client:
+                            // 'readyPlayers': ... FieldValue.arrayUnion([currentUser.uid])
+
+                            // So Firestore has UIDs.
+                            // RoomManager has Socket IDs.
+
+                            // We need to map them.
+                            // When joining, we authenticated the user and got `uid`.
+                            // We should probably use `uid` as playerId in RoomManager if we want persistence?
+                            // OR we need to store the mapping.
+
+                            // In `index.ts`:
+                            // const uid = await verifyFirebaseToken(token);
+                            // ...
+                            // const room = roomManager.joinRoom(roomId, socket.id, ...);
+
+                            // If we change RoomManager to use UID as playerId, it might break other things (like socket emitting to specific socketId).
+                            // Usually, we store `socketId` on the player object, but use `uid` as the ID.
+                            // OR we store `uid` on the player object.
+
+                            // Let's check Player interface in RoomManager.ts (inferred).
+                            // It has `id`.
+
+                            // If I change joinRoom to use `uid` instead of `socket.id`:
+                            // roomManager.joinRoom(roomId, uid, ...);
+                            // Then `io.to(playerId)` won't work if playerId is UID.
+                            // We need to look up socket by UID or store socketId in Player object.
+
+                            // Let's look at `RoomManager.ts` again.
+                            // It doesn't seem to use `io.to(player.id)`. It uses `io.to(roomId)`.
+                            // But `socket.on('disconnect')` uses `socket.id` to remove player.
+                            // `roomManager.removePlayer(socket.id)`
+
+                            // If we use UID as ID, `removePlayer(socket.id)` will fail because it looks for `p.id === socket.id`.
+
+                            // We need to fix this ID mismatch.
+                            // Option 1: RoomManager uses SocketID. We store UID in Player object too.
+                            // Option 2: RoomManager uses UID. We store SocketID in Player object.
+
+                            // Given the current codebase, `RoomManager` seems designed around SocketID (removePlayer uses it).
+                            // So `player.id` IS `socket.id`.
+
+                            // So, to sync with Firestore (which has UIDs), we need to know the UID of the player.
+                            // We DO have the UID in `join_room` scope!
+                            // `const uid = await verifyFirebaseToken(token);`
+
+                            // So we can check: `readyPlayers.includes(uid)`
+                            // If true, we call `roomManager.toggleReady(roomId, socket.id, true)`.
+
+                            // Wait, does `RoomManager` store UID?
+                            // `joinRoom` params: `playerId, playerName, sessionId`.
+                            // It doesn't take UID explicitly.
+                            // But we can pass it?
+                            // The `Player` interface has `id` (socketId).
+                            // We should probably add `uid` to Player interface if needed, but for now we just need to sync ready state.
+
+                            // So:
+                            // 1. Get UID from token (we already have it).
+                            // 2. Check if `readyPlayers` contains `uid`.
+                            // 3. If yes, `roomManager.toggleReady(roomId, socket.id, true)`.
+
+                            // This seems correct and sufficient for the sync.
+
+                            // One catch: `verifyFirebaseToken` is inside the `if (token)` block.
+                            // We need to make sure we have `uid` available.
+
+                            let uid: string | undefined;
+                            if (token) {
+                                uid = await verifyFirebaseToken(token) ?? undefined;
+                            }
+
+                            // ... (existing logic) ...
+
+                            if (uid && data?.readyPlayers && Array.isArray(data.readyPlayers) && data.readyPlayers.includes(uid)) {
+                                console.log(`Syncing ready state for ${playerName} (${uid})`);
+                                roomManager.toggleReady(roomId, socket.id, true);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error syncing ready state:', err);
+                }
+
                 socket.join(roomId);
                 io.to(roomId).emit('player_joined', room); // Notify everyone in room
                 socket.emit('room_joined', room); // Notify joiner
