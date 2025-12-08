@@ -121,10 +121,27 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee, customRoomId || undefined);
+            // If room has custom ID from Firebase (user created via UI), check Firestore for isPublic
+            // Otherwise, default to PRIVATE for custom IDs (they provide a code to share)
+            let isPublic = false; // Default to private for socket-created rooms
+            
+            if (customRoomId) {
+                // Check Firestore for the isPublic flag
+                try {
+                    const roomDoc = await admin.firestore().collection('poker_tables').doc(customRoomId).get();
+                    if (roomDoc.exists) {
+                        const roomData = roomDoc.data();
+                        isPublic = roomData?.isPublic ?? false; // Default to private if not specified
+                    }
+                } catch (err) {
+                    console.log(`Could not fetch isPublic from Firestore for ${customRoomId}, defaulting to private`);
+                }
+            }
+            
+            const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee, customRoomId || undefined, { addHostAsPlayer: true, isPublic });
             socket.join(room.id);
             socket.emit('room_created', room);
-            console.log(`Room created: ${room.id} by ${playerName} (Session: ${sessionId})`);
+            console.log(`Room created: ${room.id} by ${playerName} (Session: ${sessionId}, Public: ${isPublic})`);
         } catch (e: any) {
             console.error(e);
             socket.emit('error', e.message);

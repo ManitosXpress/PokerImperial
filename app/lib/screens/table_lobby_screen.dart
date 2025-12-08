@@ -173,30 +173,42 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
              print('Fixing player with 0 chips: ${currentUser.uid}');
              players[existingPlayerIndex]['chips'] = buyInAmount.toInt();
              transaction.update(tableRef, {'players': players});
-             return;
           }
-          return; // Already joined correctly
+          // Continue to socket join even if already in Firestore
+        } else {
+            // Check if full
+            final maxPlayers = (data['maxPlayers'] ?? 8) as int;
+            if (players.length >= maxPlayers) {
+              throw Exception('Mesa llena');
+            }
+
+            // Add player with minBuyIn as initial chips
+            print('Adding player ${currentUser.displayName} with $buyInAmount chips');
+            
+            players.add({
+              'id': currentUser.uid,
+              'name': currentUser.displayName ?? 'Jugador',
+              'photoUrl': currentUser.photoURL,
+              'chips': buyInAmount.toInt(),
+              'joinedAt': DateTime.now().toIso8601String(),
+            });
+
+            transaction.update(tableRef, {'players': players});
         }
-
-        // Check if full
-        final maxPlayers = (data['maxPlayers'] ?? 9) as int;
-        if (players.length >= maxPlayers) {
-          throw Exception('Mesa llena');
-        }
-
-        // Add player with minBuyIn as initial chips
-        print('Adding player ${currentUser.displayName} with $buyInAmount chips');
-        
-        players.add({
-          'id': currentUser.uid,
-          'name': currentUser.displayName ?? 'Jugador',
-          'photoUrl': currentUser.photoURL,
-          'chips': buyInAmount.toInt(),
-          'joinedAt': DateTime.now().toIso8601String(),
-        });
-
-        transaction.update(tableRef, {'players': players});
       });
+      
+      // 5. Join Socket Room (Critical for game logic)
+      if (mounted) {
+        final socketService = Provider.of<SocketService>(context, listen: false);
+        // Add a small delay to ensure transaction propagation or just call it
+        socketService.joinRoom(
+          widget.tableId, 
+          currentUser.displayName ?? 'Jugador',
+          onSuccess: (rid) => print('Successfully joined socket room $rid'),
+          onError: (err) => print('Socket join error: $err')
+        );
+      }
+
     } catch (e) {
       print('Error joining table: $e');
       if (mounted) {
@@ -359,12 +371,13 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
               final maxPlayers = tableData['maxPlayers'] ?? 9;
               final smallBlind = tableData['smallBlind'] ?? 0;
               final bigBlind = tableData['bigBlind'] ?? 0;
+              final isPublic = tableData['isPublic'] ?? true;
               
               final isHost = currentUser?.uid == hostId;
               final currentUserId = currentUser?.uid;
               final isMeReady = currentUserId != null && readyPlayers.contains(currentUserId);
               
-              final canStartLogic = players.length >= 4;
+              final canStartLogic = players.length >= 2; // Minimum 2 players
               final allReady = canStartLogic && players.every((p) => readyPlayers.contains(p['id']));
 
               // Auto-start logic removed from here. Server handles it.
@@ -404,12 +417,17 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
                             _buildInfoBadge(Icons.monetization_on, 'Blinds: $smallBlind/$bigBlind'),
                             const SizedBox(width: 16),
                             _buildInfoBadge(Icons.people, 'Jugadores: ${players.length}/$maxPlayers'),
+                            const SizedBox(width: 16),
+                            _buildInfoBadge(
+                              isPublic ? Icons.public : Icons.lock, 
+                              isPublic ? 'Pública' : 'Privada'
+                            ),
                           ],
                         ),
                         const SizedBox(height: 12),
                          if (!canStartLogic)
                           const Text(
-                            'Esperando mínimo 4 jugadores...',
+                            'Esperando mínimo 2 jugadores...',
                             style: TextStyle(color: Colors.amber, fontStyle: FontStyle.italic),
                           ),
                          if (allReady && _countdownSeconds > 0)
@@ -482,7 +500,7 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
                             if (isSpectator) ...[
                                 // Host Controls when Spectating
                                 if (isHost) ...[
-                                   if (allReady)
+                                   if (canStartLogic && (!isPublic || allReady))
                                      Column(
                                       children: [
                                         if (_autoStartFailed)
@@ -500,7 +518,7 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
                                               ),
                                             ),
                                           )
-                                        else if (_countdownSeconds > 0)
+                                        else if (_countdownSeconds > 0 && isPublic)
                                           Container(
                                             width: double.infinity,
                                             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -536,14 +554,16 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
                                               ),
                                               child: _isStarting 
                                                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white))
-                                                  : const Text('INICIAR PARTIDA (TODOS LISTOS)'),
+                                                  : Text(isPublic ? 'INICIAR PARTIDA (TODOS LISTOS)' : 'INICIAR PARTIDA (${players.length} JUGADORES)'),
                                             ),
                                           ),
                                       ],
                                     )
                                    else
                                      Text(
-                                      'Esperando que todos los jugadores den "Listo"... (${readyPlayers.length}/${players.length})',
+                                      isPublic 
+                                        ? 'Esperando que todos los jugadores den "Listo"... (${readyPlayers.length}/${players.length})'
+                                        : 'Esperando mínimo 2 jugadores para iniciar...',
                                       style: const TextStyle(color: Colors.amber),
                                       textAlign: TextAlign.center,
                                      )
@@ -606,7 +626,9 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
                             ],
 
                               // Host Force Start (If playing host)
-                              if (isHost && !isSpectator && allReady)
+                              // For PRIVATE rooms: show if 2+ players, host can start anytime
+                              // For PUBLIC rooms: show only if all ready (auto-start behavior)
+                              if (isHost && !isSpectator && canStartLogic && (!isPublic || allReady))
                                 Padding(
                                   padding: const EdgeInsets.only(top: 16.0),
                                   child: SizedBox(
@@ -620,13 +642,13 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
                                       ),
                                       child: _isStarting 
                                           ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white))
-                                          : const Text('INICIAR PARTIDA AHORA'),
+                                          : Text(isPublic ? 'INICIAR PARTIDA AHORA' : 'INICIAR PARTIDA (${players.length} JUGADORES)'),
                                     ),
                                   ),
                                 ),
                           ] else
                             const Text(
-                              'Esperando más jugadores para habilitar el inicio...',
+                              'Esperando mínimo 2 jugadores para poder iniciar...',
                               style: TextStyle(color: Colors.white38),
                               textAlign: TextAlign.center,
                             ),

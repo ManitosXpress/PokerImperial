@@ -8,6 +8,7 @@ class WaitingRoomView extends StatelessWidget {
   final VoidCallback onStartGame;
   final String? userRole;
   final bool isHost;
+  final bool isPublic;
 
   const WaitingRoomView({
     super.key,
@@ -16,6 +17,7 @@ class WaitingRoomView extends StatelessWidget {
     required this.onStartGame,
     this.userRole,
     this.isHost = false,
+    this.isPublic = true,
   });
 
   @override
@@ -27,7 +29,10 @@ class WaitingRoomView extends StatelessWidget {
     // Only players can see start related UI (even if it's just status)
     // Club/Admin see Observer status
     final isObserver = userRole == 'club' || userRole == 'admin';
-    final canStart = !isObserver && isHost && playerCount >= 4;
+    // For PRIVATE rooms: host can start with 2+ players
+    // For PUBLIC rooms: need 4+ players (will auto-start when all ready)
+    final minPlayers = isPublic ? 4 : 2;
+    final canStart = !isObserver && isHost && playerCount >= minPlayers;
 
     return Center(
       child: Container(
@@ -116,42 +121,62 @@ class WaitingRoomView extends StatelessWidget {
             const SizedBox(height: 32),
 
             // Status / Action Area
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.black45,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: canStart ? Colors.green : Colors.white24, 
-                  width: 2
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    canStart ? Icons.check_circle : Icons.info_outline, 
-                    color: canStart ? Colors.green : Colors.white70
+            if (canStart)
+              // Show Start Button for Host
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: onStartGame,
+                  icon: const Icon(Icons.play_arrow, size: 32),
+                  label: Text(
+                    'INICIAR PARTIDA ($playerCount JUGADORES)',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(width: 12),
-                  Flexible(
-                    child: Text(
-                      isObserver 
-                          ? 'Esperando a que inicie la partida...'
-                          : playerCount < 4 
-                              ? 'Esperando jugadores (min 4)...'
-                              : 'Esperando confirmación para iniciar...',
-                      style: TextStyle(
-                        color: canStart ? Colors.green : Colors.white70,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 32),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                ],
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black45,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.white24, 
+                    width: 2
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.info_outline, 
+                      color: Colors.white70
+                    ),
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Text(
+                        isObserver 
+                            ? 'Esperando a que inicie la partida...'
+                            : 'Esperando jugadores (mín $minPlayers)...',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),

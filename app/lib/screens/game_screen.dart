@@ -513,6 +513,7 @@ class _GameScreenState extends State<GameScreen> {
                   onStartGame: _startGame, // Kept as fallback
                   userRole: userRole,
                   isHost: isHost,
+                  isPublic: roomState?['isPublic'] ?? true, // Default to public if not specified
                 )
               : Stack(
                   children: [
