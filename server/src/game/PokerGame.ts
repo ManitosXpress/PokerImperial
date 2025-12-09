@@ -14,12 +14,20 @@ export class PokerGame {
     private players: Player[] = [];
     private activePlayers: Player[] = []; // Players currently in the hand
     private lastAggressorIndex: number = 0;
+    
+    // AFK System
+    private turnTimer: NodeJS.Timeout | null = null;
+    private readonly TURN_TIMEOUT_SECONDS = 15;
+
+    // Rake System
+    private isPublicRoom: boolean = true; // Default to public
 
     constructor() { }
 
-    public startGame(players: Player[]) {
+    public startGame(players: Player[], isPublic: boolean = true) {
         if (players.length < 2) throw new Error('Not enough players');
         this.players = players;
+        this.isPublicRoom = isPublic; // Store room type for rake calculation
         this.activePlayers = [...players];
         this.dealerIndex = (this.dealerIndex + 1) % this.players.length;
         this.startRound();
@@ -37,7 +45,10 @@ export class PokerGame {
             p.hand = [];
             p.isFolded = false;
             p.currentBet = 0;
+            // Note: We do NOT reset isSitOut here; it persists until user returns
         });
+        
+        // Active players are those with chips
         this.activePlayers = this.players.filter(p => p.chips > 0);
 
         // Deal cards
@@ -53,10 +64,69 @@ export class PokerGame {
         this.placeBet(this.activePlayers[bbIndex], this.bigBlindAmount);
 
         this.currentTurnIndex = (bbIndex + 1) % this.activePlayers.length;
-
-        // In pre-flop, the BB is the initial "aggressor" that everyone must match.
-        // If everyone calls, action returns to BB.
+        
         this.lastAggressorIndex = bbIndex;
+
+        // Start the turn flow
+        this.startTurnTimer();
+    }
+
+    private startTurnTimer() {
+        // Clear existing timer
+        if (this.turnTimer) {
+            clearTimeout(this.turnTimer);
+            this.turnTimer = null;
+        }
+
+        const currentPlayer = this.activePlayers[this.currentTurnIndex];
+        if (!currentPlayer) return;
+
+        // AFK Check: If player is already marked as Sit Out/Absent, skip immediately
+        if (currentPlayer.isSitOut) {
+            console.log(`⏩ Player ${currentPlayer.name} is SIT OUT. Auto-playing...`);
+            // Immediate action without delay
+            this.handleTurnTimeout(); 
+            return;
+        }
+
+        // If bot, use existing bot logic (it has its own delay)
+        if (currentPlayer.isBot) {
+            setTimeout(() => this.handleBotTurn(currentPlayer), 1000 + Math.random() * 1000);
+            return;
+        }
+
+        // For human players, start the countdown
+        console.log(`⏳ Starting ${this.TURN_TIMEOUT_SECONDS}s timer for ${currentPlayer.name}`);
+        this.turnTimer = setTimeout(() => {
+            this.handleTurnTimeout();
+        }, this.TURN_TIMEOUT_SECONDS * 1000);
+    }
+
+    private handleTurnTimeout() {
+        const currentPlayer = this.activePlayers[this.currentTurnIndex];
+        if (!currentPlayer) return;
+
+        console.log(`⏰ Timeout for ${currentPlayer.name}. Marking as SIT OUT.`);
+        
+        // 1. Mark as Absent
+        currentPlayer.isSitOut = true;
+
+        // 2. Decide Auto-Action: CHECK if possible, otherwise FOLD
+        // Check condition: currentBet == player.currentBet
+        const canCheck = currentPlayer.currentBet === this.currentBet;
+        const action = canCheck ? 'check' : 'fold';
+
+        console.log(`🤖 Auto-Action for ${currentPlayer.name}: ${action}`);
+
+        try {
+            this.handleAction(currentPlayer.id, action);
+        } catch (e) {
+            console.error('Error executing auto-action:', e);
+            // Fallback to fold if check fails for some reason
+            if (action !== 'fold') {
+                this.handleAction(currentPlayer.id, 'fold');
+            }
+        }
     }
 
     public addChips(playerId: string, amount: number) {
@@ -87,6 +157,7 @@ export class PokerGame {
                 currentBet: p.currentBet,
                 isFolded: p.isFolded,
                 isBot: p.isBot,
+                isSitOut: p.isSitOut, // Expose AFK status to client
                 isAllIn: p.chips === 0 && p.currentBet > 0,
                 hand: p.hand
             }))
@@ -96,14 +167,22 @@ export class PokerGame {
     public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0) {
         console.log(`🃏 PokerGame.handleAction: playerId=${playerId}, action=${action}, currentTurnIndex=${this.currentTurnIndex}`);
         const player = this.activePlayers[this.currentTurnIndex];
-        console.log(`🎯 Current turn player: id=${player?.id}, name=${player?.name}`);
-        console.log(`📋 All active players: ${this.activePlayers.map(p => `${p.name}(${p.id})`).join(', ')}`);
         
         if (!player || player.id !== playerId) {
-            console.error(`❌ Not your turn! Expected: ${player?.id}, Got: ${playerId}`);
             throw new Error('Not your turn');
         }
-        console.log(`✅ Turn validated successfully`);
+
+        // If player acts manually, remove Sit Out status
+        if (player.isSitOut) {
+            console.log(`👋 Player ${player.name} returned! Clearing SIT OUT status.`);
+            player.isSitOut = false;
+        }
+
+        // Clear timer since action was taken
+        if (this.turnTimer) {
+            clearTimeout(this.turnTimer);
+            this.turnTimer = null;
+        }
 
         switch (action) {
             case 'fold':
@@ -119,12 +198,10 @@ export class PokerGame {
                 this.placeBet(player, callAmount);
                 break;
             case 'bet':
-                // Validate minimum bet
                 const minRaise = this.currentBet + Math.max(this.bigBlindAmount, this.currentBet);
                 if (amount < minRaise && player.chips >= minRaise) {
                     throw new Error(`Minimum raise is ${minRaise}`);
                 }
-
                 this.placeBet(player, amount - player.currentBet);
                 if (amount > this.currentBet) {
                     this.lastAggressorIndex = this.currentTurnIndex;
@@ -132,9 +209,7 @@ export class PokerGame {
                 this.currentBet = amount;
                 break;
             case 'allin':
-                // Bet all remaining chips
                 const allInAmount = player.currentBet + player.chips;
-                console.log(`Player ${player.name} going ALL-IN with ${player.chips} chips (total bet: ${allInAmount})`);
                 this.placeBet(player, player.chips);
                 if (allInAmount > this.currentBet) {
                     this.lastAggressorIndex = this.currentTurnIndex;
@@ -146,9 +221,7 @@ export class PokerGame {
                 break;
         }
 
-        console.log(`✅ Action '${action}' executed successfully. Calling nextTurn()...`);
         this.nextTurn();
-        console.log(`🔄 nextTurn() completed`);
     }
 
     private nextTurn() {
@@ -156,15 +229,12 @@ export class PokerGame {
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
         const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
 
-        // If all remaining players are all-in (0 chips), or only one player has chips left
-        // Skip remaining betting rounds and go to showdown
         if (playersWithChips.length <= 1) {
             console.log('All-in scenario detected - skipping to showdown');
             this.revealAllCardsAndShowdown();
             return;
         }
 
-        // Check if round should end BEFORE moving to next player
         let nextIndex = this.currentTurnIndex;
         do {
             nextIndex = (nextIndex + 1) % this.activePlayers.length;
@@ -187,36 +257,35 @@ export class PokerGame {
         }
 
         this.currentTurnIndex = nextIndex;
-
-        // Check if next player is a bot
-        const nextPlayer = this.activePlayers[this.currentTurnIndex];
-        if (nextPlayer.isBot) {
-            setTimeout(() => this.handleBotTurn(nextPlayer), 1000 + Math.random() * 1000);
+        
+        // Notify state change before starting timer/bot
+        if (this.onGameStateChange) {
+            this.onGameStateChange(this.getGameState());
         }
+
+        // Start timer for the new player (handles both Bot and Human/AFK)
+        this.startTurnTimer();
     }
 
     private revealAllCardsAndShowdown() {
-        // Reveal all remaining community cards
         while (this.communityCards.length < 5) {
             if (this.round === 'pre-flop') {
-                this.communityCards.push(...this.deal(3)); // Flop
+                this.communityCards.push(...this.deal(3));
                 this.round = 'flop';
             } else if (this.round === 'flop') {
-                this.communityCards.push(...this.deal(1)); // Turn
+                this.communityCards.push(...this.deal(1));
                 this.round = 'turn';
             } else if (this.round === 'turn') {
-                this.communityCards.push(...this.deal(1)); // River
+                this.communityCards.push(...this.deal(1));
                 this.round = 'river';
                 break;
             }
         }
 
-        // Emit game state update with all cards revealed
         if (this.onGameStateChange) {
             this.onGameStateChange(this.getGameState());
         }
 
-        // Wait a moment for UI to show cards, then evaluate winner
         setTimeout(() => {
             this.round = 'showdown';
             this.evaluateWinner();
@@ -225,14 +294,13 @@ export class PokerGame {
 
     private nextRound() {
         this.currentTurnIndex = (this.dealerIndex + 1) % this.activePlayers.length;
-        // Skip folded
         while (this.activePlayers[this.currentTurnIndex].isFolded) {
             this.currentTurnIndex = (this.currentTurnIndex + 1) % this.activePlayers.length;
         }
 
         this.activePlayers.forEach(p => p.currentBet = 0);
         this.currentBet = 0;
-        this.lastAggressorIndex = this.currentTurnIndex; // First to act is new aggressor base
+        this.lastAggressorIndex = this.currentTurnIndex;
 
         switch (this.round) {
             case 'pre-flop':
@@ -252,17 +320,18 @@ export class PokerGame {
                 this.evaluateWinner();
                 return;
         }
-
-        // Trigger bot if first player is bot
-        const nextPlayer = this.activePlayers[this.currentTurnIndex];
-        if (nextPlayer.isBot) {
-            setTimeout(() => this.handleBotTurn(nextPlayer), 1000);
+        
+        // Notify state change
+        if (this.onGameStateChange) {
+            this.onGameStateChange(this.getGameState());
         }
+
+        // Start timer
+        this.startTurnTimer();
     }
 
     private handleBotTurn(bot: Player) {
         const { BotLogic } = require('./BotLogic');
-
         try {
             let action = BotLogic.decide(bot, this.currentBet, this.pot);
             let amount = 0;
@@ -276,11 +345,6 @@ export class PokerGame {
 
             console.log(`Bot ${bot.name} decided to ${action}`);
             this.handleAction(bot.id, action, amount);
-
-            if (this.onGameStateChange) {
-                this.onGameStateChange(this.getGameState());
-            }
-
         } catch (e) {
             console.error('Bot error:', e);
             this.handleAction(bot.id, 'fold');
@@ -288,6 +352,43 @@ export class PokerGame {
     }
 
     public onGameStateChange?: (state: any) => void;
+
+    // --- RAKE SYSTEM IMPLEMENTATION ---
+    private calculateRakeDistribution(pot: number): { 
+        totalRake: number, 
+        netPot: number, 
+        distribution: { platform: number, club: number, seller: number } 
+    } {
+        const RAKE_PERCENTAGE = 0.08;
+        const totalRake = Math.floor(pot * RAKE_PERCENTAGE);
+        const netPot = pot - totalRake;
+
+        let distribution = {
+            platform: 0,
+            club: 0,
+            seller: 0
+        };
+
+        if (!this.isPublicRoom) {
+            // Case A: Private Room - 100% to Platform
+            distribution.platform = totalRake;
+            console.log(`💰 Rake (Private): ${totalRake} -> Platform: ${distribution.platform}`);
+        } else {
+            // Case B: Public Room - Split 50/30/20
+            distribution.platform = Math.floor(totalRake * 0.50);
+            distribution.club = Math.floor(totalRake * 0.30);
+            distribution.seller = Math.floor(totalRake * 0.20);
+            
+            // Handle remainder cents/rounding by adding to platform
+            const distributed = distribution.platform + distribution.club + distribution.seller;
+            const remainder = totalRake - distributed;
+            if (remainder > 0) distribution.platform += remainder;
+
+            console.log(`💰 Rake (Public): ${totalRake} -> Platform: ${distribution.platform}, Club: ${distribution.club}, Seller: ${distribution.seller}`);
+        }
+
+        return { totalRake, netPot, distribution };
+    }
 
     private evaluateWinner() {
         const activePlayers = this.activePlayers.filter(p => !p.isFolded);
@@ -297,41 +398,33 @@ export class PokerGame {
             return;
         }
 
-        // Create hands for each player with their cards + community cards
         const playerHands = activePlayers.map(player => ({
             player: player,
             hand: Hand.solve([...player.hand!, ...this.communityCards])
         }));
 
-        // Find winning hand(s)
         const hands = playerHands.map(ph => ph.hand);
         const winningHands = Hand.winners(hands);
-
-        // Find players with winning hands
         const winners = playerHands.filter(ph => winningHands.includes(ph.hand));
 
-        // Rake Calculation (10%)
-        const rakeAmount = Math.floor(this.pot * 0.10);
-        const potAfterRake = this.pot - rakeAmount;
-        console.log(`Pot: ${this.pot}, Rake: ${rakeAmount}, Distributable: ${potAfterRake}`);
+        // Calculate Rake
+        const { totalRake, netPot, distribution } = this.calculateRakeDistribution(this.pot);
 
         if (winners.length === 1) {
-            // Single winner
             const winner = winners[0].player;
             const winnerHand = winners[0].hand;
-            winner.totalRakePaid = (winner.totalRakePaid || 0) + rakeAmount;
-            this.endHand(winner, potAfterRake, winnerHand, playerHands);
+            winner.totalRakePaid = (winner.totalRakePaid || 0) + totalRake;
+            
+            this.endHand(winner, netPot, winnerHand, playerHands, distribution);
         } else {
-            // Split pot
-            const splitAmount = Math.floor(potAfterRake / winners.length);
-            const rakePerWinner = Math.floor(rakeAmount / winners.length);
+            const splitAmount = Math.floor(netPot / winners.length);
+            const rakePerWinner = Math.floor(totalRake / winners.length);
 
             winners.forEach(w => {
                 w.player.chips += splitAmount;
                 w.player.totalRakePaid = (w.player.totalRakePaid || 0) + rakePerWinner;
             });
 
-            // Notify about split pot
             if (this.onGameStateChange) {
                 this.onGameStateChange({
                     type: 'hand_winner',
@@ -342,8 +435,8 @@ export class PokerGame {
                         handDescription: w.hand.descr || w.hand.name
                     })),
                     split: true,
-                    rake: rakeAmount,
-                    // Include all players with their cards for display
+                    rake: totalRake,
+                    rakeDistribution: distribution, // Send to client/backend listener
                     players: this.players.map(p => ({
                         id: p.id,
                         name: p.name,
@@ -358,7 +451,6 @@ export class PokerGame {
                 });
             }
 
-            // Auto-restart
             setTimeout(() => {
                 this.startRound();
                 if (this.onGameStateChange) {
@@ -370,7 +462,7 @@ export class PokerGame {
 
     private placeBet(player: Player, amount: number) {
         if (player.chips < amount) {
-            amount = player.chips; // All-in
+            amount = player.chips;
         }
         player.chips -= amount;
         player.currentBet += amount;
@@ -400,22 +492,25 @@ export class PokerGame {
         return this.deck.splice(0, count);
     }
 
-
-    private endHand(winner: Player, wonAmount?: number, winnerHand?: any, playerHands?: Array<{ player: Player, hand: any }>) {
+    private endHand(winner: Player, wonAmount?: number, winnerHand?: any, playerHands?: Array<{ player: Player, hand: any }>, rakeDistribution?: any) {
         let finalAmount = wonAmount;
         let rakeAmount = 0;
+        let distribution = rakeDistribution;
 
         if (finalAmount === undefined) {
-            // Calculate rake if not provided (e.g. winner by fold)
-            rakeAmount = Math.floor(this.pot * 0.10);
-            finalAmount = this.pot - rakeAmount;
+            // Winner by fold - Recalculate rake
+            const result = this.calculateRakeDistribution(this.pot);
+            rakeAmount = result.totalRake;
+            finalAmount = result.netPot;
+            distribution = result.distribution;
+            
             winner.totalRakePaid = (winner.totalRakePaid || 0) + rakeAmount;
-            console.log(`Winner by fold. Pot: ${this.pot}, Rake: ${rakeAmount}, Won: ${finalAmount}`);
+        } else {
+             rakeAmount = this.pot - finalAmount;
         }
 
         winner.chips += finalAmount;
 
-        // Emit hand_winner event
         if (this.onGameStateChange) {
             this.onGameStateChange({
                 type: 'hand_winner',
@@ -425,8 +520,8 @@ export class PokerGame {
                     amount: finalAmount,
                     handDescription: winnerHand ? (winnerHand.descr || winnerHand.name) : null
                 },
-                rake: rakeAmount > 0 ? rakeAmount : undefined,
-                // Include all players with their cards for display
+                rake: rakeAmount,
+                rakeDistribution: distribution,
                 players: this.players.map(p => ({
                     id: p.id,
                     name: p.name,
@@ -443,7 +538,6 @@ export class PokerGame {
 
         console.log(`${winner.name} wins ${finalAmount} chips!`);
 
-        // Auto-start next hand after 5 seconds
         setTimeout(() => {
             this.startRound();
             if (this.onGameStateChange) {

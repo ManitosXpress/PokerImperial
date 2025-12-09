@@ -9,6 +9,7 @@ export interface Player {
     pokerSessionId?: string;
     totalRakePaid?: number;
     isReady?: boolean;
+    isSitOut?: boolean; // New field for AFK system
 }
 
 export interface Room {
@@ -18,8 +19,8 @@ export interface Room {
     gameState: 'waiting' | 'playing' | 'finished';
     pot: number;
     communityCards: string[];
-    currentTurn: string; // Player ID
+    currentTurn: string;
     dealerId: string;
-    isPublic?: boolean; // If true or undefined, auto-start. If false (private), require host to start manually.
-    hostId?: string; // ID of the player who created the room (for frontend to determine host privileges)
+    isPublic?: boolean;
+    hostId?: string;
 }

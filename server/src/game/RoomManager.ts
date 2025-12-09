@@ -241,7 +241,7 @@ export class RoomManager {
             game.onGameStateChange = emitCallback;
         }
 
-        game.startGame(room.players);
+        game.startGame(room.players, room.isPublic);
         room.gameState = 'playing';
 
         // Emit game_started event

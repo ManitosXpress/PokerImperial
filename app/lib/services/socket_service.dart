@@ -11,6 +11,10 @@ class SocketService extends ChangeNotifier {
   int _connectionAttempts = 0;
   static const int _maxConnectionAttempts = 3;
   static const Duration _minRetryDelay = Duration(seconds: 5);
+  
+  // Reconnection / Active Room State
+  String? _currentRoomId;
+  String? get currentRoomId => _currentRoomId;
 
   bool get isConnected => _isConnected && _socket != null;
   IO.Socket get socket {
@@ -148,6 +152,7 @@ class SocketService extends ChangeNotifier {
     _isConnected = false;
     _isConnecting = false;
     _connectionAttempts = 0;
+    _currentRoomId = null; // Clear room ID on disconnect
     notifyListeners();
   }
 
@@ -177,6 +182,11 @@ class SocketService extends ChangeNotifier {
     // Set up one-time listeners for response
     _socket!.once('room_created', (data) {
       print('Room created successfully: ${data['id']}');
+      
+      // Track current room
+      _currentRoomId = data['id'];
+      notifyListeners();
+
       if (onSuccess != null) {
         onSuccess(data['id']);
       }
@@ -218,6 +228,11 @@ class SocketService extends ChangeNotifier {
     // Set up one-time listeners for response
     _socket!.once('room_joined', (data) {
       print('Room joined successfully: ${data['id']}');
+
+      // Track current room
+      _currentRoomId = data['id'];
+      notifyListeners();
+
       if (onSuccess != null) {
         onSuccess(data['id']);
       }
@@ -235,6 +250,12 @@ class SocketService extends ChangeNotifier {
          onError('Insufficient balance. Required: ${data['required']}, Available: ${data['current']}');
        }
     });
+  }
+  
+  // Method to clear room state manually (e.g. when properly leaving via UI)
+  void clearCurrentRoom() {
+    _currentRoomId = null;
+    notifyListeners();
   }
 
   void createPracticeRoom(String playerName, {Function(dynamic data)? onSuccess, Function(String error)? onError}) {
@@ -260,6 +281,10 @@ class SocketService extends ChangeNotifier {
       if (navigationCompleted) return;
       print('Practice room created: ${data['id']}');
       capturedRoomId = data['id'];
+      
+      // Track practice room too
+      _currentRoomId = capturedRoomId;
+      notifyListeners();
     }
     
     // Error handler
@@ -270,6 +295,10 @@ class SocketService extends ChangeNotifier {
       print('Practice room error: $data');
       cleanup();
       
+      // Reset room if failed
+      _currentRoomId = null;
+      notifyListeners();
+
       if (onError != null) {
         onError(data.toString());
       }
@@ -310,6 +339,10 @@ class SocketService extends ChangeNotifier {
       if (!navigationCompleted) {
         navigationCompleted = true;
         cleanup();
+        
+        _currentRoomId = null; // Clear on timeout
+        notifyListeners();
+        
         print('Practice game timeout - server did not respond');
         if (onError != null) {
           onError('Server took too long to start practice game. Please try again.');
@@ -357,4 +390,3 @@ class SocketService extends ChangeNotifier {
     });
   }
 }
-

@@ -48,15 +48,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   void _navigateToGame(String roomId, [Map<String, dynamic>? initialState]) async {
-    // Show loading if not already shown by a button state
-    // For practice/create/join, the button state handles the UI loader.
-    // We just need to add the delay here or in the button handlers.
-    // Let's add it in the button handlers for better control, or here if generic.
-    // Since _navigateToGame is called after success, we can add delay here BUT
-    // we need to make sure the button loader stays active.
-    // The button handlers set _isCreating/_isJoining to true, call service, then false.
-    // We should modify the button handlers to keep it true until after navigation/delay.
-    
     final bool isPractice = initialState?['isPracticeMode'] ?? false;
     
     // Artificial delay
@@ -158,566 +149,594 @@ class _LobbyScreenState extends State<LobbyScreen> {
     const Color beigeColor = Color(0xFFF1E3D3);
 
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          image: DecorationImage(
-            image: AssetImage('assets/images/poker_background.png'),
-            fit: BoxFit.cover,
-          ),
-        ),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.black.withOpacity(0.7),
-                Colors.black.withOpacity(0.85),
-                Colors.black.withOpacity(0.9),
-              ],
+      body: Stack(
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              image: DecorationImage(
+                image: AssetImage('assets/images/poker_background.png'),
+                fit: BoxFit.cover,
+              ),
             ),
-          ),
-          child: SafeArea(
-            child: Column(
-              children: [
-                // Header with wallet, language toggle, and sign out
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Sign out button
-                      IconButton(
-                        onPressed: () async {
-                          final authProvider = context.read<app_auth.AuthProvider>();
-                          await authProvider.signOut();
-                          if (context.mounted) {
-                            Navigator.of(context).pushReplacement(
-                              MaterialPageRoute(builder: (_) => const LoginScreen()),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.logout, color: Colors.white70),
-                        tooltip: languageProvider.currentLocale.languageCode == 'en' ? 'Sign Out' : 'Cerrar Sesión',
-                      ),
-                      
-                      // Admin Button (Only visible if admin)
-                      Consumer<ClubProvider>(
-                        builder: (context, clubProvider, _) {
-                          // Ensure we have the latest role
-                          if (clubProvider.currentUserRole == 'admin') {
-                            return IconButton(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withOpacity(0.7),
+                    Colors.black.withOpacity(0.85),
+                    Colors.black.withOpacity(0.9),
+                  ],
+                ),
+              ),
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    // Header with wallet, language toggle, and sign out
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Sign out button
+                          IconButton(
+                            onPressed: () async {
+                              final authProvider = context.read<app_auth.AuthProvider>();
+                              await authProvider.signOut();
+                              if (context.mounted) {
+                                Navigator.of(context).pushReplacement(
+                                  MaterialPageRoute(builder: (_) => const LoginScreen()),
                                 );
-                              },
-                              icon: const Icon(Icons.admin_panel_settings, color: Colors.redAccent),
-                              tooltip: 'Super Admin Dashboard',
-                            );
-                          }
-                          return const SizedBox.shrink();
-                        },
-                      ),
-
-                      const Spacer(),
-                      // Profile Avatar Button
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: goldColor,
-                              width: 2,
-                            ),
+                              }
+                            },
+                            icon: const Icon(Icons.logout, color: Colors.white70),
+                            tooltip: languageProvider.currentLocale.languageCode == 'en' ? 'Sign Out' : 'Cerrar Sesión',
                           ),
-                          child: Consumer<app_auth.AuthProvider>(
-                            builder: (context, authProvider, _) {
-                              final user = authProvider.user;
-                              return CircleAvatar(
-                                radius: 18,
-                                backgroundColor: goldColor,
-                                backgroundImage: user?.photoURL != null
-                                    ? NetworkImage(user!.photoURL!)
-                                    : null,
-                                child: user?.photoURL == null
-                                    ? Text(
-                                        (user?.displayName?.isNotEmpty == true
-                                            ? user!.displayName![0].toUpperCase()
-                                            : user?.email?[0].toUpperCase() ?? '?'),
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : null,
-                              );
+                          
+                          // Admin Button (Only visible if admin)
+                          Consumer<ClubProvider>(
+                            builder: (context, clubProvider, _) {
+                              // Ensure we have the latest role
+                              if (clubProvider.currentUserRole == 'admin') {
+                                return IconButton(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.admin_panel_settings, color: Colors.redAccent),
+                                  tooltip: 'Super Admin Dashboard',
+                                );
+                              }
+                              return const SizedBox.shrink();
                             },
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      // Wallet and controls
-                      Row(
-                        children: [
-                          // Wallet Display
-                          const WalletDisplay(),
-                          const SizedBox(width: 12),
-                          // Language Toggle
+
+                          const Spacer(),
+                          // Profile Avatar Button
                           GestureDetector(
-                            onTap: () => languageProvider.toggleLanguage(),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                              );
+                            },
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              padding: const EdgeInsets.all(2),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(25),
-                                border: Border.all(color: goldColor, width: 1.5),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.3),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: goldColor,
+                                  width: 2,
+                                ),
                               ),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    languageProvider.currentLocale.languageCode == 'en' ? '🇺🇸' : '🇪🇸',
-                                    style: const TextStyle(fontSize: 22),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    languageProvider.currentLocale.languageCode == 'en' ? 'EN' : 'ES',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
+                              child: Consumer<app_auth.AuthProvider>(
+                                builder: (context, authProvider, _) {
+                                  final user = authProvider.user;
+                                  return CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: goldColor,
+                                    backgroundImage: user?.photoURL != null
+                                        ? NetworkImage(user!.photoURL!)
+                                        : null,
+                                    child: user?.photoURL == null
+                                        ? Text(
+                                            (user?.displayName?.isNotEmpty == true
+                                                ? user!.displayName![0].toUpperCase()
+                                                : user?.email?[0].toUpperCase() ?? '?'),
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                        : null,
+                                  );
+                                },
                               ),
                             ),
+                          ),
+                          const SizedBox(width: 16),
+                          // Wallet and controls
+                          Row(
+                            children: [
+                              // Wallet Display
+                              const WalletDisplay(),
+                              const SizedBox(width: 12),
+                              // Language Toggle
+                              GestureDetector(
+                                onTap: () => languageProvider.toggleLanguage(),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(25),
+                                    border: Border.all(color: goldColor, width: 1.5),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.3),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        languageProvider.currentLocale.languageCode == 'en' ? '🇺🇸' : '🇪🇸',
+                                        style: const TextStyle(fontSize: 22),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        languageProvider.currentLocale.languageCode == 'en' ? 'EN' : 'ES',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-                
-                // Main content
-                Expanded(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // Title
-                          const Text(
-                            'POKER IMPERIAL',
-                            style: TextStyle(
-                              fontSize: 52,
-                              fontWeight: FontWeight.bold,
-                              color: goldColor,
-                              letterSpacing: 4,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black87,
-                                  blurRadius: 15,
-                                  offset: Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 40),
-                          
-                          // Connection Status
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: socketService.isConnected 
-                                  ? Colors.green.withOpacity(0.2) 
-                                  : Colors.red.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: socketService.isConnected 
-                                    ? Colors.green.withOpacity(0.5) 
-                                    : Colors.red.withOpacity(0.5),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  socketService.isConnected ? Icons.wifi : Icons.wifi_off,
-                                  color: socketService.isConnected ? Colors.green : Colors.red,
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  socketService.isConnected 
-                                      ? languageProvider.getText('connected')
-                                      : languageProvider.getText('connecting'),
-                                  style: TextStyle(
-                                    color: socketService.isConnected ? Colors.green : Colors.red,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 40),
-
-                          // Clubs and Tournaments Buttons (Moved to Top)
-                          Row(
+                    ),
+                    
+                    // Main content
+                    Expanded(
+                      child: Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                          child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              _buildFeatureButton(
-                                context,
-                                icon: Icons.shield,
-                                label: 'Clubs',
-                                color: darkGreenColor,
-                                isLoading: _isLoadingClubs,
-                                onTap: _isLoadingClubs ? null : () async {
-                                  setState(() => _isLoadingClubs = true);
-                                  await Future.delayed(const Duration(seconds: 1));
-                                  if (mounted) {
-                                    setState(() => _isLoadingClubs = false);
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (_) => const ClubDashboardScreen()),
-                                  );
-                                }
-                              },
-                            ),
-                            const SizedBox(width: 20),
-                            
-                            // Game Zone Button
-                            _buildFeatureButton(
-                              context,
-                              icon: Icons.casino,
-                              label: 'Zona de Juego',
-                              color: const Color(0xFFFFD700),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const GameZoneScreen()),
-                                );
-                              },
-                            ),
-                            
-                            // Admin Button
-                            Consumer<ClubProvider>(
-                              builder: (context, clubProvider, _) {
-                                if (clubProvider.currentUserRole == 'admin') {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(left: 20),
-                                    child: _buildFeatureButton(
-                                      context,
-                                      icon: Icons.admin_panel_settings_outlined,
-                                      label: 'Admin',
-                                      color: Colors.redAccent,
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
-                                        );
-                                      },
+                              // Title
+                              const Text(
+                                'POKER IMPERIAL',
+                                style: TextStyle(
+                                  fontSize: 52,
+                                  fontWeight: FontWeight.bold,
+                                  color: goldColor,
+                                  letterSpacing: 4,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.black87,
+                                      blurRadius: 15,
+                                      offset: Offset(0, 4),
                                     ),
-                                  );
-                                }
-                                return const SizedBox.shrink();
-                              },
-                            ),
-                          ],
-                        ),
-
-                          const SizedBox(height: 40),
-
-                          // --- JOIN ROOM SECTION ---
-                          Container(
-                            constraints: const BoxConstraints(maxWidth: 450),
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: goldColor.withOpacity(0.3)),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  languageProvider.currentLocale.languageCode == 'en' 
-                                      ? 'Join a Room' 
-                                      : 'Unirse a una Sala',
-                                  style: const TextStyle(
-                                    color: goldColor,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1.5,
+                                  ],
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 40),
+                              
+                              // Connection Status
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: socketService.isConnected 
+                                      ? Colors.green.withOpacity(0.2) 
+                                      : Colors.red.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: socketService.isConnected 
+                                        ? Colors.green.withOpacity(0.5) 
+                                        : Colors.red.withOpacity(0.5),
                                   ),
                                 ),
-                                const SizedBox(height: 20),
-                                Row(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _roomController,
-                                        style: const TextStyle(color: beigeColor, fontSize: 16),
-                                        decoration: InputDecoration(
-                                          labelText: languageProvider.getText('room_id'),
-                                          labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
-                                          filled: true,
-                                          fillColor: Colors.black.withOpacity(0.4),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: BorderSide.none,
-                                          ),
-                                          enabledBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: BorderSide(color: goldColor.withOpacity(0.3), width: 1),
-                                          ),
-                                          focusedBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: const BorderSide(color: goldColor, width: 2),
-                                          ),
-                                          prefixIcon: const Icon(Icons.meeting_room, color: goldColor),
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                                        ),
-                                      ),
+                                    Icon(
+                                      socketService.isConnected ? Icons.wifi : Icons.wifi_off,
+                                      color: socketService.isConnected ? Colors.green : Colors.red,
+                                      size: 18,
                                     ),
-                                    const SizedBox(width: 16),
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(12),
-                                        gradient: const LinearGradient(
-                                          colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.green.withOpacity(0.3),
-                                            blurRadius: 8,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: ElevatedButton(
-                                        onPressed: _isJoining ? null : () {
-                                          final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
-                                          final userName = authProvider.user?.displayName ?? 'Player';
-                                          
-                                          if (_roomController.text.isNotEmpty) {
-                                            setState(() => _isJoining = true);
-                                            socketService.joinRoom(
-                                              _roomController.text,
-                                              userName,
-                                              onSuccess: (roomId) async {
-                                                // Delay handled in _navigateToGame, but we need to keep _isJoining true
-                                                // actually _navigateToGame is async now, so we await it?
-                                                // No, onSuccess is a callback. 
-                                                // We should wait here before calling _navigateToGame? 
-                                                // _navigateToGame has the delay.
-                                                // We just need to NOT set _isJoining = false immediately.
-                                                await _navigateToGameWithDelay(roomId);
-                                                if (mounted) setState(() => _isJoining = false);
-                                              },
-                                              onError: (error) {
-                                                setState(() => _isJoining = false);
-                                                if (error.contains('Insufficient balance')) {
-                                                  showDialog(
-                                                    context: context,
-                                                    builder: (_) => const AddCreditsDialog(),
-                                                  );
-                                                } else {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    SnackBar(content: Text('Error: $error')),
-                                                  );
-                                                }
-                                              },
-                                            );
-                                          }
-                                        },
-                                        style: ElevatedButton.styleFrom(
-                                          minimumSize: const Size(100, 56),
-                                          backgroundColor: Colors.transparent,
-                                          shadowColor: Colors.transparent,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                        ),
-                                        child: _isJoining
-                                          ? const SizedBox(
-                                              height: 24,
-                                              width: 24,
-                                                child: PokerLoadingIndicator(size: 24, color: Colors.white),
-                                            )
-                                          : Text(
-                                              languageProvider.getText('join').toUpperCase(),
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 14,
-                                                color: Colors.white,
-                                                letterSpacing: 1.0,
-                                              ),
-                                            ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      socketService.isConnected 
+                                          ? languageProvider.getText('connected')
+                                          : languageProvider.getText('connecting'),
+                                      style: TextStyle(
+                                        color: socketService.isConnected ? Colors.green : Colors.red,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                   ],
                                 ),
-                              ],
-                            ),
-                          ),
-                          
-                          const SizedBox(height: 40),
-                          
-                          // Divider
-                          Row(
-                            children: [
-                              Expanded(child: Divider(color: Colors.white.withOpacity(0.1), thickness: 1)),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Icon(Icons.star, color: goldColor.withOpacity(0.5), size: 16),
                               ),
-                              Expanded(child: Divider(color: Colors.white.withOpacity(0.1), thickness: 1)),
+                              const SizedBox(height: 40),
+
+                              // Clubs and Tournaments Buttons (Moved to Top)
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  _buildFeatureButton(
+                                    context,
+                                    icon: Icons.shield,
+                                    label: 'Clubs',
+                                    color: darkGreenColor,
+                                    isLoading: _isLoadingClubs,
+                                    onTap: _isLoadingClubs ? null : () async {
+                                      setState(() => _isLoadingClubs = true);
+                                      await Future.delayed(const Duration(seconds: 1));
+                                      if (mounted) {
+                                        setState(() => _isLoadingClubs = false);
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(builder: (_) => const ClubDashboardScreen()),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                  const SizedBox(width: 20),
+                                  
+                                  // Game Zone Button
+                                  _buildFeatureButton(
+                                    context,
+                                    icon: Icons.casino,
+                                    label: 'Zona de Juego',
+                                    color: const Color(0xFFFFD700),
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (_) => const GameZoneScreen()),
+                                      );
+                                    },
+                                  ),
+                                  
+                                  // Admin Button
+                                  Consumer<ClubProvider>(
+                                    builder: (context, clubProvider, _) {
+                                      if (clubProvider.currentUserRole == 'admin') {
+                                        return Padding(
+                                          padding: const EdgeInsets.only(left: 20),
+                                          child: _buildFeatureButton(
+                                            context,
+                                            icon: Icons.admin_panel_settings_outlined,
+                                            label: 'Admin',
+                                            color: Colors.redAccent,
+                                            onTap: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                                              );
+                                            },
+                                          ),
+                                        );
+                                      }
+                                      return const SizedBox.shrink();
+                                    },
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 40),
+
+                              // --- JOIN ROOM SECTION ---
+                              Container(
+                                constraints: const BoxConstraints(maxWidth: 450),
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.05),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: goldColor.withOpacity(0.3)),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      languageProvider.currentLocale.languageCode == 'en' 
+                                          ? 'Join a Room' 
+                                          : 'Unirse a una Sala',
+                                      style: const TextStyle(
+                                        color: goldColor,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 1.5,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _roomController,
+                                            style: const TextStyle(color: beigeColor, fontSize: 16),
+                                            decoration: InputDecoration(
+                                              labelText: languageProvider.getText('room_id'),
+                                              labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+                                              filled: true,
+                                              fillColor: Colors.black.withOpacity(0.4),
+                                              border: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(12),
+                                                borderSide: BorderSide.none,
+                                              ),
+                                              enabledBorder: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(12),
+                                                borderSide: BorderSide(color: goldColor.withOpacity(0.3), width: 1),
+                                              ),
+                                              focusedBorder: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(12),
+                                                borderSide: const BorderSide(color: goldColor, width: 2),
+                                              ),
+                                              prefixIcon: const Icon(Icons.meeting_room, color: goldColor),
+                                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(12),
+                                            gradient: const LinearGradient(
+                                              colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.green.withOpacity(0.3),
+                                                blurRadius: 8,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ],
+                                          ),
+                                          child: ElevatedButton(
+                                            onPressed: _isJoining ? null : () {
+                                              final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+                                              final userName = authProvider.user?.displayName ?? 'Player';
+                                              
+                                              if (_roomController.text.isNotEmpty) {
+                                                setState(() => _isJoining = true);
+                                                socketService.joinRoom(
+                                                  _roomController.text,
+                                                  userName,
+                                                  onSuccess: (roomId) async {
+                                                    await _navigateToGameWithDelay(roomId);
+                                                    if (mounted) setState(() => _isJoining = false);
+                                                  },
+                                                  onError: (error) {
+                                                    setState(() => _isJoining = false);
+                                                    if (error.contains('Insufficient balance')) {
+                                                      showDialog(
+                                                        context: context,
+                                                        builder: (_) => const AddCreditsDialog(),
+                                                      );
+                                                    } else {
+                                                      ScaffoldMessenger.of(context).showSnackBar(
+                                                        SnackBar(content: Text('Error: $error')),
+                                                      );
+                                                    }
+                                                  },
+                                                );
+                                              }
+                                            },
+                                            style: ElevatedButton.styleFrom(
+                                              minimumSize: const Size(100, 56),
+                                              backgroundColor: Colors.transparent,
+                                              shadowColor: Colors.transparent,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(12),
+                                              ),
+                                            ),
+                                            child: _isJoining
+                                              ? const SizedBox(
+                                                  height: 24,
+                                                  width: 24,
+                                                    child: PokerLoadingIndicator(size: 24, color: Colors.white),
+                                                )
+                                              : Text(
+                                                  languageProvider.getText('join').toUpperCase(),
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 14,
+                                                    color: Colors.white,
+                                                    letterSpacing: 1.0,
+                                                  ),
+                                                ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
+                              const SizedBox(height: 40),
+                              
+                              // Divider
+                              Row(
+                                children: [
+                                  Expanded(child: Divider(color: Colors.white.withOpacity(0.1), thickness: 1)),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    child: Icon(Icons.star, color: goldColor.withOpacity(0.5), size: 16),
+                                  ),
+                                  Expanded(child: Divider(color: Colors.white.withOpacity(0.1), thickness: 1)),
+                                ],
+                              ),
+                              
+                              const SizedBox(height: 40),
+                              
+                              // --- ACTIONS SECTION (Practice & Create) ---
+                              
+                              // Play Now Button (Practice)
+                              Container(
+                                constraints: const BoxConstraints(maxWidth: 400),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFFFFD700), Color(0xFFB8860B)], // Gold Gradient
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: goldColor.withOpacity(0.3),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 6),
+                                    ),
+                                  ],
+                                ),
+                                child: ElevatedButton(
+                                  onPressed: (_isCreating || _isJoining) ? null : () async {
+                                    setState(() => _isCreating = true); // Reuse isCreating for practice loading
+                                    await _navigateToGameWithDelay('practice', {'isPracticeMode': true});
+                                    if (mounted) setState(() => _isCreating = false);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(double.infinity, 60),
+                                    backgroundColor: Colors.transparent,
+                                    shadowColor: Colors.transparent,
+                                    foregroundColor: blackColor,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                  ),
+                                  child: _isCreating
+                                    ? const SizedBox(
+                                        height: 24,
+                                        width: 24,
+                                        child: PokerLoadingIndicator(size: 24, color: blackColor),
+                                      )
+                                    : Text(
+                                        languageProvider.getText('practice_bots').toUpperCase(),
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 2,
+                                        ),
+                                      ),
+                                ),
+                              ),
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Create Room Button
+                              Container(
+                                constraints: const BoxConstraints(maxWidth: 400),
+                                child: OutlinedButton(
+                                  onPressed: _isCreating ? null : () {
+                                    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+                                    final userName = authProvider.user?.displayName ?? 'Player';
+                                    
+                                    setState(() => _isCreating = true);
+                                    socketService.createRoom(
+                                      userName,
+                                      onSuccess: (roomId) async {
+                                        await Future.delayed(const Duration(seconds: 1));
+                                        if (mounted) {
+                                          setState(() => _isCreating = false);
+                                          _showShareDialog(roomId);
+                                        }
+                                      },
+                                      onError: (error) {
+                                        setState(() => _isCreating = false);
+                                        if (error.contains('Insufficient balance')) {
+                                          showDialog(
+                                            context: context,
+                                            builder: (_) => const AddCreditsDialog(),
+                                          );
+                                        } else {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Error: $error')),
+                                          );
+                                        }
+                                      },
+                                    );
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size(double.infinity, 60),
+                                    foregroundColor: goldColor,
+                                    side: const BorderSide(color: goldColor, width: 2),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                  ),
+                                  child: _isCreating 
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: PokerLoadingIndicator(size: 20, color: goldColor),
+                                      )
+                                    : Text(
+                                        languageProvider.getText('create_room').toUpperCase(),
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 2,
+                                        ),
+                                      ),
+                                ),
+                              ),
+                              
+                              const SizedBox(height: 40),
                             ],
                           ),
-                          
-                          const SizedBox(height: 40),
-                          
-                          // --- ACTIONS SECTION (Practice & Create) ---
-                          
-                          // Play Now Button (Practice)
-                          Container(
-                            constraints: const BoxConstraints(maxWidth: 400),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFFFFD700), Color(0xFFB8860B)], // Gold Gradient
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: goldColor.withOpacity(0.3),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 6),
-                                ),
-                              ],
-                            ),
-                            child: ElevatedButton(
-                              onPressed: (_isCreating || _isJoining) ? null : () async {
-                                setState(() => _isCreating = true); // Reuse isCreating for practice loading
-                                await _navigateToGameWithDelay('practice', {'isPracticeMode': true});
-                                if (mounted) setState(() => _isCreating = false);
-                              },
-                              style: ElevatedButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 60),
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                foregroundColor: blackColor,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              child: _isCreating
-                                ? const SizedBox(
-                                    height: 24,
-                                    width: 24,
-                                    child: PokerLoadingIndicator(size: 24, color: blackColor),
-                                  )
-                                : Text(
-                                    languageProvider.getText('practice_bots').toUpperCase(),
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 2,
-                                    ),
-                                  ),
-                            ),
-                          ),
-                          
-                          const SizedBox(height: 20),
-                          
-                          // Create Room Button
-                          Container(
-                            constraints: const BoxConstraints(maxWidth: 400),
-                            child: OutlinedButton(
-                              onPressed: _isCreating ? null : () {
-                                final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
-                                final userName = authProvider.user?.displayName ?? 'Player';
-                                
-                                setState(() => _isCreating = true);
-                                socketService.createRoom(
-                                  userName,
-                                  onSuccess: (roomId) async {
-                                    await Future.delayed(const Duration(seconds: 1));
-                                    if (mounted) {
-                                      setState(() => _isCreating = false);
-                                      _showShareDialog(roomId);
-                                    }
-                                  },
-                                  onError: (error) {
-                                    setState(() => _isCreating = false);
-                                    if (error.contains('Insufficient balance')) {
-                                      showDialog(
-                                        context: context,
-                                        builder: (_) => const AddCreditsDialog(),
-                                      );
-                                    } else {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Error: $error')),
-                                      );
-                                    }
-                                  },
-                                );
-                              },
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 60),
-                                foregroundColor: goldColor,
-                                side: const BorderSide(color: goldColor, width: 2),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              child: _isCreating 
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: PokerLoadingIndicator(size: 20, color: goldColor),
-                                  )
-                                : Text(
-                                    languageProvider.getText('create_room').toUpperCase(),
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 2,
-                                    ),
-                                  ),
-                            ),
-                          ),
-                          
-                          const SizedBox(height: 40),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
-        ),
+          
+          // --- REJOIN BUTTON OVERLAY ---
+          if (socketService.currentRoomId != null)
+            Positioned(
+              bottom: 30,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  child: FloatingActionButton.extended(
+                    onPressed: () {
+                      _navigateToGame(socketService.currentRoomId!);
+                    },
+                    backgroundColor: Colors.orangeAccent,
+                    icon: const Icon(Icons.replay_circle_filled, color: Colors.white, size: 28),
+                    label: Text(
+                      'PARTIDA EN CURSO: ${socketService.currentRoomId} - VOLVER 🔄',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Colors.white
+                      ),
+                    ),
+                    elevation: 10,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
