@@ -407,7 +407,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             _buildFeatureButton(
                               context,
                               icon: Icons.casino,
-                              label: 'Game Zone',
+                              label: 'Zona de Juego',
                               color: const Color(0xFFFFD700),
                               onTap: () {
                                 Navigator.push(

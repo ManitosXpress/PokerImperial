@@ -96,7 +96,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
                   builder: (context) => const ClubRequestModal(),
                 );
               },
-              label: const Text('CREATE CLUB', style: TextStyle(fontWeight: FontWeight.bold)),
+              label: const Text('CREAR CLUB', style: TextStyle(fontWeight: FontWeight.bold)),
               icon: const Icon(Icons.add),
               backgroundColor: const Color(0xFFFFD700),
               foregroundColor: Colors.black,
@@ -207,9 +207,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
                 labelStyle: const TextStyle(fontWeight: FontWeight.bold),
                 tabs: const [
                   Tab(text: 'STAFF'),
-                  Tab(text: 'PLAYERS'),
-                  Tab(text: 'LIVE TABLES'),
-                  Tab(text: 'TOURNAMENTS'),
+                  Tab(text: 'JUGADORES'),
+                  Tab(text: 'MESAS EN VIVO'),
+                  Tab(text: 'TORNEOS'),
                 ],
               ),
             ),
@@ -354,7 +354,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 ),
-                child: const Text('Join'),
+                child: const Text('UNIRSE'),
               ),
             ),
           );

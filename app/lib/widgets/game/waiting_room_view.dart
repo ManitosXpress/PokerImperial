@@ -41,63 +41,66 @@ class WaitingRoomView extends StatelessWidget {
     // Additional debug
     print('🎮 WaitingRoomView - showStartButton: $showStartButton, canStartAction: $canStartAction');
 
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        constraints: const BoxConstraints(maxWidth: 800), // Increased width for Grid
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Room Header
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF1A237E), Color(0xFF0D47A1)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+    return SingleChildScrollView(
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          constraints: const BoxConstraints(maxWidth: 800), // Increased width for Grid
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Room Header
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1A237E), Color(0xFF0D47A1)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFE94560), width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFE94560), width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  const Icon(Icons.table_restaurant, color: Color(0xFFE94560), size: 48),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Sala: $roomId',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
+                child: Column(
+                  children: [
+                    const Icon(Icons.table_restaurant, color: Color(0xFFE94560), size: 48),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Sala: $roomId',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '$playerCount / $maxPlayers Jugadores',
-                    style: const TextStyle(
-                      color: Color(0xFFFFD700),
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                    const SizedBox(height: 8),
+                    Text(
+                      '$playerCount / $maxPlayers Jugadores',
+                      style: const TextStyle(
+                        color: Color(0xFFFFD700),
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            
-            const SizedBox(height: 32),
-            
-            // Players Grid
-            Flexible(
-              child: Container(
+              
+              const SizedBox(height: 32),
+              
+              // Players Grid
+              Container(
+                constraints: const BoxConstraints(
+                  maxHeight: 400, // Limit height to prevent overflow
+                ),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.3),
@@ -105,8 +108,13 @@ class WaitingRoomView extends StatelessWidget {
                   border: Border.all(color: Colors.white10),
                 ),
                 child: players.isEmpty 
-                  ? const Center(child: Text('Esperando jugadores...', style: TextStyle(color: Colors.white54)))
+                  ? const SizedBox(
+                      height: 200,
+                      child: Center(child: Text('Esperando jugadores...', style: TextStyle(color: Colors.white54))),
+                    )
                   : GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 3, // 3 columns
                         childAspectRatio: 0.8,
@@ -187,9 +195,8 @@ class WaitingRoomView extends StatelessWidget {
                       },
                     ),
               ),
-            ),
-            
-            const SizedBox(height: 32),
+              
+              const SizedBox(height: 32),
 
             // Action Area
             if (showStartButton)
@@ -258,7 +265,8 @@ class WaitingRoomView extends StatelessWidget {
                   ],
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );

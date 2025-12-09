@@ -174,7 +174,7 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
         );
         _loadTournaments();
       },
-      label: const Text('Create Tournament'),
+      label: const Text('Crear Torneo'),
       icon: const Icon(Icons.add),
       backgroundColor: const Color(0xFFE94560),
     );

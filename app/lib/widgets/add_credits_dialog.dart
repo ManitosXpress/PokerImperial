@@ -8,7 +8,11 @@ import '../providers/language_provider.dart';
 /// Dialog para solicitar créditos via Telegram
 /// El admin agrega los créditos manualmente en Firebase
 class AddCreditsDialog extends StatefulWidget {
-  const AddCreditsDialog({super.key});
+  const AddCreditsDialog({super.key, this.isClubRequest = false});
+
+  final bool isClubRequest;
+
+  static const String telegramBotUrl = 'https://t.me/AgenteImperialbot';
 
   @override
   State<AddCreditsDialog> createState() => _AddCreditsDialogState();
@@ -18,9 +22,6 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
   final TextEditingController _customAmountController = TextEditingController();
   double? _selectedAmount;
   bool _isLoading = false;
-
-  // Bot de Telegram
-  static const String telegramBotUrl = 'https://t.me/AgenteImperialbot';
 
   Future<void> _requestCreditsViaTelegram() async {
     setState(() => _isLoading = true);
@@ -37,16 +38,27 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
       }
 
       // Mensaje para el bot
-      final String message = 'Solicitud de recarga:\n'
-          'ID: ${user.uid}\n'
-          'Email: ${user.email}\n'
-          'Monto: ${amount.toStringAsFixed(2)}';
-
-      // Copiar al portapapeles
+      String message;
+      
+      if (widget.isClubRequest) {
+        message = 'Solicitud de Créditos a Staff del Club - Poker Imperial\n\n'
+            '  Email: ${user.displayName ?? "N/A"}\n'
+            '  UID: ${user.uid}\n'
+            '  Monto: ${amount.toInt()} creditos\n\n'
+            'Por favor agregar estos créditos a mi cuenta.\n'
+            'Gracias!';
+      } else {
+        message = 'Solicitud de recarga:\n'
+            'ID: ${user.uid}\n'
+            'Email: ${user.email}\n'
+            'Monto: ${amount.toInt()} creditos\n\n'
+            'Por favor agregar estos créditos a mi cuenta.\n'
+            'Gracias!';
+      }
       await Clipboard.setData(ClipboardData(text: message));
 
       // Abrir Telegram
-      final Uri url = Uri.parse(telegramBotUrl);
+      final Uri url = Uri.parse(AddCreditsDialog.telegramBotUrl);
       
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -106,21 +118,27 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
               children: [
                 Icon(Icons.add_circle, color: const Color(0xFFe94560), size: 28),
                 const SizedBox(width: 12),
-                Text(
-                  isSpanish ? 'Agregar Créditos' : 'Add Credits',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                  Text(
+                    widget.isClubRequest 
+                        ? (isSpanish ? 'Solicitar al Club' : 'Request to Club')
+                        : (isSpanish ? 'Agregar Créditos' : 'Add Credits'),
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
-              isSpanish 
-                ? 'Solicita créditos al administrador via Telegram'
-                : 'Request credits from admin via Telegram',
+              widget.isClubRequest
+                  ? (isSpanish 
+                      ? 'Solicita créditos al staff de tu club via Telegram' 
+                      : 'Request credits from your club staff via Telegram')
+                  : (isSpanish 
+                      ? 'Solicita créditos al administrador via Telegram'
+                      : 'Request credits from admin via Telegram'),
               style: TextStyle(
                 fontSize: 13,
                 color: Colors.white.withOpacity(0.7),

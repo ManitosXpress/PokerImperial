@@ -87,9 +87,28 @@ io.on('connection', (socket) => {
             }
 
             let sessionId: string | undefined;
-            const entryFee = 1000; // Standard buy-in
+            let entryFee = 1000; // Default buy-in
 
-            // Economy Check
+            // Get minBuyIn from Firestore if customRoomId is provided
+            let isPublic = false; // Default to PRIVATE
+            if (customRoomId) {
+                try {
+                    const roomDoc = await admin.firestore().collection('poker_tables').doc(customRoomId).get();
+                    if (roomDoc.exists) {
+                        const roomData = roomDoc.data();
+                        if (roomData) {
+                            isPublic = roomData.isPublic ?? false;
+                            if (roomData.minBuyIn) {
+                                entryFee = roomData.minBuyIn;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.log(`Could not fetch room data from Firestore for ${customRoomId}, using defaults`);
+                }
+            }
+
+            // Economy Check - Validate user has enough credits
             if (token) {
                 const uid = await verifyFirebaseToken(token);
                 if (uid) {
@@ -103,7 +122,7 @@ io.on('connection', (socket) => {
                         return;
                     }
 
-                    const sid = await reservePokerSession(uid, entryFee, 'new_room');
+                    const sid = await reservePokerSession(uid, entryFee, customRoomId || 'new_room');
                     if (!sid) {
                         socket.emit('error', 'Failed to reserve credits');
                         return;
@@ -119,23 +138,6 @@ io.on('connection', (socket) => {
                 // I will enforce it but handle the case where frontend isn't updated yet by emitting error.
                 socket.emit('error', 'Authentication required to create room');
                 return;
-            }
-
-            // Rooms created via socket (with or without custom ID) default to PRIVATE
-            // Unless explicitly specified in Firestore (for public tables created by clubs)
-            let isPublic = false; // Default to PRIVATE
-            
-            if (customRoomId) {
-                // Check Firestore for the isPublic flag
-                try {
-                    const roomDoc = await admin.firestore().collection('poker_tables').doc(customRoomId).get();
-                    if (roomDoc.exists) {
-                        const roomData = roomDoc.data();
-                        isPublic = roomData?.isPublic ?? false;
-                    }
-                } catch (err) {
-                    console.log(`Could not fetch isPublic from Firestore for ${customRoomId}, defaulting to private`);
-                }
             }
             
             const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee, customRoomId || undefined, { addHostAsPlayer: true, isPublic });
@@ -188,9 +190,23 @@ io.on('connection', (socket) => {
     socket.on('join_room', async ({ roomId, playerName, token }: { roomId: string, playerName: string, token?: string }) => {
         try {
             let sessionId: string | undefined;
-            const entryFee = 1000; // Standard buy-in
+            
+            // Get minBuyIn from Firestore
+            let entryFee = 1000; // Default buy-in
+            try {
+                const roomDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
+                if (roomDoc.exists) {
+                    const roomData = roomDoc.data();
+                    if (roomData && roomData.minBuyIn) {
+                        entryFee = roomData.minBuyIn;
+                    }
+                }
+            } catch (err) {
+                console.error(`Error getting minBuyIn for room ${roomId}:`, err);
+                // Use default entryFee
+            }
 
-            // Economy Check
+            // Economy Check - Validate user has enough credits
             let uid: string | undefined;
             if (token) {
                 const verifiedUid = await verifyFirebaseToken(token);
@@ -423,9 +439,23 @@ io.on('connection', (socket) => {
             const { roomId, player } = result;
             const uid = (socket as any).userId;
 
-            // 1. Process leaver (with 100 credit penalty)
+            // 1. Get minBuyIn from Firestore and deduct it when player leaves
+            let minBuyIn = 1000; // Default
+            try {
+                const tableDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
+                if (tableDoc.exists) {
+                    const tableData = tableDoc.data();
+                    if (tableData && tableData.minBuyIn) {
+                        minBuyIn = tableData.minBuyIn;
+                    }
+                }
+            } catch (err) {
+                console.error(`Error getting minBuyIn for room ${roomId}:`, err);
+            }
+
+            // Process leaver - deduct minBuyIn as exit fee
             if (player.pokerSessionId && uid) {
-                await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, 100);
+                await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, minBuyIn);
             }
 
             // 2. Update Firestore - Remove player from players array and readyPlayers

@@ -68,7 +68,7 @@ class _GameZoneScreenState extends State<GameZoneScreen> with SingleTickerProvid
           tabs: [
             Tab(
               icon: const Icon(Icons.table_chart),
-              text: isSpanish ? 'Mesas Cash' : 'Cash Tables',
+              text: isSpanish ? 'Mesas Públicas' : 'Public Tables',
             ),
             Tab(
               icon: const Icon(Icons.emoji_events),

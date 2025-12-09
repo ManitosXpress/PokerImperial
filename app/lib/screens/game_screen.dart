@@ -532,12 +532,16 @@ class _GameScreenState extends State<GameScreen> {
                     Map<String, dynamic>? firestoreRoomState;
                     
                     // First check roomState from socket (if available)
-                    if (roomState != null) {
-                      final socketHostId = roomState['hostId'];
+                    final currentRoomState = roomState;
+                    if (currentRoomState != null) {
+                      final socketHostId = currentRoomState['hostId'];
                       if (user != null && socketHostId != null) {
                         isHost = socketHostId.toString() == user.uid.toString();
                       }
-                      isPublic = roomState['isPublic'] ?? true;
+                      final socketIsPublic = currentRoomState['isPublic'];
+                      if (socketIsPublic != null) {
+                        isPublic = socketIsPublic as bool? ?? true;
+                      }
                     }
                     // Fallback to Firestore if socket hasn't provided roomState yet
                     else if (snapshot.hasData && snapshot.data!.exists) {

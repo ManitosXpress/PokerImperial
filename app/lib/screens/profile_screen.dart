@@ -8,6 +8,9 @@ import '../widgets/add_credits_dialog.dart';
 import '../widgets/change_password_dialog.dart';
 import '../services/credits_service.dart';
 import 'login_screen.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../providers/club_provider.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -16,6 +19,7 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final languageProvider = Provider.of<LanguageProvider>(context);
     final walletProvider = Provider.of<WalletProvider>(context);
+    final clubProvider = Provider.of<ClubProvider>(context);
     final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
@@ -207,33 +211,60 @@ class ProfileScreen extends StatelessWidget {
                                       color: Color(0xFFC89A4E), // Gold
                                     ),
                                   ),
-                                  ElevatedButton.icon(
-                                    onPressed: () {
-                                      showDialog(
-                                        context: context,
-                                        builder: (_) => const AddCreditsDialog(),
-                                      );
-                                    },
-                                    icon: const Icon(
-                                      Icons.add,
-                                      size: 16,
-                                      color: Colors.black,
-                                    ),
-                                    label: Text(
-                                      languageProvider.currentLocale.languageCode == 'en'
-                                          ? 'Add'
-                                          : 'Agregar',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFC89A4E), // Gold
-                                      foregroundColor: const Color(0xFF1C1C1C), // Black
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 8,
+                                  if (clubProvider.myClub != null)
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          builder: (_) => const AddCreditsDialog(isClubRequest: true),
+                                        );
+                                      },
+                                      icon: const Icon(
+                                        Icons.add,
+                                        size: 16,
+                                        color: Colors.black,
+                                      ),
+                                      label: const Text(
+                                        'Solicitar',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFC89A4E), // Gold
+                                        foregroundColor: const Color(0xFF1C1C1C), // Black
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          builder: (_) => const AddCreditsDialog(),
+                                        );
+                                      },
+                                      icon: const Icon(
+                                        Icons.add,
+                                        size: 16,
+                                        color: Colors.black,
+                                      ),
+                                      label: Text(
+                                        languageProvider.currentLocale.languageCode == 'en'
+                                            ? 'Add'
+                                            : 'Agregar',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFC89A4E), // Gold
+                                        foregroundColor: const Color(0xFF1C1C1C), // Black
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
                                       ),
                                     ),
-                                  ),
                                 ],
                               ),
                               const SizedBox(height: 16),
