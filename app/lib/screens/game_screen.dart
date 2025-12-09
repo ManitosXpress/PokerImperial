@@ -375,12 +375,10 @@ class _GameScreenState extends State<GameScreen> {
     final players = gameState!['players'] as List?;
     if (players == null) return;
 
-    final myPlayer = players.firstWhere(
-      (p) => p['id'] == myId,
-      orElse: () => null,
-    );
+    final myPlayerIndex = players.indexWhere((p) => p['id'] == myId);
+    if (myPlayerIndex == -1) return;
     
-    if (myPlayer == null) return;
+    final myPlayer = players[myPlayerIndex];
 
     final int myCurrentBet = myPlayer['currentBet'] ?? 0;
 
@@ -410,12 +408,10 @@ class _GameScreenState extends State<GameScreen> {
     final players = gameState!['players'] as List?;
     if (players == null) return;
 
-    final myPlayer = players.firstWhere(
-      (p) => p['id'] == myId,
-      orElse: () => null,
-    );
-
-    if (myPlayer == null) return;
+    final myPlayerIndex = players.indexWhere((p) => p['id'] == myId);
+    if (myPlayerIndex == -1) return;
+    
+    final myPlayer = players[myPlayerIndex];
 
     final int myChips = myPlayer['chips'] ?? 0;
     final int currentBet = gameState!['currentBet'] ?? 0;
@@ -951,10 +947,12 @@ class _GameScreenState extends State<GameScreen> {
                         isTurn: isTurn,
                         isSpectatorMode: widget.isSpectatorMode,
                         currentBet: gameState?['currentBet'] ?? 0,
-                        myCurrentBet: (gameState?['players'] as List?)
-                                ?.firstWhere((p) => p['id'] == myId,
-                                    orElse: () => null)?['currentBet'] ??
-                            0,
+                        myCurrentBet: () {
+                          final players = gameState?['players'] as List?;
+                          if (players == null) return 0;
+                          final idx = players.indexWhere((p) => p['id'] == myId);
+                          return idx >= 0 ? (players[idx]['currentBet'] ?? 0) : 0;
+                        }(),
                         secondsRemaining: _secondsRemaining,
                         onAction: _sendAction,
                         onShowBetDialog: _showCustomBetDialog,
