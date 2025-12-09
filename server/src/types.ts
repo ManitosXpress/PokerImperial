@@ -1,5 +1,6 @@
 export interface Player {
     id: string;
+    uid?: string; // Added Firebase UID for cashout
     name: string;
     chips: number;
     hand?: string[];
@@ -9,7 +10,8 @@ export interface Player {
     pokerSessionId?: string;
     totalRakePaid?: number;
     isReady?: boolean;
-    isSitOut?: boolean; // New field for AFK system
+    isSitOut?: boolean;
+    status?: 'PLAYING' | 'WAITING_FOR_REBUY' | 'ELIMINATED';
 }
 
 export interface Room {

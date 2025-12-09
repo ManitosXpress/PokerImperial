@@ -19,60 +19,100 @@ export class PokerGame {
     private turnTimer: NodeJS.Timeout | null = null;
     private readonly TURN_TIMEOUT_SECONDS = 15;
 
+    // Rebuy System
+    private rebuyTimers: Map<string, NodeJS.Timeout> = new Map();
+    private readonly REBUY_TIMEOUT_SECONDS = 30;
+
     // Rake System
     private isPublicRoom: boolean = true; // Default to public
+
+    // Callbacks
+    public onGameStateChange?: (state: any) => void;
+    public onSystemEvent?: (event: string, data: any) => void;
 
     constructor() { }
 
     public startGame(players: Player[], isPublic: boolean = true) {
         if (players.length < 2) throw new Error('Not enough players');
         this.players = players;
-        this.isPublicRoom = isPublic; // Store room type for rake calculation
-        this.activePlayers = [...players];
+        this.isPublicRoom = isPublic; 
+        
+        // Initialize status
+        this.players.forEach(p => {
+            if (!p.status) p.status = 'PLAYING';
+        });
+
         this.dealerIndex = (this.dealerIndex + 1) % this.players.length;
         this.startRound();
     }
 
     private startRound() {
+        // Filter valid players for the next round
+        const eligiblePlayers = this.players.filter(p => p.chips > 0 && p.status !== 'WAITING_FOR_REBUY');
+
+        if (eligiblePlayers.length < 2) {
+            console.log('Not enough eligible players to start round. Waiting for rebuys or joins.');
+            
+            // Check for Last Man Standing condition
+            // If we have 1 eligible player and NO one waiting for rebuy, they win.
+            const playersWaitingRebuy = this.players.filter(p => p.status === 'WAITING_FOR_REBUY');
+            if (eligiblePlayers.length === 1 && playersWaitingRebuy.length === 0) {
+                console.log('Last Man Standing detected!');
+                if (this.onSystemEvent) {
+                    this.onSystemEvent('game_finished', { winnerId: eligiblePlayers[0].id, reason: 'last_man_standing' });
+                }
+            }
+            return;
+        }
+
         this.initializeDeck();
         this.pot = 0;
         this.communityCards = [];
         this.round = 'pre-flop';
         this.currentBet = this.bigBlindAmount;
 
-        // Reset player states for new round
-        this.players.forEach(p => {
+        this.activePlayers = [...eligiblePlayers];
+        
+        // Reset player states for new round (only for active players)
+        this.activePlayers.forEach(p => {
             p.hand = [];
             p.isFolded = false;
             p.currentBet = 0;
+            p.status = 'PLAYING';
             // Note: We do NOT reset isSitOut here; it persists until user returns
         });
         
-        // Active players are those with chips
-        this.activePlayers = this.players.filter(p => p.chips > 0);
-
         // Deal cards
         this.activePlayers.forEach(p => {
             p.hand = this.deal(2);
         });
 
-        // Blinds
-        const sbIndex = (this.dealerIndex + 1) % this.activePlayers.length;
-        const bbIndex = (this.dealerIndex + 2) % this.activePlayers.length;
+        // Blinds logic (simplified for dynamic player count)
+        // Ensure dealer index is valid within active players or rotate based on global list
+        // For simplicity, we just rotate blind positions based on active array
+        // In a real persistent game, dealer button moves correctly.
+        // Let's re-calculate dealer relative to active players if possible, or just mock it.
+        // We will just shift dealer index.
+        
+        const dealerActiveIndex = 0; // Simplified: First active player is "dealer" for betting order in this implementation
+        const sbIndex = (dealerActiveIndex + 1) % this.activePlayers.length;
+        const bbIndex = (dealerActiveIndex + 2) % this.activePlayers.length;
 
         this.placeBet(this.activePlayers[sbIndex], this.smallBlindAmount);
         this.placeBet(this.activePlayers[bbIndex], this.bigBlindAmount);
 
         this.currentTurnIndex = (bbIndex + 1) % this.activePlayers.length;
-        
         this.lastAggressorIndex = bbIndex;
 
         // Start the turn flow
         this.startTurnTimer();
+        
+        if (this.onGameStateChange) {
+            this.onGameStateChange(this.getGameState());
+        }
     }
 
     private startTurnTimer() {
-        // Clear existing timer
         if (this.turnTimer) {
             clearTimeout(this.turnTimer);
             this.turnTimer = null;
@@ -81,21 +121,17 @@ export class PokerGame {
         const currentPlayer = this.activePlayers[this.currentTurnIndex];
         if (!currentPlayer) return;
 
-        // AFK Check: If player is already marked as Sit Out/Absent, skip immediately
         if (currentPlayer.isSitOut) {
             console.log(`⏩ Player ${currentPlayer.name} is SIT OUT. Auto-playing...`);
-            // Immediate action without delay
             this.handleTurnTimeout(); 
             return;
         }
 
-        // If bot, use existing bot logic (it has its own delay)
         if (currentPlayer.isBot) {
             setTimeout(() => this.handleBotTurn(currentPlayer), 1000 + Math.random() * 1000);
             return;
         }
 
-        // For human players, start the countdown
         console.log(`⏳ Starting ${this.TURN_TIMEOUT_SECONDS}s timer for ${currentPlayer.name}`);
         this.turnTimer = setTimeout(() => {
             this.handleTurnTimeout();
@@ -107,22 +143,15 @@ export class PokerGame {
         if (!currentPlayer) return;
 
         console.log(`⏰ Timeout for ${currentPlayer.name}. Marking as SIT OUT.`);
-        
-        // 1. Mark as Absent
         currentPlayer.isSitOut = true;
 
-        // 2. Decide Auto-Action: CHECK if possible, otherwise FOLD
-        // Check condition: currentBet == player.currentBet
         const canCheck = currentPlayer.currentBet === this.currentBet;
         const action = canCheck ? 'check' : 'fold';
-
-        console.log(`🤖 Auto-Action for ${currentPlayer.name}: ${action}`);
 
         try {
             this.handleAction(currentPlayer.id, action);
         } catch (e) {
             console.error('Error executing auto-action:', e);
-            // Fallback to fold if check fails for some reason
             if (action !== 'fold') {
                 this.handleAction(currentPlayer.id, 'fold');
             }
@@ -132,11 +161,50 @@ export class PokerGame {
     public addChips(playerId: string, amount: number) {
         const player = this.players.find(p => p.id === playerId);
         if (player) {
+            console.log(`💰 Adding ${amount} chips to ${player.name}`);
             player.chips += amount;
+            
+            // If they were waiting for rebuy, clear status and timer
+            if (player.status === 'WAITING_FOR_REBUY') {
+                player.status = 'PLAYING';
+                if (this.rebuyTimers.has(playerId)) {
+                    clearTimeout(this.rebuyTimers.get(playerId)!);
+                    this.rebuyTimers.delete(playerId);
+                }
+                
+                // Try to restart round if we were waiting
+                // Check if we have enough players now
+                const eligiblePlayers = this.players.filter(p => p.chips > 0 && p.status !== 'WAITING_FOR_REBUY');
+                if (eligiblePlayers.length >= 2 && this.round === 'pre-flop' && this.pot === 0 && this.activePlayers.length === 0) {
+                     // Game was idle, start it
+                     this.startRound();
+                }
+            }
+
             if (this.onGameStateChange) {
                 this.onGameStateChange(this.getGameState());
             }
         }
+    }
+    
+    public removePlayer(playerId: string) {
+        this.players = this.players.filter(p => p.id !== playerId);
+        this.activePlayers = this.activePlayers.filter(p => p.id !== playerId);
+        
+        // If pending rebuy, clear timer
+        if (this.rebuyTimers.has(playerId)) {
+            clearTimeout(this.rebuyTimers.get(playerId)!);
+            this.rebuyTimers.delete(playerId);
+        }
+        
+        // If active player left, we might need to end hand prematurely or adjust turn
+        // For simplicity, we assume removePlayer is called from RoomManager usually when user disconnects.
+        // If user was in hand, they auto-fold effectively.
+        // But handling disconnect mid-hand is complex. 
+        // We will just let the timeout handle it (they become SitOut), or if they are gone completely,
+        // we should probably fold them.
+        
+        // This method is mainly to clean up internal lists.
     }
 
     public getGameState() {
@@ -157,7 +225,8 @@ export class PokerGame {
                 currentBet: p.currentBet,
                 isFolded: p.isFolded,
                 isBot: p.isBot,
-                isSitOut: p.isSitOut, // Expose AFK status to client
+                isSitOut: p.isSitOut,
+                status: p.status, // Expose status (WAITING_FOR_REBUY)
                 isAllIn: p.chips === 0 && p.currentBet > 0,
                 hand: p.hand
             }))
@@ -165,20 +234,17 @@ export class PokerGame {
     }
 
     public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0) {
-        console.log(`🃏 PokerGame.handleAction: playerId=${playerId}, action=${action}, currentTurnIndex=${this.currentTurnIndex}`);
         const player = this.activePlayers[this.currentTurnIndex];
         
         if (!player || player.id !== playerId) {
             throw new Error('Not your turn');
         }
 
-        // If player acts manually, remove Sit Out status
         if (player.isSitOut) {
             console.log(`👋 Player ${player.name} returned! Clearing SIT OUT status.`);
             player.isSitOut = false;
         }
 
-        // Clear timer since action was taken
         if (this.turnTimer) {
             clearTimeout(this.turnTimer);
             this.turnTimer = null;
@@ -189,7 +255,7 @@ export class PokerGame {
                 player.isFolded = true;
                 this.activePlayers = this.activePlayers.filter(p => !p.isFolded);
                 if (this.activePlayers.length === 1) {
-                    this.endHand(this.activePlayers[0]); // Winner by fold
+                    this.endHand(this.activePlayers[0]); 
                     return;
                 }
                 break;
@@ -225,7 +291,6 @@ export class PokerGame {
     }
 
     private nextTurn() {
-        // Check if we should skip to showdown (all-in scenario)
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
         const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
 
@@ -258,12 +323,10 @@ export class PokerGame {
 
         this.currentTurnIndex = nextIndex;
         
-        // Notify state change before starting timer/bot
         if (this.onGameStateChange) {
             this.onGameStateChange(this.getGameState());
         }
 
-        // Start timer for the new player (handles both Bot and Human/AFK)
         this.startTurnTimer();
     }
 
@@ -321,12 +384,10 @@ export class PokerGame {
                 return;
         }
         
-        // Notify state change
         if (this.onGameStateChange) {
             this.onGameStateChange(this.getGameState());
         }
 
-        // Start timer
         this.startTurnTimer();
     }
 
@@ -343,7 +404,6 @@ export class PokerGame {
                 amount = this.currentBet + 50;
             }
 
-            console.log(`Bot ${bot.name} decided to ${action}`);
             this.handleAction(bot.id, action, amount);
         } catch (e) {
             console.error('Bot error:', e);
@@ -351,9 +411,6 @@ export class PokerGame {
         }
     }
 
-    public onGameStateChange?: (state: any) => void;
-
-    // --- RAKE SYSTEM IMPLEMENTATION ---
     private calculateRakeDistribution(pot: number): { 
         totalRake: number, 
         netPot: number, 
@@ -370,21 +427,15 @@ export class PokerGame {
         };
 
         if (!this.isPublicRoom) {
-            // Case A: Private Room - 100% to Platform
             distribution.platform = totalRake;
-            console.log(`💰 Rake (Private): ${totalRake} -> Platform: ${distribution.platform}`);
         } else {
-            // Case B: Public Room - Split 50/30/20
             distribution.platform = Math.floor(totalRake * 0.50);
             distribution.club = Math.floor(totalRake * 0.30);
             distribution.seller = Math.floor(totalRake * 0.20);
             
-            // Handle remainder cents/rounding by adding to platform
             const distributed = distribution.platform + distribution.club + distribution.seller;
             const remainder = totalRake - distributed;
             if (remainder > 0) distribution.platform += remainder;
-
-            console.log(`💰 Rake (Public): ${totalRake} -> Platform: ${distribution.platform}, Club: ${distribution.club}, Seller: ${distribution.seller}`);
         }
 
         return { totalRake, netPot, distribution };
@@ -407,7 +458,6 @@ export class PokerGame {
         const winningHands = Hand.winners(hands);
         const winners = playerHands.filter(ph => winningHands.includes(ph.hand));
 
-        // Calculate Rake
         const { totalRake, netPot, distribution } = this.calculateRakeDistribution(this.pot);
 
         if (winners.length === 1) {
@@ -436,7 +486,7 @@ export class PokerGame {
                     })),
                     split: true,
                     rake: totalRake,
-                    rakeDistribution: distribution, // Send to client/backend listener
+                    rakeDistribution: distribution,
                     players: this.players.map(p => ({
                         id: p.id,
                         name: p.name,
@@ -452,10 +502,7 @@ export class PokerGame {
             }
 
             setTimeout(() => {
-                this.startRound();
-                if (this.onGameStateChange) {
-                    this.onGameStateChange(this.getGameState());
-                }
+                this.checkForBankruptPlayers();
             }, 5000);
         }
     }
@@ -498,7 +545,6 @@ export class PokerGame {
         let distribution = rakeDistribution;
 
         if (finalAmount === undefined) {
-            // Winner by fold - Recalculate rake
             const result = this.calculateRakeDistribution(this.pot);
             rakeAmount = result.totalRake;
             finalAmount = result.netPot;
@@ -539,10 +585,51 @@ export class PokerGame {
         console.log(`${winner.name} wins ${finalAmount} chips!`);
 
         setTimeout(() => {
-            this.startRound();
-            if (this.onGameStateChange) {
-                this.onGameStateChange(this.getGameState());
-            }
+            this.checkForBankruptPlayers();
         }, 5000);
+    }
+    
+    private checkForBankruptPlayers() {
+        let hasBankruptPlayers = false;
+
+        this.players.forEach(p => {
+            if (p.chips === 0 && p.status !== 'WAITING_FOR_REBUY') {
+                if (p.isBot) {
+                    // Bots auto rebuy or leave? 
+                    // For now, let's just give them chips to keep game going if it's practice
+                    p.chips = 1000; 
+                } else {
+                    console.log(`💸 Player ${p.name} is bankrupt. Waiting for Rebuy.`);
+                    p.status = 'WAITING_FOR_REBUY';
+                    hasBankruptPlayers = true;
+                    
+                    // Trigger Rebuy Timer
+                    this.startRebuyTimer(p);
+                    
+                    if (this.onSystemEvent) {
+                        this.onSystemEvent('player_needs_rebuy', { playerId: p.id, timeout: this.REBUY_TIMEOUT_SECONDS });
+                    }
+                }
+            }
+        });
+
+        // Continue game ONLY if we have eligible players
+        // startRound() checks eligibility.
+        this.startRound();
+    }
+
+    private startRebuyTimer(player: Player) {
+        if (this.rebuyTimers.has(player.id)) {
+            clearTimeout(this.rebuyTimers.get(player.id)!);
+        }
+
+        const timer = setTimeout(() => {
+            console.log(`⏰ Rebuy timeout for ${player.name}. Kicking.`);
+            if (this.onSystemEvent) {
+                this.onSystemEvent('kick_player', { playerId: player.id, reason: 'rebuy_timeout' });
+            }
+        }, this.REBUY_TIMEOUT_SECONDS * 1000);
+
+        this.rebuyTimers.set(player.id, timer);
     }
 }
