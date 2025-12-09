@@ -94,10 +94,16 @@ export class PokerGame {
     }
 
     public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0) {
+        console.log(`🃏 PokerGame.handleAction: playerId=${playerId}, action=${action}, currentTurnIndex=${this.currentTurnIndex}`);
         const player = this.activePlayers[this.currentTurnIndex];
+        console.log(`🎯 Current turn player: id=${player?.id}, name=${player?.name}`);
+        console.log(`📋 All active players: ${this.activePlayers.map(p => `${p.name}(${p.id})`).join(', ')}`);
+        
         if (!player || player.id !== playerId) {
+            console.error(`❌ Not your turn! Expected: ${player?.id}, Got: ${playerId}`);
             throw new Error('Not your turn');
         }
+        console.log(`✅ Turn validated successfully`);
 
         switch (action) {
             case 'fold':
@@ -140,7 +146,9 @@ export class PokerGame {
                 break;
         }
 
+        console.log(`✅ Action '${action}' executed successfully. Calling nextTurn()...`);
         this.nextTurn();
+        console.log(`🔄 nextTurn() completed`);
     }
 
     private nextTurn() {

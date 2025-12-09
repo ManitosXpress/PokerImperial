@@ -253,10 +253,16 @@ export class RoomManager {
     }
 
     public handleGameAction(roomId: string, playerId: string, action: 'bet' | 'call' | 'fold' | 'check', amount?: number) {
+        console.log(`🎯 RoomManager.handleGameAction: roomId=${roomId}, playerId=${playerId}, action=${action}, amount=${amount}`);
         const game = this.games.get(roomId);
-        if (!game) throw new Error('Game not found');
+        if (!game) {
+            console.error(`❌ Game not found for roomId=${roomId}`);
+            throw new Error('Game not found');
+        }
 
+        console.log(`🎮 Calling game.handleAction...`);
         game.handleAction(playerId, action, amount);
+        console.log(`✅ Action handled successfully`);
         return game.getGameState();
     }
 
