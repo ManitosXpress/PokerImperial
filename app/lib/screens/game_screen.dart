@@ -789,9 +789,11 @@ class _GameScreenState extends State<GameScreen> {
                                 gameState!['stage'] == 'showdown');
 
                         if (isMe && !isFolded) {
-                          cards = (player['hand'] as List?)?.cast<String>();
+                          final handList = player['hand'] as List?;
+                          cards = handList?.map((e) => e.toString()).toList();
                         } else if (!isFolded && isShowdown) {
-                          cards = (player['hand'] as List?)?.cast<String>();
+                          final handList = player['hand'] as List?;
+                          cards = handList?.map((e) => e.toString()).toList();
                         }
 
                         String? handRank;
