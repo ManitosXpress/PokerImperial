@@ -71,7 +71,7 @@ class SocketService extends ChangeNotifier {
       }
 
       _socket = IO.io(uri, IO.OptionBuilder()
-        .setTransports(['websocket'])
+        .setTransports(<String>['websocket'])
         .disableAutoConnect() // We handle connection manually to control retry logic
         .build());
 
