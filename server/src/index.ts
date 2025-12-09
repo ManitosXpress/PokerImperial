@@ -41,17 +41,19 @@ const roomManager = new RoomManager();
 roomManager.setEmitCallback((roomId, event, data) => {
     io.to(roomId).emit(event, data);
 
-    // Sync Game Start to Firestore
+    // Sync Game Start to Firestore (only for rooms that exist in Firestore)
     if (event === 'game_started') {
-        try {
-            admin.firestore().collection('poker_tables').doc(roomId).update({
-                status: 'active',
-                lastActionTime: admin.firestore.FieldValue.serverTimestamp()
-            });
-            console.log(`Synced game start to Firestore for room ${roomId}`);
-        } catch (e) {
-            console.error('Failed to sync game start to Firestore:', e);
-        }
+        // Use set with merge instead of update to avoid crash if document doesn't exist
+        admin.firestore().collection('poker_tables').doc(roomId).set({
+            status: 'active',
+            lastActionTime: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true })
+        .then(() => {
+            console.log(`✅ Synced game start to Firestore for room ${roomId}`);
+        })
+        .catch((e) => {
+            console.log(`⚠️ Could not sync to Firestore (room may be socket-only): ${e.message}`);
+        });
     }
 });
 
