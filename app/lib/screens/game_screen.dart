@@ -659,7 +659,7 @@ class _GameScreenState extends State<GameScreen> {
                                                   const EdgeInsets.symmetric(
                                                       horizontal: 4.0),
                                               child: PokerCard(
-                                                cardCode: card,
+                                                cardCode: card.toString(),
                                                 width: ResponsiveUtils.scale(
                                                     context,
                                                     isMobile
