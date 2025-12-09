@@ -159,6 +159,12 @@ class _GameScreenState extends State<GameScreen> {
     });
 
     socketService.socket.on('game_started', (data) {
+      print('🎮 GAME_STARTED received!');
+      print('🃏 Players: ${data['players']?.length}');
+      print('🃏 Community Cards: ${data['communityCards']}');
+      print('🃏 Current Turn: ${data['currentTurn']}');
+      print('🃏 Round: ${data['round']}');
+      print('🃏 Full data: $data');
       if (mounted) {
         setState(() {
           roomState = null;

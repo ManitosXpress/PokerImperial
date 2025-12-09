@@ -404,18 +404,23 @@ io.on('connection', (socket) => {
 
     socket.on('start_game', ({ roomId }: { roomId: string }) => {
         try {
+            console.log(`🎮 Starting game for room ${roomId}...`);
             const gameState = roomManager.startGame(roomId, socket.id, (data) => {
                 // Emit game state changes to all players in room
                 if (data.type === 'hand_winner') {
                     // Emit winner event
+                    console.log(`🏆 Emitting hand_winner for room ${roomId}`);
                     io.to(roomId).emit('hand_winner', data);
                 } else {
                     // Regular game update
+                    console.log(`📡 Emitting game_update for room ${roomId}`);
                     io.to(roomId).emit('game_update', data);
                 }
             });
+            console.log(`🃏 Game started! Players: ${gameState.players?.length}, Community Cards: ${gameState.communityCards?.length}, Round: ${gameState.round}`);
             io.to(roomId).emit('game_started', gameState);
         } catch (e: any) {
+            console.error(`❌ Error starting game: ${e.message}`);
             socket.emit('error', e.message);
         }
     });
