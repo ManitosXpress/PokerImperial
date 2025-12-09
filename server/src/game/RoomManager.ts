@@ -120,9 +120,9 @@ export class RoomManager {
         return room;
     }
 
-    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean } = {}): Room {
+    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string } = {}): Room {
         const roomId = customRoomId || this.generateRoomId();
-        const { addHostAsPlayer = true, isPublic = true } = options;
+        const { addHostAsPlayer = true, isPublic = true, hostUid } = options;
 
         // Check if room already exists to prevent overwrite
         if (this.rooms.has(roomId)) {
@@ -153,7 +153,7 @@ export class RoomManager {
             currentTurn: players.length > 0 ? players[0].id : '',
             dealerId: players.length > 0 ? players[0].id : '',
             isPublic: isPublic,
-            hostId: hostId // Store the creator as the host
+            hostId: hostUid || hostId // Use Firebase UID if provided, otherwise socket.id
         };
 
         this.rooms.set(roomId, newRoom);

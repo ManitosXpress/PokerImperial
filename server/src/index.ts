@@ -139,17 +139,17 @@ io.on('connection', (socket) => {
                 return;
             }
             
-            // Create room with socket.id as player ID (needed for game logic)
-            const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee, customRoomId || undefined, { addHostAsPlayer: true, isPublic });
+            // Create room with UID as hostId (for frontend comparison), but player.id is still socket.id
+            const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee, customRoomId || undefined, { addHostAsPlayer: true, isPublic, hostUid: uid });
             
             // Override hostId with Firebase UID (for frontend comparison)
             room.hostId = uid;
             socket.join(room.id);
             
-            // IMPORTANT: Explicitly include isPublic in the response
-            const roomResponse = { ...room, isPublic };
+            // IMPORTANT: Explicitly include isPublic and hostId in the response
+            const roomResponse = { ...room, isPublic, hostId: uid };
             socket.emit('room_created', roomResponse);
-            console.log(`Room created: ${room.id} by ${playerName} (Session: ${sessionId}, Public: ${isPublic})`);
+            console.log(`Room created: ${room.id} by ${playerName} (UID: ${uid}, Session: ${sessionId}, Public: ${isPublic}, HostId: ${uid})`);
         } catch (e: any) {
             console.error(e);
             socket.emit('error', e.message);
@@ -231,6 +231,9 @@ io.on('connection', (socket) => {
                         return;
                     }
                     sessionId = sid;
+                    
+                    // CRITICAL: Store UID on socket for later reference
+                    (socket as any).userId = uid;
                 }
             } else {
                 socket.emit('error', 'Authentication required to join room');
@@ -386,11 +389,11 @@ io.on('connection', (socket) => {
 
                 socket.join(roomId);
                 
-                // Ensure isPublic is included in the emitted room object
-                const roomWithPublicFlag = { ...room, isPublic: room.isPublic ?? false };
-                io.to(roomId).emit('player_joined', roomWithPublicFlag); // Notify everyone in room
-                socket.emit('room_joined', roomWithPublicFlag); // Notify joiner
-                console.log(`${playerName} joined room ${roomId} (Session: ${sessionId}, Public: ${room.isPublic ?? false})`);
+                // Ensure isPublic and hostId are included in the emitted room object
+                const roomWithFlags = { ...room, isPublic: room.isPublic ?? false, hostId: room.hostId };
+                io.to(roomId).emit('player_joined', roomWithFlags); // Notify everyone in room
+                socket.emit('room_joined', roomWithFlags); // Notify joiner
+                console.log(`${playerName} joined room ${roomId} (Session: ${sessionId}, Public: ${room.isPublic ?? false}, HostId: ${room.hostId})`);
             } else {
                 socket.emit('error', 'Room not found');
             }
@@ -430,8 +433,8 @@ io.on('connection', (socket) => {
         try {
             const room = roomManager.toggleReady(roomId, socket.id, isReady);
             if (room) {
-                const roomWithPublicFlag = { ...room, isPublic: room.isPublic ?? false };
-                io.to(roomId).emit('room_update', roomWithPublicFlag); // Sync room state (including ready status)
+                const roomWithFlags = { ...room, isPublic: room.isPublic ?? false, hostId: room.hostId };
+                io.to(roomId).emit('room_update', roomWithFlags); // Sync room state (including ready status)
             }
         } catch (e: any) {
             socket.emit('error', e.message);
@@ -502,8 +505,8 @@ io.on('connection', (socket) => {
             // 3. Check remaining room state
             const room = roomManager.getRoom(roomId);
             if (room) {
-                const roomWithPublicFlag = { ...room, isPublic: room.isPublic ?? false };
-                io.to(roomId).emit('player_left', roomWithPublicFlag);
+                const roomWithFlags = { ...room, isPublic: room.isPublic ?? false, hostId: room.hostId };
+                io.to(roomId).emit('player_left', roomWithFlags);
 
                 // Check if we should close the room (less than 2 players)
                 // Note: Bots count as players in the current implementation, so this works for practice rooms too (1 human + 3 bots = 4, human leaves -> 3 bots remain, room stays open? No, practice room usually ends when human leaves. But for multiplayer, if < 2 players, close.)
