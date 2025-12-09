@@ -427,9 +427,13 @@ io.on('connection', (socket) => {
 
     socket.on('game_action', ({ roomId, action, amount }: { roomId: string, action: 'bet' | 'call' | 'fold' | 'check', amount?: number }) => {
         try {
+            console.log(`🎲 game_action received: roomId=${roomId}, playerId=${socket.id}, action=${action}, amount=${amount}`);
             const gameState = roomManager.handleGameAction(roomId, socket.id, action, amount);
+            console.log(`✅ Action processed successfully. Current turn: ${gameState.currentTurn}`);
             io.to(roomId).emit('game_update', gameState);
+            console.log(`📡 game_update emitted to room ${roomId}`);
         } catch (e: any) {
+            console.error(`❌ Error processing game_action: ${e.message}`);
             socket.emit('error', e.message);
         }
     });

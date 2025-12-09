@@ -175,6 +175,9 @@ class _GameScreenState extends State<GameScreen> {
     });
 
     socketService.socket.on('game_update', (data) {
+      print('📥 game_update received!');
+      print('🃏 Current Turn: ${data['currentTurn']}');
+      print('🃏 Round: ${data['round']}');
       if (mounted) _updateState(data);
     });
 
@@ -394,8 +397,10 @@ class _GameScreenState extends State<GameScreen> {
       _practiceController?.handleAction(_localPlayerId, action, amount);
     } else {
       final socketService = Provider.of<SocketService>(context, listen: false);
+      print('🎲 Sending game_action: roomId=${widget.roomId}, action=$action, amount=$amount');
       socketService.socket.emit('game_action',
           {'roomId': widget.roomId, 'action': action, 'amount': amount});
+      print('📤 game_action emitted');
     }
   }
 
