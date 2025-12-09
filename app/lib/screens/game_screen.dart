@@ -141,10 +141,14 @@ class _GameScreenState extends State<GameScreen> {
     });
 
     socketService.socket.on('room_created', (data) {
+      print('🔵 room_created received: $data');
+      print('🔵 hostId: ${data['hostId']}, isPublic: ${data['isPublic']}');
       if (mounted) setState(() => roomState = data);
     });
 
     socketService.socket.on('room_joined', (data) {
+      print('🟢 room_joined received: $data');
+      print('🟢 hostId: ${data['hostId']}, isPublic: ${data['isPublic']}');
       if (mounted) {
         setState(() {
           roomState = data;
@@ -542,6 +546,7 @@ class _GameScreenState extends State<GameScreen> {
                       if (socketIsPublic != null) {
                         isPublic = socketIsPublic as bool? ?? true;
                       }
+                      print('🎯 Socket: isHost=$isHost, isPublic=$isPublic, hostId=$socketHostId, myUid=${user?.uid}');
                     }
                     // Fallback to Firestore if socket hasn't provided roomState yet
                     else if (snapshot.hasData && snapshot.data!.exists) {
@@ -550,6 +555,7 @@ class _GameScreenState extends State<GameScreen> {
                         final hostId = tableData['hostId'];
                         isHost = user != null && hostId != null && hostId.toString() == user.uid.toString();
                         isPublic = tableData['isPublic'] ?? true;
+                        print('🎯 Firestore: isHost=$isHost, isPublic=$isPublic, hostId=$hostId, myUid=${user?.uid}');
                         
                         // Merge Firestore data with socket roomState
                         firestoreRoomState = {

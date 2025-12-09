@@ -109,9 +109,11 @@ io.on('connection', (socket) => {
             }
 
             // Economy Check - Validate user has enough credits
+            let uid: string | undefined;
             if (token) {
-                const uid = await verifyFirebaseToken(token);
-                if (uid) {
+                const verifiedUid = await verifyFirebaseToken(token);
+                if (verifiedUid) {
+                    uid = verifiedUid;
                     const balance = await getUserBalance(uid);
 
                     if (balance < entryFee) {
@@ -128,19 +130,20 @@ io.on('connection', (socket) => {
                         return;
                     }
                     sessionId = sid;
+                    
+                    // Store UID in socket for later use (disconnect, etc.)
+                    (socket as any).userId = uid;
                 }
             } else {
-                // If no token provided, we might want to block or allow for now. 
-                // The requirement says "necesites credito para crear sala".
-                // So we should probably enforce it if we can, but for backward compatibility during dev, maybe warn?
-                // But the user said "necesites credito", so I should enforce it.
-                // However, the frontend might not be sending token yet.
-                // I will enforce it but handle the case where frontend isn't updated yet by emitting error.
                 socket.emit('error', 'Authentication required to create room');
                 return;
             }
             
+            // Create room with socket.id as player ID (needed for game logic)
             const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee, customRoomId || undefined, { addHostAsPlayer: true, isPublic });
+            
+            // Override hostId with Firebase UID (for frontend comparison)
+            room.hostId = uid;
             socket.join(room.id);
             
             // IMPORTANT: Explicitly include isPublic in the response
@@ -249,14 +252,17 @@ io.on('connection', (socket) => {
                             console.log(`Hydrating room ${roomId} from Firestore...`);
                             // Create room without adding host as player immediately
                             // We need hostId and hostName from Firestore
-                            const hostId = roomData.hostId || 'unknown';
-                            const hostName = roomData.hostName || 'Host'; // You might need to store hostName in Firestore if not already
-                            const isPublic = roomData.isPublic !== undefined ? roomData.isPublic : true; // Default to public if not specified
+                            const firestoreHostId = roomData.hostId || 'unknown'; // This is Firebase UID
+                            const hostName = roomData.hostName || 'Host';
+                            const isPublic = roomData.isPublic !== undefined ? roomData.isPublic : true;
 
                             // Double check if room exists (race condition protection)
                             if (!roomManager.getRoom(roomId)) {
                                 try {
-                                    roomManager.createRoom(hostId, hostName, undefined, entryFee, roomId, { addHostAsPlayer: false, isPublic });
+                                    // Create room with dummy socket.id as player ID (will be replaced when host joins)
+                                    const tempRoom = roomManager.createRoom('temp-host', hostName, undefined, entryFee, roomId, { addHostAsPlayer: false, isPublic });
+                                    // Override hostId with Firebase UID
+                                    tempRoom.hostId = firestoreHostId;
                                 } catch (err: any) {
                                     console.log(`Room ${roomId} created concurrently during hydration.`);
                                 }
