@@ -236,8 +236,7 @@ class _GameScreenState extends State<GameScreen> {
                  ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Recarga exitosa! Volviendo al juego...'), backgroundColor: Colors.green)
                  );
-                 // Refresh wallet
-                 Provider.of<WalletProvider>(context, listen: false).loadBalance();
+                 // WalletProvider updates automatically via streams from Firestore
               },
               onError: (err) {
                  // Close loading state in dialog? 
@@ -660,6 +659,10 @@ class _GameScreenState extends State<GameScreen> {
                       roomId: widget.roomId,
                       roomState: currentRoomState,
                       onStartGame: _startGame,
+                      onCloseRoom: () {
+                        final socketService = Provider.of<SocketService>(context, listen: false);
+                        socketService.closeRoom(widget.roomId);
+                      },
                       userRole: userRole,
                       isHost: isHost,
                       isPublic: isPublic,

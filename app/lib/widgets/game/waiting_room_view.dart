@@ -6,6 +6,7 @@ class WaitingRoomView extends StatelessWidget {
   final String roomId;
   final Map<String, dynamic>? roomState;
   final VoidCallback onStartGame;
+  final VoidCallback? onCloseRoom; // New callback
   final String? userRole;
   final bool isHost;
   final bool isPublic;
@@ -15,6 +16,7 @@ class WaitingRoomView extends StatelessWidget {
     required this.roomId,
     required this.roomState,
     required this.onStartGame,
+    this.onCloseRoom,
     this.userRole,
     this.isHost = false,
     this.isPublic = true,
@@ -27,25 +29,14 @@ class WaitingRoomView extends StatelessWidget {
     final playerCount = players.length;
     final maxPlayers = roomState?['maxPlayers'] ?? 8;
     
-    // Debug logs
-    print('🎮 WaitingRoomView - isHost: $isHost, playerCount: $playerCount, roomId: $roomId');
-    print('🎮 WaitingRoomView - roomState keys: ${roomState?.keys.toList()}');
-    print('🎮 WaitingRoomView - players: $players');
-    
-    // Logic: Host can always SEE the button, but it's disabled if < 2 players.
-    // We remove the !isObserver check because the host might be an observer (Club Owner) 
-    // but still needs to start the game.
     final showStartButton = isHost; 
     final canStartAction = playerCount >= 2;
-    
-    // Additional debug
-    print('🎮 WaitingRoomView - showStartButton: $showStartButton, canStartAction: $canStartAction');
 
     return SingleChildScrollView(
       child: Center(
         child: Container(
           padding: const EdgeInsets.all(24),
-          constraints: const BoxConstraints(maxWidth: 800), // Increased width for Grid
+          constraints: const BoxConstraints(maxWidth: 800),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -99,7 +90,7 @@ class WaitingRoomView extends StatelessWidget {
               // Players Grid
               Container(
                 constraints: const BoxConstraints(
-                  maxHeight: 400, // Limit height to prevent overflow
+                  maxHeight: 400, 
                 ),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -116,7 +107,7 @@ class WaitingRoomView extends StatelessWidget {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3, // 3 columns
+                        crossAxisCount: 3,
                         childAspectRatio: 0.8,
                         crossAxisSpacing: 16,
                         mainAxisSpacing: 16,
@@ -125,7 +116,7 @@ class WaitingRoomView extends StatelessWidget {
                       itemBuilder: (context, index) {
                         final player = players[index];
                         final name = player['name'] ?? 'Player';
-                        final photoUrl = player['photoUrl']; // Assuming this field exists or is null
+                        final photoUrl = player['photoUrl'];
                         
                         return Container(
                           decoration: BoxDecoration(
@@ -143,7 +134,6 @@ class WaitingRoomView extends StatelessWidget {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              // Avatar
                               Stack(
                                 children: [
                                   CircleAvatar(
@@ -157,7 +147,6 @@ class WaitingRoomView extends StatelessWidget {
                                           )
                                         : null,
                                   ),
-                                  // Status Dot
                                   Positioned(
                                     bottom: 0,
                                     right: 0,
@@ -174,7 +163,6 @@ class WaitingRoomView extends StatelessWidget {
                                 ],
                               ),
                               const SizedBox(height: 12),
-                              // Name
                               Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                                 child: Text(
@@ -200,46 +188,85 @@ class WaitingRoomView extends StatelessWidget {
 
             // Action Area
             if (showStartButton)
-              Container(
-                width: double.infinity,
-                height: 60,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(30),
-                  boxShadow: [
-                    if (canStartAction)
-                      BoxShadow(
-                        color: const Color(0xFFFFD700).withOpacity(0.4),
-                        blurRadius: 15,
-                        spreadRadius: 2,
-                        offset: const Offset(0, 4),
+              Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(30),
+                      boxShadow: [
+                        if (canStartAction)
+                          BoxShadow(
+                            color: const Color(0xFFFFD700).withOpacity(0.4),
+                            blurRadius: 15,
+                            spreadRadius: 2,
+                            offset: const Offset(0, 4),
+                          ),
+                      ],
+                      gradient: canStartAction 
+                          ? const LinearGradient(
+                              colors: [Color(0xFFFFD700), Color(0xFFE94560)],
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                            )
+                          : null,
+                    ),
+                    child: ElevatedButton(
+                      onPressed: canStartAction ? onStartGame : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                        disabledBackgroundColor: Colors.grey.shade800,
                       ),
-                  ],
-                  gradient: canStartAction 
-                      ? const LinearGradient(
-                          colors: [Color(0xFFFFD700), Color(0xFFE94560)],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        )
-                      : null, // No gradient if disabled
-                ),
-                child: ElevatedButton(
-                  onPressed: canStartAction ? onStartGame : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                    disabledBackgroundColor: Colors.grey.shade800,
-                  ),
-                  child: Text(
-                    canStartAction ? 'REPARTIR CARTAS' : 'ESPERANDO JUGADORES (${players.length}/2)',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                      color: canStartAction ? Colors.white : Colors.white38,
+                      child: Text(
+                        canStartAction ? 'REPARTIR CARTAS' : 'ESPERANDO JUGADORES (${players.length}/2)',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.5,
+                          color: canStartAction ? Colors.white : Colors.white38,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Close Room Button
+                  TextButton.icon(
+                    onPressed: () {
+                      // Confirm Dialog
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Cerrar Sala'),
+                          content: const Text('¿Estás seguro de que quieres cerrar la sala? Todos los jugadores serán desconectados y se devolverá el dinero.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Cancelar'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                if (onCloseRoom != null) onCloseRoom!();
+                              },
+                              style: TextButton.styleFrom(foregroundColor: Colors.red),
+                              child: const Text('Cerrar Sala'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.close, color: Colors.redAccent),
+                    label: const Text(
+                      'Cerrar Sala',
+                      style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
               )
             else
               Container(

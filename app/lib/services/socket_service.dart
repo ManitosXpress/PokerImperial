@@ -389,4 +389,11 @@ class SocketService extends ChangeNotifier {
       }
     });
   }
+
+  void closeRoom(String roomId) {
+    if (_socket != null && _socket!.connected) {
+      print('Emitting close_room for $roomId');
+      _socket!.emit('close_room', {'roomId': roomId});
+    }
+  }
 }
