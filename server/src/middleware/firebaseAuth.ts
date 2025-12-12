@@ -210,46 +210,101 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
                 throw new Error('Session not found');
             }
 
-            if (sessionDoc.data()?.status !== 'active') {
+            const sessionData = sessionDoc.data();
+            if (sessionData?.status !== 'active') {
                 // Already closed, maybe duplicate call
+                console.log(`Session ${sessionId} already closed. Status: ${sessionData?.status}`);
                 return;
             }
 
-            // Update session status
+            // Obtener buy-in original de la sesión
+            const buyInAmount = Number(sessionData?.buyInAmount) || 0;
+            
+            // Calcular monto neto (fichas finales - exit fee)
+            const netWinnings = Math.max(0, finalChips - exitFee);
+            
+            // Calcular ganancia/pérdida vs buy-in
+            const netProfit = netWinnings - buyInAmount;
+            
+            // Determinar tipo de transacción
+            const ledgerType = netWinnings > buyInAmount ? 'GAME_WIN' : 'GAME_LOSS';
+            
+            console.log(`[CASHOUT] Usuario: ${uid}, Sesión: ${sessionId}`);
+            console.log(`[CASHOUT] Fichas finales: ${finalChips}`);
+            console.log(`[CASHOUT] Buy-in original: ${buyInAmount}`);
+            console.log(`[CASHOUT] Exit fee: ${exitFee}`);
+            console.log(`[CASHOUT] Rake pagado: ${totalRake}`);
+            console.log(`[CASHOUT] Monto neto a transferir: ${netWinnings}`);
+            console.log(`[CASHOUT] Ganancia/Pérdida: ${netProfit > 0 ? '+' : ''}${netProfit}`);
+            console.log(`[CASHOUT] Tipo: ${ledgerType}`);
+
+            // Actualizar sesión
             transaction.update(sessionRef, {
                 currentChips: finalChips,
                 totalRakePaid: totalRake,
                 exitFee: exitFee,
+                netResult: netWinnings, // Guardar resultado neto
                 endTime: admin.firestore.FieldValue.serverTimestamp(),
                 status: 'completed'
             });
 
-            // Calculate return amount (chips - fee)
-            const returnAmount = Math.max(0, finalChips - exitFee);
-
-            // Return chips to user wallet
-            if (returnAmount > 0) {
-                const userDoc = await transaction.get(userRef);
-                if (userDoc.exists) {
-                    const currentBalance = userDoc.data()?.credit || 0;
-                    transaction.update(userRef, {
-                        credit: currentBalance + returnAmount,
-                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                    });
-
-                    // Record transaction log for cash-out
-                    const transactionRef = userRef.collection('transactions').doc();
-                    transaction.set(transactionRef, {
-                        type: 'poker_cashout',
-                        amount: returnAmount,
-                        reason: 'Poker Room Cash-out',
-                        sessionId: sessionId,
-                        timestamp: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                }
+            // Actualizar crédito del usuario (OBLIGATORIO usar increment para evitar race conditions)
+            if (netWinnings > 0) {
+                transaction.update(userRef, {
+                    credit: admin.firestore.FieldValue.increment(netWinnings),
+                    // LIMPIEZA DE ESTADO VISUAL - Elimina el indicador "+X en mesa"
+                    currentTableId: admin.firestore.FieldValue.delete(),
+                    moneyInPlay: admin.firestore.FieldValue.delete(),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`[CASHOUT] Crédito actualizado: +${netWinnings} al saldo del usuario`);
+            } else {
+                // Aunque sea 0, limpiar estado visual
+                transaction.update(userRef, {
+                    currentTableId: admin.firestore.FieldValue.delete(),
+                    moneyInPlay: admin.firestore.FieldValue.delete(),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
             }
 
-            // Record transaction log for exit fee if applied
+            // Escribir en financial_ledger (OBLIGATORIO - nunca debe estar vacío)
+            const timestamp = admin.firestore.FieldValue.serverTimestamp();
+            const ledgerRef = db.collection('financial_ledger').doc();
+            transaction.set(ledgerRef, {
+                type: ledgerType,
+                userId: uid,
+                tableId: sessionData?.roomId || null,
+                amount: netWinnings,
+                netAmount: netWinnings,
+                netProfit: netProfit,
+                grossAmount: finalChips, // Fichas antes del exit fee
+                rakePaid: totalRake,
+                exitFee: exitFee,
+                buyInAmount: buyInAmount,
+                timestamp: timestamp,
+                description: `Cashout de sesión ${sessionId}. ${ledgerType === 'GAME_WIN' ? 'Ganancia' : 'Pérdida'} Neta: ${netProfit > 0 ? '+' : ''}${netProfit} (Recibido: ${netWinnings}, Rake: ${totalRake}${exitFee > 0 ? `, Exit Fee: ${exitFee}` : ''})`
+            });
+            console.log(`[CASHOUT] Registro creado en financial_ledger: ${ledgerRef.id}`);
+
+            // Registrar en transaction_logs (sub-colección) para compatibilidad
+            if (netWinnings > 0) {
+                const transactionRef = userRef.collection('transactions').doc();
+                transaction.set(transactionRef, {
+                    type: 'poker_cashout',
+                    amount: netWinnings,
+                    reason: `Poker Room Cash-out - ${ledgerType}`,
+                    sessionId: sessionId,
+                    metadata: {
+                        finalChips: finalChips,
+                        buyInAmount: buyInAmount,
+                        rakePaid: totalRake,
+                        exitFee: exitFee
+                    },
+                    timestamp: timestamp
+                });
+            }
+
+            // Registrar exit fee si aplica
             if (exitFee > 0) {
                 const feeRef = userRef.collection('transactions').doc();
                 transaction.set(feeRef, {
@@ -257,15 +312,15 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
                     amount: -exitFee,
                     reason: 'Early Exit Fee',
                     sessionId: sessionId,
-                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    timestamp: timestamp
                 });
             }
         });
 
-        console.log(`Ended poker session ${sessionId} for user ${uid}. Returned ${Math.max(0, finalChips - exitFee)} credits (Fee: ${exitFee}).`);
+        console.log(`✅ Ended poker session ${sessionId} for user ${uid}. Returned ${Math.max(0, finalChips - exitFee)} credits (Fee: ${exitFee}).`);
         return true;
     } catch (error) {
-        console.error('Error ending poker session:', error);
+        console.error('❌ Error ending poker session:', error);
         return false;
     }
 }

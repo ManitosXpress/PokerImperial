@@ -373,54 +373,25 @@ export class PokerGame {
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
         const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
 
-        // CORRECCIÓN: No saltar al showdown inmediatamente
-        // El otro jugador debe tener oportunidad de igualar o retirarse
-        // Solo ir al showdown si TODOS los jugadores activos ya igualaron o están all-in
+        // CORRECCIÓN CRÍTICA: No saltar al showdown hasta que TODOS los jugadores hayan actuado
+        // El siguiente jugador DEBE tener oportunidad de igualar, aumentar o retirarse
         
         let nextIndex = this.currentTurnIndex;
         do {
             nextIndex = (nextIndex + 1) % this.activePlayers.length;
         } while (this.activePlayers[nextIndex].isFolded);
 
-        // Verificar si todos los jugadores activos han igualado la apuesta
-        const allMatched = activeNonFolded.every(p => {
-            // Un jugador está "matched" si:
-            // 1. Su apuesta actual es igual a la apuesta máxima, O
-            // 2. Está all-in (sin fichas) y ya apostó todo lo que podía
-            return p.currentBet === this.currentBet || (p.chips === 0 && p.currentBet > 0);
-        });
-
-        // Si todos igualaron Y el siguiente turno es del último agresor (o ya pasó por todos)
-        if (allMatched && nextIndex === this.lastAggressorIndex) {
-            // Si solo queda 1 jugador con fichas después de que todos igualaron, ir al showdown
-            if (playersWithChips.length <= 1) {
-                console.log('All-in scenario: Todos igualaron, yendo al showdown');
-                this.revealAllCardsAndShowdown();
-                return;
-            }
-            
-            // Si todos igualaron pero hay múltiples jugadores con fichas, avanzar ronda
-            if (this.currentTurnIndex === this.lastAggressorIndex) {
-                this.nextRound();
-                return;
-            }
-
-            // Caso especial: Pre-flop, Big Blind puede actuar
-            if (this.round === 'pre-flop' && this.activePlayers[nextIndex].currentBet === this.bigBlindAmount && this.currentBet === this.bigBlindAmount) {
-                // Permitir que BB actúe
-            } else {
-                this.nextRound();
-                return;
-            }
-        }
-
+        const nextPlayer = this.activePlayers[nextIndex];
+        
         // Si el siguiente jugador está all-in (sin fichas), saltarlo automáticamente
-        if (this.activePlayers[nextIndex].chips === 0 && this.activePlayers[nextIndex].currentBet > 0) {
-            // Jugador all-in, pasar al siguiente
+        if (nextPlayer.chips === 0 && nextPlayer.currentBet > 0) {
+            // Jugador all-in, pasar al siguiente que pueda actuar
             const originalNextIndex = nextIndex;
             do {
                 nextIndex = (nextIndex + 1) % this.activePlayers.length;
-            } while (this.activePlayers[nextIndex].isFolded && nextIndex !== originalNextIndex);
+            } while ((this.activePlayers[nextIndex].isFolded || 
+                     (this.activePlayers[nextIndex].chips === 0 && this.activePlayers[nextIndex].currentBet > 0)) 
+                     && nextIndex !== originalNextIndex);
             
             // Si volvimos al mismo jugador, todos están all-in o retirados
             if (nextIndex === originalNextIndex) {
@@ -430,6 +401,59 @@ export class PokerGame {
             }
         }
 
+        // Verificar si todos los jugadores activos han igualado la apuesta
+        const allMatched = activeNonFolded.every(p => {
+            // Un jugador está "matched" si:
+            // 1. Su apuesta actual es igual a la apuesta máxima, O
+            // 2. Está all-in (sin fichas) y ya apostó todo lo que podía
+            return p.currentBet === this.currentBet || (p.chips === 0 && p.currentBet > 0);
+        });
+
+        // CRÍTICO: Solo ir al showdown si:
+        // 1. Todos igualaron Y
+        // 2. El siguiente turno es del último agresor (ya pasó por todos) Y
+        // 3. No hay más jugadores con fichas que puedan actuar
+        if (allMatched) {
+            const nextPlayerCanAct = this.activePlayers[nextIndex].chips > 0 && 
+                                     this.activePlayers[nextIndex].currentBet < this.currentBet;
+            
+            // Si el siguiente jugador puede actuar, darle el turno
+            if (nextPlayerCanAct) {
+                console.log(`Siguiente jugador ${this.activePlayers[nextIndex].name} puede actuar. Pasando turno.`);
+                this.currentTurnIndex = nextIndex;
+                if (this.onGameStateChange) {
+                    this.onGameStateChange(this.getGameState());
+                }
+                this.startTurnTimer();
+                return;
+            }
+            
+            // Si todos igualaron Y el siguiente turno es del último agresor
+            if (nextIndex === this.lastAggressorIndex) {
+                // Si solo queda 1 jugador con fichas después de que todos igualaron, ir al showdown
+                if (playersWithChips.length <= 1) {
+                    console.log('All-in scenario: Todos igualaron, yendo al showdown');
+                    this.revealAllCardsAndShowdown();
+                    return;
+                }
+                
+                // Si todos igualaron pero hay múltiples jugadores con fichas, avanzar ronda
+                if (this.currentTurnIndex === this.lastAggressorIndex) {
+                    this.nextRound();
+                    return;
+                }
+
+                // Caso especial: Pre-flop, Big Blind puede actuar
+                if (this.round === 'pre-flop' && this.activePlayers[nextIndex].currentBet === this.bigBlindAmount && this.currentBet === this.bigBlindAmount) {
+                    // Permitir que BB actúe
+                } else {
+                    this.nextRound();
+                    return;
+                }
+            }
+        }
+
+        // Pasar turno al siguiente jugador
         this.currentTurnIndex = nextIndex;
         
         if (this.onGameStateChange) {
