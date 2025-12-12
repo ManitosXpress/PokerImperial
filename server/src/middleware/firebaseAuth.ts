@@ -145,14 +145,34 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
                 totalRakePaid: 0
             });
 
-            // Record transaction log
+            const timestamp = admin.firestore.FieldValue.serverTimestamp();
+            const newBalance = currentBalance - amount;
+
+            // Record transaction log in sub-collection (for backward compatibility)
             const transactionRef = userRef.collection('transactions').doc();
             transaction.set(transactionRef, {
                 type: 'poker_buyin',
                 amount: -amount,
                 reason: `Poker Room Buy-in: ${roomId}`,
                 sessionId: newSessionId,
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                timestamp: timestamp
+            });
+
+            // Record in transaction_logs (main collection for history)
+            const logRef = db.collection('transaction_logs').doc();
+            transaction.set(logRef, {
+                userId: uid,
+                amount: -amount, // Negative for debit
+                type: 'debit',
+                reason: `Poker Room Buy-in: ${roomId}`,
+                timestamp: timestamp,
+                beforeBalance: currentBalance,
+                afterBalance: newBalance,
+                metadata: {
+                    sessionId: newSessionId,
+                    roomId: roomId,
+                    buyInAmount: amount
+                }
             });
 
             return newSessionId;
@@ -339,14 +359,33 @@ export async function addChipsToSession(uid: string, sessionId: string, amount: 
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            // Log transaction
+            const timestamp = admin.firestore.FieldValue.serverTimestamp();
+            const newBalance = currentBalance - amount;
+
+            // Log transaction in sub-collection (for backward compatibility)
             const transactionRef = userRef.collection('transactions').doc();
             transaction.set(transactionRef, {
                 type: 'poker_topup',
                 amount: -amount,
                 reason: 'Poker Room Top-Up',
                 sessionId: sessionId,
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                timestamp: timestamp
+            });
+
+            // Record in transaction_logs (main collection for history)
+            const logRef = db.collection('transaction_logs').doc();
+            transaction.set(logRef, {
+                userId: uid,
+                amount: -amount, // Negative for debit
+                type: 'debit',
+                reason: 'Poker Room Top-Up',
+                timestamp: timestamp,
+                beforeBalance: currentBalance,
+                afterBalance: newBalance,
+                metadata: {
+                    sessionId: sessionId,
+                    topUpAmount: amount
+                }
             });
         });
 
