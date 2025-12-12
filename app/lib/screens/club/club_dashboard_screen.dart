@@ -467,7 +467,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
 This message was sent automatically with n8n''';
 
               final encodedMessage = Uri.encodeComponent(message);
-              final urlString = 'https://t.me/AgenteBingobot?text=$encodedMessage';
+              final urlString = 'http://t.me/AgenteBingobot?text=$encodedMessage';
               final url = Uri.parse(urlString);
 
               try {

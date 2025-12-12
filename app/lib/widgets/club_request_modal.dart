@@ -26,7 +26,7 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
 
   int _currentPage = 0;
   bool _isSubmitting = false;
-  static const String telegramBotUrl = 'https://t.me/AgenteBingobot';
+  static const String telegramBotUrl = 'http://t.me/AgenteBingobot';
 
   @override
   void dispose() {

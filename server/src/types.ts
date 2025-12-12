@@ -11,6 +11,7 @@ export interface Player {
     totalRakePaid?: number;
     isReady?: boolean;
     isSitOut?: boolean;
+    isAllIn?: boolean; // Flag para jugadores que apostaron todo
     status?: 'PLAYING' | 'WAITING_FOR_REBUY' | 'ELIMINATED';
 }
 

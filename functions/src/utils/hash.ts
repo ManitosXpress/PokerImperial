@@ -7,7 +7,7 @@ import crypto from "crypto";
 export function generateTransactionHash(
     userId: string,
     amount: number,
-    type: "credit" | "debit",
+    type: "credit" | "debit" | "admin_debit",
     timestamp: number,
     beforeBalance: number,
     afterBalance: number

@@ -19,6 +19,7 @@ import '../widgets/game/waiting_room_view.dart';
 import '../widgets/game/victory_overlay.dart';
 import '../widgets/game/action_controls.dart';
 import '../widgets/game/rebuy_dialog.dart'; // Import RebuyDialog
+import '../widgets/game/wallet_badge.dart'; // Import WalletBadge
 
 class GameScreen extends StatefulWidget {
   final String roomId;
@@ -992,40 +993,11 @@ class _GameScreenState extends State<GameScreen> {
                         );
                       }).toList()),
 
-                    // Top Right Credits
-                    Positioned(
+                    // Top Right Credits - Premium Wallet Badge
+                    const Positioned(
                       top: 10,
                       right: 10,
-                      child: Consumer<WalletProvider>(
-                        builder: (context, walletProvider, child) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.6),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                  color: Colors.amber.withOpacity(0.5)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Image.asset('assets/images/coin.png',
-                                    width: 20, height: 20),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '${walletProvider.balance}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
+                      child: WalletBadge(),
                     ),
 
                     // Action Controls (Refactored Widget)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../providers/auth_provider.dart' as app_auth;
 import '../providers/language_provider.dart';
 import '../services/socket_service.dart';
@@ -11,6 +12,7 @@ import 'profile_screen.dart';
 import '../widgets/add_credits_dialog.dart';
 import '../widgets/withdraw_credits_dialog.dart';
 import '../widgets/wallet_display.dart';
+import '../widgets/game/wallet_badge.dart'; // Import WalletBadge Premium
 import 'club/club_dashboard_screen.dart';
 import 'game_zone_screen.dart';
 import 'tournament/tournament_list_screen.dart';
@@ -262,8 +264,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           // Wallet and controls
                           Row(
                             children: [
-                              // Wallet Display
-                              const WalletDisplay(),
+                              // Wallet Display Premium
+                              const WalletBadge(),
                               const SizedBox(width: 12),
                               // Language Toggle
                               GestureDetector(
@@ -410,7 +412,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     },
                                   ),
                                   
-                                  // Admin Button
+                                  // Admin Button (solo si ya es admin)
                                   Consumer<ClubProvider>(
                                     builder: (context, clubProvider, _) {
                                       if (clubProvider.currentUserRole == 'admin') {
@@ -790,4 +792,5 @@ class _LobbyScreenState extends State<LobbyScreen> {
       ),
     );
   }
+
 }
