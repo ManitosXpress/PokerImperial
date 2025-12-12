@@ -29,11 +29,51 @@ const io = new Server(httpServer, {
         },
         methods: ["GET", "POST"],
         credentials: true
-    }
+    },
+    // Optimización: Keep-Alive para detectar desconexiones rápidas
+    pingInterval: 25000, // Envía ping cada 25 segundos
+    pingTimeout: 10000,  // Espera 10 segundos para respuesta antes de considerar desconectado
+    transports: ['websocket', 'polling'] // Soporte para ambos transportes
 });
 
 const PORT = process.env.PORT || 3000;
 const roomManager = new RoomManager();
+
+/**
+ * Helper function para persistir estado del juego en Firestore de forma asíncrona
+ * NO bloquea la respuesta al cliente - se ejecuta en background
+ */
+function persistGameStateAsync(roomId: string, gameState: any) {
+    // Ejecutar en background sin await
+    setImmediate(async () => {
+        try {
+            const tableRef = admin.firestore().collection('poker_tables').doc(roomId);
+            await tableRef.set({
+                pot: gameState.pot,
+                communityCards: gameState.communityCards,
+                currentTurn: gameState.currentTurn,
+                dealerId: gameState.dealerId,
+                round: gameState.round,
+                currentBet: gameState.currentBet,
+                players: gameState.players?.map((p: any) => ({
+                    id: p.id,
+                    name: p.name,
+                    chips: p.chips,
+                    currentBet: p.currentBet,
+                    isFolded: p.isFolded,
+                    isAllIn: p.isAllIn,
+                    status: p.status
+                })),
+                lastActionTime: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            
+            console.log(`💾 Game state persisted to Firestore for room ${roomId}`);
+        } catch (error) {
+            // No lanzar error - solo loguear para no interrumpir el flujo
+            console.error(`⚠️ Error persisting game state to Firestore for room ${roomId}:`, error);
+        }
+    });
+}
 
 // Set up RoomManager callback to emit events via IO
 roomManager.setEmitCallback((roomId, event, data) => {
@@ -49,14 +89,25 @@ roomManager.setEmitCallback((roomId, event, data) => {
         return;
     }
     
+    // OPTIMIZACIÓN: Socket First - Emitir inmediatamente
     io.to(roomId).emit(event, data);
 
+    // OPTIMIZACIÓN: Database Later - Persistir en background sin bloquear
     if (event === 'game_started') {
-        admin.firestore().collection('poker_tables').doc(roomId).set({
-            status: 'active',
-            lastActionTime: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true })
-        .catch((e) => console.log(`⚠️ Could not sync to Firestore: ${e.message}`));
+        setImmediate(async () => {
+            try {
+                await admin.firestore().collection('poker_tables').doc(roomId).set({
+                    status: 'active',
+                    lastActionTime: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                console.log(`💾 Game started persisted to Firestore for room ${roomId}`);
+            } catch (e) {
+                console.error(`⚠️ Could not sync game_started to Firestore for room ${roomId}:`, e);
+            }
+        });
+    } else if (event === 'game_update' || event === 'hand_winner') {
+        // Persistir actualizaciones del juego de forma asíncrona
+        persistGameStateAsync(roomId, data);
     }
 });
 
@@ -262,17 +313,33 @@ io.on('connection', (socket) => {
     socket.on('start_game', ({ roomId }: { roomId: string }) => {
         try {
             console.log(`🎮 Starting game for room ${roomId}...`);
+            
+            // OPTIMIZACIÓN: Socket First, Database Later
+            // 1. Actualizar estado en memoria
             const gameState = roomManager.startGame(roomId, socket.id, (data) => {
+                // 2. Emitir eventos Socket inmediatamente
                 if (data.type === 'hand_winner') {
-                    console.log(`🏆 Emitting hand_winner for room ${roomId}`);
+                    console.log(`🏆 Emitting hand_winner for room ${roomId} (Socket First)`);
                     io.to(roomId).emit('hand_winner', data);
                 } else {
-                    console.log(`📡 Emitting game_update for room ${roomId}`);
+                    console.log(`📡 Emitting game_update for room ${roomId} (Socket First)`);
                     io.to(roomId).emit('game_update', data);
                 }
+                
+                // 3. Persistir en Firestore después (async, no bloquea)
+                if (data.type === 'hand_winner' || data.gameState) {
+                    persistGameStateAsync(roomId, data.gameState || data);
+                }
             });
+            
             console.log(`🃏 Game started! Players: ${gameState.players?.length}`);
+            
+            // 2. Emitir evento de inicio inmediatamente
             io.to(roomId).emit('game_started', gameState);
+            
+            // 3. Persistir en Firestore después (async, no bloquea)
+            persistGameStateAsync(roomId, gameState);
+            
         } catch (e: any) {
             console.error(`❌ Error starting game: ${e.message}`);
             socket.emit('error', e.message);
@@ -282,10 +349,19 @@ io.on('connection', (socket) => {
     socket.on('game_action', ({ roomId, action, amount }: { roomId: string, action: 'bet' | 'call' | 'fold' | 'check', amount?: number }) => {
         try {
             console.log(`🎲 game_action received: roomId=${roomId}, playerId=${socket.id}, action=${action}, amount=${amount}`);
+            
+            // OPTIMIZACIÓN: Socket First, Database Later
+            // 1. Actualizar estado en memoria (RAM) inmediatamente
             const gameState = roomManager.handleGameAction(roomId, socket.id, action, amount);
             console.log(`✅ Action processed successfully. Current turn: ${gameState.currentTurn}`);
+            
+            // 2. EMITIR evento Socket INMEDIATAMENTE (sin esperar Firestore)
             io.to(roomId).emit('game_update', gameState);
-            console.log(`📡 game_update emitted to room ${roomId}`);
+            console.log(`📡 game_update emitted to room ${roomId} (Socket First)`);
+            
+            // 3. Persistir en Firestore DESPUÉS (sin await - no bloquea)
+            persistGameStateAsync(roomId, gameState);
+            
         } catch (e: any) {
             console.error(`❌ Error processing game_action: ${e.message}`);
             socket.emit('error', e.message);

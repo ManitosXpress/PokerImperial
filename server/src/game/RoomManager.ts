@@ -5,8 +5,82 @@ import { endPokerSession } from '../middleware/firebaseAuth';
 export class RoomManager {
     private rooms: Map<string, Room> = new Map();
     private games: Map<string, PokerGame> = new Map();
+    private cleanupInterval: NodeJS.Timeout | null = null;
+    private readonly CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // Limpiar cada 5 minutos
+    private readonly EMPTY_ROOM_TIMEOUT_MS = 10 * 60 * 1000; // Eliminar mesas vacías después de 10 minutos
 
-    constructor() { }
+    constructor() {
+        // Iniciar limpieza automática periódica para prevenir memory leaks
+        this.startCleanupInterval();
+    }
+
+    /**
+     * Limpieza automática periódica de mesas vacías o inactivas
+     * Previene memory leaks en servidores con 2GB de RAM
+     */
+    private startCleanupInterval() {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+        }
+
+        this.cleanupInterval = setInterval(() => {
+            this.cleanupEmptyRooms();
+        }, this.CLEANUP_INTERVAL_MS);
+
+        console.log('🧹 Cleanup interval started - will clean empty rooms every 5 minutes');
+    }
+
+    /**
+     * Limpia mesas vacías o inactivas para liberar memoria
+     */
+    private cleanupEmptyRooms() {
+        const now = Date.now();
+        let cleanedCount = 0;
+
+        for (const [roomId, room] of this.rooms.entries()) {
+            // Eliminar mesas completamente vacías
+            if (room.players.length === 0) {
+                console.log(`🗑️ Cleaning up empty room: ${roomId}`);
+                this.deleteRoom(roomId);
+                cleanedCount++;
+                continue;
+            }
+
+            // Eliminar mesas en estado 'waiting' sin jugadores activos por más de 10 minutos
+            // (solo si no hay juego activo)
+            if (room.gameState === 'waiting' && room.players.length === 0) {
+                // Ya cubierto por el caso anterior
+                continue;
+            }
+
+            // Eliminar mesas terminadas (finished) después de un tiempo
+            if (room.gameState === 'finished') {
+                // Las mesas terminadas se limpian inmediatamente cuando se cierran
+                // Este caso es por si acaso queda alguna huérfana
+                const allPlayersLeft = room.players.every(p => p.isBot || p.status === 'ELIMINATED');
+                if (allPlayersLeft) {
+                    console.log(`🗑️ Cleaning up finished room with no active players: ${roomId}`);
+                    this.deleteRoom(roomId);
+                    cleanedCount++;
+                }
+            }
+        }
+
+        if (cleanedCount > 0) {
+            console.log(`✅ Cleanup completed: ${cleanedCount} rooms removed. Active rooms: ${this.rooms.size}`);
+        }
+    }
+
+    /**
+     * Detener el intervalo de limpieza (útil para tests o shutdown graceful)
+     */
+    public stopCleanupInterval() {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+            this.cleanupInterval = null;
+            console.log('🧹 Cleanup interval stopped');
+        }
+    }
 
     // ... (existing methods like toggleReady, createRoom, etc. - we need to keep them)
     // To save context tokens, I will only output the NEW methods and modified logic if possible, 
@@ -195,10 +269,12 @@ export class RoomManager {
                     game.removePlayer(playerId);
                 }
 
+                // OPTIMIZACIÓN: Limpiar inmediatamente mesas vacías para liberar memoria
                 if (room.players.length === 0) {
-                    this.rooms.delete(roomId);
-                    this.games.delete(roomId);
+                    console.log(`🗑️ Room ${roomId} is now empty - cleaning up immediately`);
+                    this.deleteRoom(roomId);
                 }
+                
                 return { roomId, player };
             }
         }
@@ -356,8 +432,19 @@ export class RoomManager {
     }
 
     public deleteRoom(roomId: string) {
+        const room = this.rooms.get(roomId);
+        const game = this.games.get(roomId);
+        
+        // Limpiar timers del juego si existen
+        if (game && (game as any).turnTimer) {
+            clearTimeout((game as any).turnTimer);
+        }
+        
+        // Eliminar de los Maps
         this.rooms.delete(roomId);
         this.games.delete(roomId);
+        
+        console.log(`🗑️ Room ${roomId} deleted. Active rooms: ${this.rooms.size}`);
     }
 
     public addChips(roomId: string, playerId: string, amount: number) {
