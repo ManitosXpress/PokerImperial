@@ -127,6 +127,7 @@ export const adminMintCredits = async (data: any, context: functions.https.Calla
             // Consolidate on 'credits'
             const currentBalance = userData?.credit || userData?.credits || 0;
             const newCredit = currentBalance + amount;
+            const displayName = userData?.displayName || 'Unknown';
 
             transaction.update(userRef, { 
                 credit: newCredit,
@@ -140,9 +141,11 @@ export const adminMintCredits = async (data: any, context: functions.https.Calla
                 currency: 'CREDIT',
                 fromId: 'SYSTEM_MINT',
                 toId: targetUid,
+                userId: targetUid, // CRÍTICO: Agregar userId para consistencia
+                userName: displayName, // CRÍTICO: Guardar displayName
                 performedBy: context.auth?.uid,
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                description: `Admin minted ${amount} credits for user ${targetUid}`
+                description: `Admin minted ${amount} credits for user ${displayName} (${targetUid})`
             });
             
             // 3. Update Total Circulation Counter

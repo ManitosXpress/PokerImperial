@@ -405,33 +405,42 @@ export class PokerGame {
         // CORRECCIÓN CRÍTICA: Implementar lógica similar a PracticeGameController
         // Verificar si la ronda de apuestas está completa ANTES de buscar siguiente jugador
         
-        // 1. Verificar si todos los jugadores activos han igualado la apuesta
-        const allBetsMatched = activeNonFolded.every(p => {
-            return p.currentBet === this.currentBet || (p.chips === 0 && p.currentBet > 0);
-        });
-
-        // 2. Verificar si todos los jugadores con fichas han actuado
-        const allWithChipsActed = playersWithChips.every(p => p.hasActed === true);
-
-        // 3. Verificar si solo queda un jugador (todos los demás se retiraron)
+        // 1. Verificar si solo queda un jugador (todos los demás se retiraron)
         if (activeNonFolded.length <= 1) {
             this.revealAllCardsAndShowdown();
             return;
         }
 
+        // 2. Verificar si todos los jugadores activos han igualado la apuesta
+        const allBetsMatched = activeNonFolded.every(p => {
+            return p.currentBet === this.currentBet || (p.chips === 0 && p.currentBet > 0);
+        });
+
+        // 3. Verificar si todos los jugadores con fichas han actuado
+        const allWithChipsActed = playersWithChips.length > 0 && playersWithChips.every(p => p.hasActed === true);
+
         // 4. Si todos igualaron Y todos actuaron, verificar si debemos avanzar ronda
         if (allBetsMatched && allWithChipsActed) {
             // Buscar el siguiente jugador para verificar si es el último agresor
             let nextIndex = this.currentTurnIndex;
+            let foundNext = false;
+            let attempts = 0;
+            
             do {
                 nextIndex = (nextIndex + 1) % this.activePlayers.length;
-            } while (this.activePlayers[nextIndex].isFolded);
+                attempts++;
+                if (!this.activePlayers[nextIndex].isFolded) {
+                    foundNext = true;
+                    break;
+                }
+            } while (attempts < this.activePlayers.length);
 
-            // Si el siguiente turno es del último agresor (o ya pasó), la ronda terminó
-            if (nextIndex === this.lastAggressorIndex || 
-                (this.currentTurnIndex === this.lastAggressorIndex && allBetsMatched)) {
+            // Si encontramos el siguiente jugador y es el último agresor, la ronda terminó
+            // O si el jugador actual es el último agresor y todos igualaron, la ronda terminó
+            if (foundNext && (nextIndex === this.lastAggressorIndex || this.currentTurnIndex === this.lastAggressorIndex)) {
                 // Caso especial: Pre-flop, Big Blind puede tener opción de actuar
                 if (this.round === 'pre-flop' && 
+                    this.activePlayers[nextIndex] &&
                     this.activePlayers[nextIndex].currentBet === this.bigBlindAmount && 
                     this.currentBet === this.bigBlindAmount &&
                     !this.activePlayers[nextIndex].hasActed) {
@@ -451,7 +460,9 @@ export class PokerGame {
         }
 
         // 5. Buscar siguiente jugador activo que pueda actuar
+        // CRÍTICO: Empezar desde el siguiente jugador (no el actual)
         let nextIndex = this.currentTurnIndex;
+        let foundNextPlayer = false;
         let attempts = 0;
         const maxAttempts = this.activePlayers.length;
         
@@ -459,34 +470,59 @@ export class PokerGame {
             nextIndex = (nextIndex + 1) % this.activePlayers.length;
             attempts++;
             
-            // Si el siguiente jugador está retirado o all-in sin fichas, saltarlo
-            if (this.activePlayers[nextIndex].isFolded) {
+            const player = this.activePlayers[nextIndex];
+            
+            // Si el jugador está retirado, saltarlo
+            if (player.isFolded) {
                 continue;
             }
             
             // Si el jugador está all-in (sin fichas), saltarlo
-            if (this.activePlayers[nextIndex].chips === 0 && this.activePlayers[nextIndex].currentBet > 0) {
+            if (player.chips === 0 && player.currentBet > 0) {
                 continue;
             }
             
-            // Si el jugador ya actuó Y su apuesta está igualada, puede que necesite otra oportunidad
-            // Solo si NO ha actuado o si su apuesta NO está igualada, darle el turno
-            const player = this.activePlayers[nextIndex];
+            // CRÍTICO: Un jugador necesita actuar si:
+            // - NO ha actuado todavía, O
+            // - Su apuesta es menor que la apuesta actual Y tiene fichas para igualar/aumentar
             const needsToAct = !player.hasActed || (player.currentBet < this.currentBet && player.chips > 0);
             
             if (needsToAct) {
+                foundNextPlayer = true;
                 break; // Este jugador necesita actuar
             }
             
         } while (attempts < maxAttempts);
 
-        // Si no encontramos ningún jugador que necesite actuar, verificar si todos están all-in
-        if (attempts >= maxAttempts) {
-            // Todos los jugadores activos están all-in o ya actuaron e igualaron
-            if (allBetsMatched) {
+        // Si no encontramos ningún jugador que necesite actuar
+        if (!foundNextPlayer) {
+            // Verificar si todos están all-in o ya actuaron e igualaron
+            if (allBetsMatched && allWithChipsActed) {
+                // Todos igualaron y actuaron, avanzar ronda
                 this.nextRound();
                 return;
+            } else {
+                // Caso edge: todos los jugadores activos están all-in
+                // Avanzar ronda también
+                const allAllIn = activeNonFolded.every(p => p.chips === 0 && p.currentBet > 0);
+                if (allAllIn) {
+                    this.nextRound();
+                    return;
+                }
             }
+            
+            // Si llegamos aquí, hay un problema lógico - no debería pasar
+            // Pero para evitar que el juego se congele, avanzar ronda
+            console.warn('⚠️ No se encontró siguiente jugador. Avanzando ronda por seguridad.');
+            this.nextRound();
+            return;
+        }
+
+        // CRÍTICO: Verificar que no estamos devolviendo el turno al mismo jugador
+        if (nextIndex === this.currentTurnIndex) {
+            console.warn('⚠️ nextIndex es igual a currentTurnIndex. Avanzando ronda.');
+            this.nextRound();
+            return;
         }
 
         // Pasar turno al siguiente jugador

@@ -328,6 +328,7 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                 const userData = userInfo.data;
                 const userClubId = userData?.clubId;
                 const userSellerId = userData?.sellerId;
+                const displayName = userData?.displayName || 'Unknown'; // CRÍTICO: Obtener displayName
 
                 // 2. Obtener sesión activa (ya leída antes)
                 const sessionInfo = sessionMap.get(playerId);
@@ -369,6 +370,7 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                     transaction.set(lossLedgerRef, {
                         type: 'GAME_LOSS',
                         userId: playerId,
+                        userName: displayName, // CRÍTICO: Guardar displayName
                         tableId: tableId,
                         amount: -lossAmount, // FIX: Monto negativo de la pérdida
                         netAmount: -lossAmount,
@@ -377,7 +379,7 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                         rakePaid: 0,
                         buyInAmount: buyInAmount,
                         timestamp: timestamp,
-                        description: `Cierre de Mesa ${tableId}. Pérdida Total: -${lossAmount} (Buy-in: ${buyInAmount}, Chips restantes: ${playerChips})`
+                        description: `Cierre de Mesa ${tableId}. Pérdida Total: -${lossAmount} (Buy-in: ${buyInAmount}, Chips restantes: ${playerChips}) - Usuario: ${displayName}`
                     });
 
                     // Actualizar jugador en la mesa: chips a 0
@@ -465,6 +467,7 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                     transaction.set(winLedgerRef, {
                         type: ledgerType,
                         userId: playerId,
+                        userName: displayName, // CRÍTICO: Guardar displayName
                         tableId: tableId,
                         amount: netWinnings,
                         netAmount: netWinnings,
@@ -473,7 +476,7 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                         rakePaid: totalRake,
                         buyInAmount: buyInAmount,
                         timestamp: timestamp,
-                        description: `Cierre de Mesa ${tableId}. ${ledgerType === 'GAME_WIN' ? 'Ganancia' : 'Pérdida'} Neta: ${netProfit > 0 ? '+' : ''}${netProfit} (Recibido: ${netWinnings}, Rake: ${totalRake})`
+                        description: `Cierre de Mesa ${tableId}. ${ledgerType === 'GAME_WIN' ? 'Ganancia' : 'Pérdida'} Neta: ${netProfit > 0 ? '+' : ''}${netProfit} (Recibido: ${netWinnings}, Rake: ${totalRake}) - Usuario: ${displayName}`
                     });
 
                     // Actualizar jugador en la mesa: chips a 0

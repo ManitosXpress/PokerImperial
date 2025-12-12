@@ -208,6 +208,11 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
                 return;
             }
 
+            // Obtener datos del usuario (incluyendo displayName)
+            const userDoc = await transaction.get(userRef);
+            const userData = userDoc.data();
+            const displayName = userData?.displayName || 'Unknown';
+
             // Obtener buy-in original de la sesión
             const buyInAmount = Number(sessionData?.buyInAmount) || 0;
             
@@ -220,7 +225,7 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
             // Determinar tipo de transacción
             const ledgerType = netWinnings > buyInAmount ? 'GAME_WIN' : 'GAME_LOSS';
             
-            console.log(`[CASHOUT] Usuario: ${uid}, Sesión: ${sessionId}`);
+            console.log(`[CASHOUT] Usuario: ${uid} (${displayName}), Sesión: ${sessionId}`);
             console.log(`[CASHOUT] Fichas finales: ${finalChips}`);
             console.log(`[CASHOUT] Buy-in original: ${buyInAmount}`);
             console.log(`[CASHOUT] Exit fee: ${exitFee}`);
@@ -258,12 +263,43 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
                 });
             }
 
-            // Escribir en financial_ledger (OBLIGATORIO - nunca debe estar vacío)
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+            // CRÍTICO: Registrar rake en plataforma (system_stats/economy)
+            if (totalRake > 0) {
+                const statsRef = db.collection('system_stats').doc('economy');
+                transaction.set(statsRef, {
+                    accumulated_rake: admin.firestore.FieldValue.increment(totalRake),
+                    lastUpdated: timestamp
+                }, { merge: true });
+                console.log(`[CASHOUT] Rake registrado en plataforma: +${totalRake}`);
+
+                // Crear registro RAKE_COLLECTED en financial_ledger para la plataforma
+                const rakeLedgerRef = db.collection('financial_ledger').doc();
+                transaction.set(rakeLedgerRef, {
+                    type: 'RAKE_COLLECTED',
+                    userId: uid,
+                    userName: displayName, // CRÍTICO: Guardar displayName
+                    tableId: sessionData?.roomId || null,
+                    amount: totalRake,
+                    timestamp: timestamp,
+                    description: `Rake recolectado de sesión ${sessionId} - Usuario: ${displayName} (${uid})`,
+                    sessionId: sessionId,
+                    metadata: {
+                        finalChips: finalChips,
+                        buyInAmount: buyInAmount,
+                        netWinnings: netWinnings
+                    }
+                });
+                console.log(`[CASHOUT] Registro RAKE_COLLECTED creado: ${rakeLedgerRef.id}`);
+            }
+
+            // Escribir en financial_ledger (OBLIGATORIO - nunca debe estar vacío)
             const ledgerRef = db.collection('financial_ledger').doc();
             transaction.set(ledgerRef, {
                 type: ledgerType,
                 userId: uid,
+                userName: displayName, // CRÍTICO: Guardar displayName para evitar "Unknown"
                 tableId: sessionData?.roomId || null,
                 amount: netWinnings,
                 netAmount: netWinnings,

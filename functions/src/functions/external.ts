@@ -45,8 +45,10 @@ export const externalDeposit = functions.https.onRequest(async (req, res) => {
                 throw new Error('User not found');
             }
 
-            const currentCredit = userDoc.data()?.credit || 0;
+            const userData = userDoc.data();
+            const currentCredit = userData?.credit || 0;
             const newCredit = currentCredit + amount;
+            const displayName = userData?.displayName || 'Unknown';
 
             // Update User Balance
             transaction.update(userRef, {
@@ -61,9 +63,12 @@ export const externalDeposit = functions.https.onRequest(async (req, res) => {
                 currency: 'CREDIT',
                 fromId: source || 'EXTERNAL_BOT',
                 toId: userId,
+                userId: userId, // CRÍTICO: Agregar userId para consistencia
+                userName: displayName, // CRÍTICO: Guardar displayName
                 performedBy: 'n8n_bot',
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 details: details || 'External Deposit',
+                description: `Depósito externo para ${displayName} (${userId})`, // CRÍTICO: Agregar description con displayName
                 metadata: req.body // Store full payload for audit
             });
 
