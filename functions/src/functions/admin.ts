@@ -235,6 +235,60 @@ export const bootstrapAdmin = async (data: any, context: functions.https.Callabl
 };
 
 /**
+ * adminCreateUser
+ * Allows admin to create a new user directly from the admin dashboard.
+ * Sets createdAt and lastUpdated timestamps.
+ */
+export const adminCreateUser = async (data: any, context: functions.https.CallableContext) => {
+    assertAdmin(context);
+    
+    const { username, password, displayName, role } = data;
+    
+    if (!username || !password || !displayName || !role) {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing required fields: username, password, displayName, role');
+    }
+
+    try {
+        const db = getDb();
+        const email = `${username}@poker.app`;
+        
+        // Create Authentication User
+        const userRecord = await admin.auth().createUser({
+            email,
+            password,
+            displayName,
+            emailVerified: true,
+        });
+
+        const newUserId = userRecord.uid;
+        const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+        // Create User Document with createdAt and lastUpdated
+        const newUser = {
+            uid: newUserId,
+            email,
+            username,
+            displayName,
+            role,
+            clubId: null, // Admin-created users don't have a club by default
+            credit: 0,
+            createdAt: timestamp,
+            lastUpdated: timestamp,
+            createdBy: context.auth?.uid, // Track which admin created this user
+        };
+
+        await db.collection('users').doc(newUserId).set(newUser);
+
+        console.log(`Admin ${context.auth?.uid} created user ${newUserId} with role ${role}`);
+        return { success: true, userId: newUserId, username, email };
+
+    } catch (error: any) {
+        console.error('Error creating user:', error);
+        throw new functions.https.HttpsError('internal', `Failed to create user: ${error.message}`);
+    }
+};
+
+/**
  * getUserTransactionHistory
  * Obtiene el historial completo de transacciones del usuario desde ambas colecciones:
  * - transaction_logs (transacciones tradicionales)

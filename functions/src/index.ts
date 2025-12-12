@@ -45,13 +45,14 @@ import { onUserCreate } from './functions/auth';
 export const onUserCreateFunction = onUserCreate;
 
 // Admin Functions
-import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers } from './functions/admin';
+import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers, adminCreateUser } from './functions/admin';
 export const adminSetUserRoleFunction = functions.https.onCall(adminSetUserRole);
 export const adminMintCreditsFunction = functions.https.onCall(adminMintCredits);
 export const getSystemStatsFunction = functions.https.onCall(getSystemStats);
 export const bootstrapAdminFunction = functions.https.onCall(bootstrapAdmin);
 export const getUserTransactionHistoryFunction = functions.https.onCall(getUserTransactionHistory);
 export const adminDeleteUserFunction = functions.https.onCall(adminDeleteUser);
+export const adminCreateUserFunction = functions.https.onCall(adminCreateUser);
 export { repairStuckSessions, clearAllFirestoreData, cleanWelcomeBonusUsers }; // HTTP Functions para reparación y limpieza
 
 // External Integrations

@@ -97,6 +97,7 @@ export class PokerGame {
             p.currentBet = 0;
             p.isAllIn = false; // Reset all-in status para nueva ronda
             p.status = 'PLAYING';
+            p.hasActed = false; // CRÍTICO: Reset hasActed al inicio de cada ronda
             // Note: We do NOT reset isSitOut here; it persists until user returns
         });
         
@@ -323,6 +324,7 @@ export class PokerGame {
         switch (action) {
             case 'fold':
                 player.isFolded = true;
+                player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
                 this.activePlayers = this.activePlayers.filter(p => !p.isFolded);
                 if (this.activePlayers.length === 1) {
                     this.endHand(this.activePlayers[0]); 
@@ -332,6 +334,7 @@ export class PokerGame {
             case 'call':
                 const callAmount = this.currentBet - player.currentBet;
                 this.placeBet(player, callAmount);
+                player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
                 break;
             case 'bet':
                 // Calcular apuesta mínima (raise mínimo)
@@ -361,6 +364,9 @@ export class PokerGame {
                 const betAmount = amount - player.currentBet;
                 this.placeBet(player, betAmount);
                 
+                // CRÍTICO: Marcar que el jugador ya actuó
+                player.hasActed = true;
+                
                 // Si la apuesta es mayor que currentBet, actualizar y marcar como agresor
                 if (amount > this.currentBet) {
                     this.lastAggressorIndex = this.currentTurnIndex;
@@ -376,6 +382,7 @@ export class PokerGame {
                 this.placeBet(player, player.chips);
                 // Marcar jugador como all-in
                 player.isAllIn = true;
+                player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
                 if (allInAmount > this.currentBet) {
                     this.lastAggressorIndex = this.currentTurnIndex;
                     this.currentBet = allInAmount;
@@ -384,6 +391,7 @@ export class PokerGame {
                 break;
             case 'check':
                 if (player.currentBet < this.currentBet) throw new Error('Cannot check, must call');
+                player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
                 break;
         }
 
@@ -394,83 +402,90 @@ export class PokerGame {
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
         const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
 
-        // CORRECCIÓN CRÍTICA: No saltar al showdown hasta que TODOS los jugadores hayan actuado
-        // El siguiente jugador DEBE tener oportunidad de igualar, aumentar o retirarse
+        // CORRECCIÓN CRÍTICA: Implementar lógica similar a PracticeGameController
+        // Verificar si la ronda de apuestas está completa ANTES de buscar siguiente jugador
         
-        let nextIndex = this.currentTurnIndex;
-        do {
-            nextIndex = (nextIndex + 1) % this.activePlayers.length;
-        } while (this.activePlayers[nextIndex].isFolded);
+        // 1. Verificar si todos los jugadores activos han igualado la apuesta
+        const allBetsMatched = activeNonFolded.every(p => {
+            return p.currentBet === this.currentBet || (p.chips === 0 && p.currentBet > 0);
+        });
 
-        const nextPlayer = this.activePlayers[nextIndex];
-        
-        // Si el siguiente jugador está all-in (sin fichas), saltarlo automáticamente
-        if (nextPlayer.chips === 0 && nextPlayer.currentBet > 0) {
-            // Jugador all-in, pasar al siguiente que pueda actuar
-            const originalNextIndex = nextIndex;
+        // 2. Verificar si todos los jugadores con fichas han actuado
+        const allWithChipsActed = playersWithChips.every(p => p.hasActed === true);
+
+        // 3. Verificar si solo queda un jugador (todos los demás se retiraron)
+        if (activeNonFolded.length <= 1) {
+            this.revealAllCardsAndShowdown();
+            return;
+        }
+
+        // 4. Si todos igualaron Y todos actuaron, verificar si debemos avanzar ronda
+        if (allBetsMatched && allWithChipsActed) {
+            // Buscar el siguiente jugador para verificar si es el último agresor
+            let nextIndex = this.currentTurnIndex;
             do {
                 nextIndex = (nextIndex + 1) % this.activePlayers.length;
-            } while ((this.activePlayers[nextIndex].isFolded || 
-                     (this.activePlayers[nextIndex].chips === 0 && this.activePlayers[nextIndex].currentBet > 0)) 
-                     && nextIndex !== originalNextIndex);
-            
-            // Si volvimos al mismo jugador, todos están all-in o retirados
-            if (nextIndex === originalNextIndex) {
-                console.log('Todos los jugadores están all-in o retirados, yendo al showdown');
-                this.revealAllCardsAndShowdown();
+            } while (this.activePlayers[nextIndex].isFolded);
+
+            // Si el siguiente turno es del último agresor (o ya pasó), la ronda terminó
+            if (nextIndex === this.lastAggressorIndex || 
+                (this.currentTurnIndex === this.lastAggressorIndex && allBetsMatched)) {
+                // Caso especial: Pre-flop, Big Blind puede tener opción de actuar
+                if (this.round === 'pre-flop' && 
+                    this.activePlayers[nextIndex].currentBet === this.bigBlindAmount && 
+                    this.currentBet === this.bigBlindAmount &&
+                    !this.activePlayers[nextIndex].hasActed) {
+                    // Permitir que BB actúe (check/raise)
+                    this.currentTurnIndex = nextIndex;
+                    if (this.onGameStateChange) {
+                        this.onGameStateChange(this.getGameState());
+                    }
+                    this.startTurnTimer();
+                    return;
+                }
+                
+                // Ronda completa, avanzar a la siguiente fase
+                this.nextRound();
                 return;
             }
         }
 
-        // Verificar si todos los jugadores activos han igualado la apuesta
-        const allMatched = activeNonFolded.every(p => {
-            // Un jugador está "matched" si:
-            // 1. Su apuesta actual es igual a la apuesta máxima, O
-            // 2. Está all-in (sin fichas) y ya apostó todo lo que podía
-            return p.currentBet === this.currentBet || (p.chips === 0 && p.currentBet > 0);
-        });
-
-        // CRÍTICO: Solo ir al showdown si:
-        // 1. Todos igualaron Y
-        // 2. El siguiente turno es del último agresor (ya pasó por todos) Y
-        // 3. No hay más jugadores con fichas que puedan actuar
-        if (allMatched) {
-            const nextPlayerCanAct = this.activePlayers[nextIndex].chips > 0 && 
-                                     this.activePlayers[nextIndex].currentBet < this.currentBet;
+        // 5. Buscar siguiente jugador activo que pueda actuar
+        let nextIndex = this.currentTurnIndex;
+        let attempts = 0;
+        const maxAttempts = this.activePlayers.length;
+        
+        do {
+            nextIndex = (nextIndex + 1) % this.activePlayers.length;
+            attempts++;
             
-            // Si el siguiente jugador puede actuar, darle el turno
-            if (nextPlayerCanAct) {
-                console.log(`Siguiente jugador ${this.activePlayers[nextIndex].name} puede actuar. Pasando turno.`);
-                this.currentTurnIndex = nextIndex;
-                if (this.onGameStateChange) {
-                    this.onGameStateChange(this.getGameState());
-                }
-                this.startTurnTimer();
-                return;
+            // Si el siguiente jugador está retirado o all-in sin fichas, saltarlo
+            if (this.activePlayers[nextIndex].isFolded) {
+                continue;
             }
             
-            // Si todos igualaron Y el siguiente turno es del último agresor
-            if (nextIndex === this.lastAggressorIndex) {
-                // Si solo queda 1 jugador con fichas después de que todos igualaron, ir al showdown
-                if (playersWithChips.length <= 1) {
-                    console.log('All-in scenario: Todos igualaron, yendo al showdown');
-                    this.revealAllCardsAndShowdown();
-                    return;
-                }
-                
-                // Si todos igualaron pero hay múltiples jugadores con fichas, avanzar ronda
-                if (this.currentTurnIndex === this.lastAggressorIndex) {
-                    this.nextRound();
-                    return;
-                }
+            // Si el jugador está all-in (sin fichas), saltarlo
+            if (this.activePlayers[nextIndex].chips === 0 && this.activePlayers[nextIndex].currentBet > 0) {
+                continue;
+            }
+            
+            // Si el jugador ya actuó Y su apuesta está igualada, puede que necesite otra oportunidad
+            // Solo si NO ha actuado o si su apuesta NO está igualada, darle el turno
+            const player = this.activePlayers[nextIndex];
+            const needsToAct = !player.hasActed || (player.currentBet < this.currentBet && player.chips > 0);
+            
+            if (needsToAct) {
+                break; // Este jugador necesita actuar
+            }
+            
+        } while (attempts < maxAttempts);
 
-                // Caso especial: Pre-flop, Big Blind puede actuar
-                if (this.round === 'pre-flop' && this.activePlayers[nextIndex].currentBet === this.bigBlindAmount && this.currentBet === this.bigBlindAmount) {
-                    // Permitir que BB actúe
-                } else {
-                    this.nextRound();
-                    return;
-                }
+        // Si no encontramos ningún jugador que necesite actuar, verificar si todos están all-in
+        if (attempts >= maxAttempts) {
+            // Todos los jugadores activos están all-in o ya actuaron e igualaron
+            if (allBetsMatched) {
+                this.nextRound();
+                return;
             }
         }
 
@@ -522,7 +537,11 @@ export class PokerGame {
             this.currentTurnIndex = (this.currentTurnIndex + 1) % this.activePlayers.length;
         }
 
-        this.activePlayers.forEach(p => p.currentBet = 0);
+        // CRÍTICO: Resetear apuestas y estado de acciones para nueva ronda
+        this.activePlayers.forEach(p => {
+            p.currentBet = 0;
+            p.hasActed = false; // Resetear hasActed para nueva ronda de apuestas
+        });
         this.currentBet = 0;
         this.lastAggressorIndex = this.currentTurnIndex;
 

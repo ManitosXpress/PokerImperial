@@ -64,14 +64,51 @@ class _UserManagementViewState extends State<UserManagementView> {
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: _firestore.collection('users')
-                .orderBy('createdAt', descending: true)
-                .limit(50)
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
               if (!snapshot.hasData) return const Center(child: PokerLoadingIndicator(size: 40, color: Colors.amber));
 
               var docs = snapshot.data!.docs;
+              
+              // Sort by createdAt if available, otherwise by displayName
+              docs.sort((a, b) {
+                final aData = a.data() as Map<String, dynamic>;
+                final bData = b.data() as Map<String, dynamic>;
+                
+                // Try createdAt first
+                final aCreatedAt = aData['createdAt'];
+                final bCreatedAt = bData['createdAt'];
+                
+                if (aCreatedAt != null && bCreatedAt != null) {
+                  final aTime = (aCreatedAt as Timestamp).millisecondsSinceEpoch;
+                  final bTime = (bCreatedAt as Timestamp).millisecondsSinceEpoch;
+                  return bTime.compareTo(aTime); // Descending order
+                }
+                
+                // If one has createdAt and the other doesn't, prioritize the one with createdAt
+                if (aCreatedAt != null) return -1;
+                if (bCreatedAt != null) return 1;
+                
+                // Fallback to lastUpdated
+                final aLastUpdated = aData['lastUpdated'];
+                final bLastUpdated = bData['lastUpdated'];
+                
+                if (aLastUpdated != null && bLastUpdated != null) {
+                  final aTime = (aLastUpdated as Timestamp).millisecondsSinceEpoch;
+                  final bTime = (bLastUpdated as Timestamp).millisecondsSinceEpoch;
+                  return bTime.compareTo(aTime); // Descending order
+                }
+                
+                // If one has lastUpdated and the other doesn't, prioritize the one with lastUpdated
+                if (aLastUpdated != null) return -1;
+                if (bLastUpdated != null) return 1;
+                
+                // Final fallback to displayName
+                final aName = (aData['displayName'] ?? '').toString().toLowerCase();
+                final bName = (bData['displayName'] ?? '').toString().toLowerCase();
+                return aName.compareTo(bName);
+              });
               
               // Client-side filter for now (Firestore doesn't support partial text search easily)
               if (_searchQuery.isNotEmpty) {

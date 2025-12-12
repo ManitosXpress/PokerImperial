@@ -198,7 +198,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           // Admin Button (Only visible if admin)
                           Consumer<ClubProvider>(
                             builder: (context, clubProvider, _) {
-                              // Ensure we have the latest role
                               if (clubProvider.currentUserRole == 'admin') {
                                 return IconButton(
                                   onPressed: () {

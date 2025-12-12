@@ -13,6 +13,7 @@ export interface Player {
     isSitOut?: boolean;
     isAllIn?: boolean; // Flag para jugadores que apostaron todo
     status?: 'PLAYING' | 'WAITING_FOR_REBUY' | 'ELIMINATED';
+    hasActed?: boolean; // CRÍTICO: Rastrea si el jugador ya actuó en esta ronda de apuestas
 }
 
 export interface Room {
