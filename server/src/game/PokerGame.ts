@@ -76,6 +76,12 @@ export class PokerGame {
             return;
         }
 
+        // CRÍTICO: Detener cualquier timer activo antes de iniciar nueva ronda
+        if (this.turnTimer) {
+            clearTimeout(this.turnTimer);
+            this.turnTimer = null;
+        }
+
         this.initializeDeck();
         this.pot = 0;
         this.communityCards = [];
@@ -107,6 +113,7 @@ export class PokerGame {
         this.placeBet(this.activePlayers[sbIndex], this.smallBlindAmount);
         this.placeBet(this.activePlayers[bbIndex], this.bigBlindAmount);
 
+        // Restablecer currentTurnIndex para nueva ronda (ya no es -1)
         this.currentTurnIndex = (bbIndex + 1) % this.activePlayers.length;
         this.lastAggressorIndex = bbIndex;
 
@@ -119,6 +126,12 @@ export class PokerGame {
     }
 
     private startTurnTimer() {
+        // No iniciar timer si la mano terminó (currentTurnIndex = -1)
+        if (this.currentTurnIndex === -1) {
+            console.log('⏹️ No se inicia timer - Mano terminada');
+            return;
+        }
+
         if (this.turnTimer) {
             clearTimeout(this.turnTimer);
             this.turnTimer = null;
@@ -259,10 +272,13 @@ export class PokerGame {
     public getGameState() {
         const minRaise = this.currentBet + Math.max(this.bigBlindAmount, this.currentBet);
 
+        // Si currentTurnIndex es -1, significa que la mano terminó y no hay turno activo
+        const currentTurn = this.currentTurnIndex === -1 ? undefined : this.activePlayers[this.currentTurnIndex]?.id;
+
         return {
             pot: this.pot,
             communityCards: this.communityCards,
-            currentTurn: this.activePlayers[this.currentTurnIndex]?.id,
+            currentTurn: currentTurn,
             dealerId: this.players[this.dealerIndex]?.id,
             round: this.round,
             currentBet: this.currentBet,
@@ -283,6 +299,11 @@ export class PokerGame {
     }
 
     public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0) {
+        // Verificar que el juego no haya terminado (currentTurnIndex inválido)
+        if (this.currentTurnIndex === -1) {
+            throw new Error('La mano ya terminó. No se pueden realizar más acciones.');
+        }
+
         const player = this.activePlayers[this.currentTurnIndex];
         
         if (!player || player.id !== playerId) {
@@ -586,6 +607,13 @@ export class PokerGame {
     private evaluateWinner() {
         try {
             console.log('Evaluating winner...');
+            
+            // Detener timer antes de evaluar ganador
+            if (this.turnTimer) {
+                clearTimeout(this.turnTimer);
+                this.turnTimer = null;
+            }
+            
             const activePlayers = this.activePlayers.filter(p => !p.isFolded);
 
             if (activePlayers.length === 1) {
@@ -717,6 +745,16 @@ export class PokerGame {
     }
 
     private endHand(winner: Player, wonAmount?: number, winnerHand?: any, playerHands?: Array<{ player: Player, hand: any }>, rakeDistribution?: any) {
+        // CRÍTICO: Detener el timer de turno inmediatamente cuando termina la mano
+        if (this.turnTimer) {
+            clearTimeout(this.turnTimer);
+            this.turnTimer = null;
+            console.log('⏹️ Timer de turno detenido - Mano terminada');
+        }
+
+        // Limpiar el turno actual para evitar que se pueda actuar
+        this.currentTurnIndex = -1; // Invalidar turno actual
+
         let finalAmount = wonAmount;
         let rakeAmount = 0;
         let distribution = rakeDistribution;
@@ -733,6 +771,9 @@ export class PokerGame {
         }
 
         winner.chips += finalAmount;
+
+        // Obtener estado del juego (currentTurn será undefined porque currentTurnIndex = -1)
+        const gameState = this.getGameState();
 
         if (this.onGameStateChange) {
             this.onGameStateChange({
@@ -755,11 +796,11 @@ export class PokerGame {
                         Hand.solve([...p.hand, ...this.communityCards]).name
                         : null
                 })),
-                gameState: this.getGameState()
+                gameState: gameState
             });
         }
 
-        console.log(`${winner.name} wins ${finalAmount} chips!`);
+        console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
 
         setTimeout(() => {
             this.checkForBankruptPlayers();

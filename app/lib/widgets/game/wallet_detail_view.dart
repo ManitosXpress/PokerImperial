@@ -299,9 +299,20 @@ class WalletDetailView extends StatelessWidget {
           );
         }
 
-        final transactions = (snapshot.data?['transactions'] as List<dynamic>?)
-                ?.cast<Map<String, dynamic>>() ??
-            [];
+        // Parsear transacciones de forma segura
+        List<Map<String, dynamic>> transactions = [];
+        if (snapshot.data != null && snapshot.data!['transactions'] != null) {
+          final transactionsList = snapshot.data!['transactions'];
+          if (transactionsList is List) {
+            transactions = transactionsList.map((item) {
+              if (item is Map) {
+                // Convertir a Map<String, dynamic> de forma segura
+                return Map<String, dynamic>.from(item);
+              }
+              return <String, dynamic>{};
+            }).where((item) => item.isNotEmpty).toList();
+          }
+        }
 
         if (transactions.isEmpty) {
           return Center(
@@ -362,27 +373,56 @@ class WalletDetailView extends StatelessWidget {
   }
 
   Widget _buildTransactionItem(Map<String, dynamic> transaction) {
-    final type = transaction['type'] as String? ?? 'unknown';
-    final source = transaction['source'] as String? ?? 'transaction_logs';
+    // Parsear campos de forma segura
+    final type = _safeString(transaction['type']) ?? 'unknown';
+    final source = _safeString(transaction['source']) ?? 'transaction_logs';
     
     // Obtener amount según la fuente
     double amount = 0.0;
     if (source == 'financial_ledger') {
       // financial_ledger usa 'amount' directamente
-      amount = (transaction['amount'] as num?)?.toDouble() ?? 0.0;
+      amount = _safeDouble(transaction['amount']) ?? 0.0;
       // Si es GAME_WIN/GAME_LOSS, usar netAmount si existe
       if ((type == 'GAME_WIN' || type == 'GAME_LOSS') && transaction['netAmount'] != null) {
-        amount = (transaction['netAmount'] as num).toDouble();
+        amount = _safeDouble(transaction['netAmount']) ?? amount;
       }
     } else {
       // transaction_logs usa 'amount'
-      amount = (transaction['amount'] as num?)?.toDouble() ?? 0.0;
+      amount = _safeDouble(transaction['amount']) ?? 0.0;
     }
     
-    final reason = transaction['reason'] as String? ?? transaction['description'] as String? ?? 'Sin descripción';
-    final timestamp = transaction['timestamp'] as Timestamp?;
-    final metadata = transaction['metadata'] as Map<String, dynamic>?;
-    final tableId = transaction['tableId'] as String?;
+    final reason = _safeString(transaction['reason']) ?? 
+                   _safeString(transaction['description']) ?? 
+                   'Sin descripción';
+    
+    // Parsear timestamp de forma segura
+    Timestamp? timestamp;
+    final timestampValue = transaction['timestamp'];
+    if (timestampValue != null) {
+      if (timestampValue is Timestamp) {
+        timestamp = timestampValue;
+      } else if (timestampValue is Map) {
+        // Si viene como objeto de Firestore desde la Cloud Function
+        try {
+          final seconds = timestampValue['_seconds'] as int?;
+          final nanoseconds = timestampValue['_nanoseconds'] as int?;
+          if (seconds != null) {
+            timestamp = Timestamp(seconds, nanoseconds ?? 0);
+          }
+        } catch (e) {
+          print('Error parsing timestamp: $e');
+        }
+      }
+    }
+    
+    // Parsear metadata de forma segura
+    Map<String, dynamic>? metadata;
+    final metadataValue = transaction['metadata'];
+    if (metadataValue != null && metadataValue is Map) {
+      metadata = Map<String, dynamic>.from(metadataValue);
+    }
+    
+    final tableId = _safeString(transaction['tableId']);
 
     // Determine transaction direction
     bool isPositive = false;
@@ -601,6 +641,22 @@ class WalletDetailView extends StatelessWidget {
         // Si no hay título específico, usar reason o description
         return reason.isNotEmpty ? reason : 'Transacción';
     }
+  }
+
+  // Helper functions para parseo seguro de tipos
+  String? _safeString(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    return value.toString();
+  }
+
+  double? _safeDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value);
+    }
+    return null;
   }
 }
 

@@ -26,7 +26,7 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
 
   int _currentPage = 0;
   bool _isSubmitting = false;
-  static const String telegramBotUrl = 'http://t.me/AgenteBingobot';
+  static const String telegramBotUrl = 'https://t.me/AgenteBingobot';
 
   @override
   void dispose() {
@@ -67,7 +67,7 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
         '📝 Descripción: ${description.isEmpty ? 'N/A' : description}\n'
         '🖼️ Logo: ${logoUrl.isEmpty ? 'N/A' : logoUrl}\n'
         '💰 Créditos Iniciales: $credits\n\n'
-        '     Club ID: \n'
+
         '👤 Usuario ID: ${user.uid}\n'
         '📧 Email: ${user.email ?? 'N/A'}\n'
         '📱 Nombre: ${user.displayName ?? 'N/A'}\n'
@@ -88,7 +88,9 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
     }
 
     // Launch Telegram
-    final Uri url = Uri.parse(telegramBotUrl);
+    final encodedMessage = Uri.encodeComponent(message);
+    final urlString = '$telegramBotUrl?text=$encodedMessage';
+    final Uri url = Uri.parse(urlString);
     try {
       if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
         throw Exception('No se pudo abrir Telegram');

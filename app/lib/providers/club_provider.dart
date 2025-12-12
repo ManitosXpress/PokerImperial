@@ -101,6 +101,27 @@ class ClubProvider with ChangeNotifier {
     }
   }
 
+  Future<void> leaveClub() async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      // Assuming 'leaveClubFunction' exists, or 'joinClubFunction' handles leaving if we send null?
+      // Usually a separate function is better. I'll stick to the plan: 'leaveClubFunction'
+      final result = await _functions.httpsCallable('leaveClubFunction').call();
+
+      if (result.data['success'] == true) {
+        await fetchClubs(); // Refresh list to reflect no club
+      }
+    } catch (e) {
+      print('Error leaving club: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<List<Map<String, dynamic>>> fetchClubTournaments(String clubId) async {
     print('🔍 Fetching tournaments for clubId: "$clubId" (Length: ${clubId.length})');
     try {

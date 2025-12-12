@@ -176,13 +176,23 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
                     
                     // Seller sees Seller Panel
                     if (role == 'seller') {
-                      return SellerDashboard(
-                        clubId: club['id'],
-                        clubName: club['name'],
+                      return Column(
+                        children: [
+                          SellerDashboard(
+                            clubId: club['id'],
+                            clubName: club['name'],
+                          ),
+                          const SizedBox(height: 24),
+                          _buildLeaveClubButton(context),
+                        ],
                       );
                     }
                     
-                    // Player sees no panel
+                    // Player sees no panel but can leave
+                    if (role == 'player') {
+                      return _buildLeaveClubButton(context);
+                    }
+                    
                     return const SizedBox.shrink();
                   },
                 ),
@@ -366,7 +376,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
 
 
   void _showJoinClubDialog(BuildContext context, String clubId, String clubName) async {
-    final user = FirebaseAuth.instance.currentUser;
+    // ... existing implementation ...
+     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     // Get club details to obtain ownerId
@@ -467,7 +478,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
 This message was sent automatically with n8n''';
 
               final encodedMessage = Uri.encodeComponent(message);
-              final urlString = 'http://t.me/AgenteBingobot?text=$encodedMessage';
+              final urlString = 'https://t.me/AgenteBingobot?text=$encodedMessage';
               final url = Uri.parse(urlString);
 
               try {
@@ -506,6 +517,67 @@ This message was sent automatically with n8n''';
     );
   }
 
+  Widget _buildLeaveClubButton(BuildContext context) {
+    return Center(
+      child: OutlinedButton.icon(
+        onPressed: () => _showLeaveClubConfirmation(context),
+        icon: const Icon(Icons.exit_to_app, color: Colors.red),
+        label: const Text('SALIR DEL CLUB', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+        style: OutlinedButton.styleFrom(
+          backgroundColor: Colors.black.withOpacity(0.4), // Dark background for visibility
+          side: const BorderSide(color: Colors.red, width: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLeaveClubConfirmation(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Text('¿Salir del Club?', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          '¿Estás seguro de que deseas salir de este club? Perderás acceso a las mesas y torneos.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await Provider.of<ClubProvider>(context, listen: false).leaveClub();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Has salido del club exitosamente')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Salir'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {

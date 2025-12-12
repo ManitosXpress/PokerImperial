@@ -48,7 +48,6 @@ export async function verifyFirebaseToken(token: string): Promise<string | null>
                 console.warn('Could not fetch user record for displayName update:', e);
             }
 
-            const initialBalance = 1000;
             const now = admin.firestore.FieldValue.serverTimestamp();
 
             const userData = {
@@ -56,50 +55,22 @@ export async function verifyFirebaseToken(token: string): Promise<string | null>
                 email: decodedToken.email || '',
                 displayName: displayName,
                 photoURL: decodedToken.picture || '',
-                credit: initialBalance, // Changed from walletBalance to credit
+                credit: 0, // New users start with 0 credits - no welcome bonus
                 createdAt: now,
                 lastLogin: now
             };
 
             await userRef.set(userData);
 
-            // Create initial transaction
-            await userRef.collection('transactions').add({
-                type: 'deposit',
-                amount: initialBalance,
-                reason: 'Welcome Bonus',
-                timestamp: now
-            });
+            // No initial transaction - users start with 0 credits
+            // Credits must be added explicitly via Admin or Bot
 
-            console.log(`Created new user ${uid} with ${initialBalance} credits`);
+            console.log(`Created new user ${uid} with 0 credits (no welcome bonus)`);
         } else {
-            // Update last login
-            const userDocData = userDoc.data();
-            const currentCredit = userDocData?.credit || 0;
-
-            // Bankruptcy Refill (Dev/Test Feature)
-            if (currentCredit < 100) {
-                const refillAmount = 1000;
-                await userRef.update({
-                    credit: refillAmount,
-                    lastLogin: admin.firestore.FieldValue.serverTimestamp(),
-                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                });
-
-                // Log Refill Transaction
-                await userRef.collection('transactions').add({
-                    type: 'system_refill',
-                    amount: refillAmount - currentCredit, // Log the difference or just the new total? Usually amount added. 
-                    // Actually, let's just set it to 1000. So we added (1000 - current).
-                    reason: 'Bankruptcy Protection Refill',
-                    timestamp: admin.firestore.FieldValue.serverTimestamp()
-                });
-                console.log(`Refilled user ${uid} to ${refillAmount} credits (Bankruptcy Protection)`);
-            } else {
-                await userRef.update({
-                    lastLogin: admin.firestore.FieldValue.serverTimestamp()
-                });
-            }
+            // Update last login only - no automatic refills
+            await userRef.update({
+                lastLogin: admin.firestore.FieldValue.serverTimestamp()
+            });
         }
 
         return uid;

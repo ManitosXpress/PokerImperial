@@ -726,3 +726,172 @@ export const clearAllFirestoreData = functions.https.onRequest(async (req, res) 
         });
     }
 });
+
+/**
+ * SCRIPT DE LIMPIEZA DE BONO DE BIENVENIDA
+ * 
+ * Limpia usuarios de prueba que tienen exactamente 1000 créditos (bono de bienvenida)
+ * y no tienen historial de transacciones reales.
+ * 
+ * Busca usuarios con:
+ * - credit === 1000
+ * - Sin transacciones en la sub-colección 'transactions' (o solo con transacción de 'Welcome Bonus')
+ * 
+ * Los resetea a 0 créditos.
+ * 
+ * USO:
+ * POST https://YOUR_REGION-YOUR_PROJECT.cloudfunctions.net/cleanWelcomeBonusUsers
+ * 
+ * Body (opcional):
+ * {
+ *   "dryRun": true  // Si es true, solo muestra qué usuarios serían afectados sin hacer cambios
+ * }
+ * 
+ * @returns Resumen de usuarios limpiados
+ */
+export const cleanWelcomeBonusUsers = functions.https.onRequest(async (req, res) => {
+    // Validar método POST
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed. Use POST.' });
+        return;
+    }
+
+    try {
+        const db = getDb();
+        const dryRun = req.body?.dryRun === true;
+
+        console.log(`\n🔍 Iniciando limpieza de usuarios con bono de bienvenida...`);
+        console.log(`   Modo: ${dryRun ? 'DRY RUN (sin cambios)' : 'EJECUCIÓN REAL'}`);
+
+        // Buscar todos los usuarios con credit === 1000
+        const usersSnapshot = await db.collection('users')
+            .where('credit', '==', 1000)
+            .get();
+
+        if (usersSnapshot.empty) {
+            console.log('✅ No se encontraron usuarios con 1000 créditos.');
+            res.status(200).json({
+                success: true,
+                message: 'No users found with 1000 credits.',
+                cleaned: 0,
+                dryRun: dryRun
+            });
+            return;
+        }
+
+        console.log(`   Encontrados ${usersSnapshot.size} usuarios con 1000 créditos.`);
+
+        const usersToClean: Array<{ uid: string; email: string; displayName: string }> = [];
+        const usersSkipped: Array<{ uid: string; reason: string }> = [];
+
+        // Verificar cada usuario
+        for (const userDoc of usersSnapshot.docs) {
+            const userData = userDoc.data();
+            const uid = userDoc.id;
+            const email = userData.email || 'N/A';
+            const displayName = userData.displayName || 'N/A';
+
+            // Verificar transacciones
+            const transactionsSnapshot = await db.collection('users')
+                .doc(uid)
+                .collection('transactions')
+                .get();
+
+            // Si no tiene transacciones, o solo tiene transacciones de "Welcome Bonus" o "system_refill"
+            const hasRealTransactions = transactionsSnapshot.docs.some(doc => {
+                const txData = doc.data();
+                const reason = txData.reason || '';
+                const type = txData.type || '';
+                
+                // Ignorar transacciones de bono de bienvenida o refill automático
+                return !reason.includes('Welcome Bonus') && 
+                       !reason.includes('Bankruptcy Protection Refill') &&
+                       type !== 'system_refill';
+            });
+
+            if (hasRealTransactions) {
+                usersSkipped.push({
+                    uid,
+                    reason: 'Tiene transacciones reales (no solo bono de bienvenida)'
+                });
+                console.log(`   ⏭️  Saltando ${email} (${displayName}): tiene transacciones reales`);
+            } else {
+                usersToClean.push({ uid, email, displayName });
+                console.log(`   ✅ Usuario a limpiar: ${email} (${displayName})`);
+            }
+        }
+
+        console.log(`\n📊 Resumen:`);
+        console.log(`   - Usuarios a limpiar: ${usersToClean.length}`);
+        console.log(`   - Usuarios saltados: ${usersSkipped.length}`);
+
+        if (usersToClean.length === 0) {
+            res.status(200).json({
+                success: true,
+                message: 'No users need cleaning. All users with 1000 credits have real transactions.',
+                cleaned: 0,
+                skipped: usersSkipped.length,
+                dryRun: dryRun
+            });
+            return;
+        }
+
+        // Ejecutar limpieza
+        if (!dryRun) {
+            const batch = db.batch();
+            let batchCount = 0;
+            const maxBatchSize = 500; // Firestore limit
+
+            for (const user of usersToClean) {
+                const userRef = db.collection('users').doc(user.uid);
+                batch.update(userRef, {
+                    credit: 0,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+                batchCount++;
+
+                // Firestore tiene límite de 500 operaciones por batch
+                if (batchCount >= maxBatchSize) {
+                    await batch.commit();
+                    batchCount = 0;
+                    console.log(`   💾 Batch de ${maxBatchSize} usuarios guardado...`);
+                }
+            }
+
+            // Commit del batch final si hay operaciones pendientes
+            if (batchCount > 0) {
+                await batch.commit();
+            }
+
+            console.log(`\n✅ LIMPIEZA COMPLETADA:`);
+            console.log(`   - Usuarios limpiados: ${usersToClean.length}`);
+            console.log(`   - Usuarios saltados: ${usersSkipped.length}`);
+        } else {
+            console.log(`\n🔍 DRY RUN - No se realizaron cambios`);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: dryRun 
+                ? 'Dry run completed. No changes made.' 
+                : 'Welcome bonus users cleaned successfully.',
+            cleaned: usersToClean.length,
+            skipped: usersSkipped.length,
+            dryRun: dryRun,
+            cleanedUsers: usersToClean.map(u => ({
+                uid: u.uid,
+                email: u.email,
+                displayName: u.displayName
+            })),
+            skippedUsers: usersSkipped
+        });
+
+    } catch (error: any) {
+        console.error('❌ Error en script de limpieza de bono de bienvenida:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Unknown error',
+            warning: 'Some users may have been cleaned. Check the logs.'
+        });
+    }
+});

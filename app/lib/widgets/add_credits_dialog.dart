@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/language_provider.dart';
+import '../providers/club_provider.dart';
 
 /// Dialog para solicitar créditos via Telegram
 /// El admin agrega los créditos manualmente en Firebase
@@ -41,7 +42,14 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
       String message;
       
       if (widget.isClubRequest) {
+        final clubProvider = context.read<ClubProvider>();
+        final myClub = clubProvider.myClub;
+        final clubId = myClub?['id'] ?? 'N/A';
+        final clubName = myClub?['name'] ?? 'N/A';
+
         message = 'Solicitud de Créditos a Staff del Club - Poker Imperial\n\n'
+            '  ClubId: $clubId\n'
+            '  Nombre del club: $clubName\n'
             '  Email: ${user.displayName ?? "N/A"}\n'
             '  UID: ${user.uid}\n'
             '  Monto: ${amount.toInt()} creditos\n\n'
@@ -58,7 +66,9 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
       await Clipboard.setData(ClipboardData(text: message));
 
       // Abrir Telegram
-      final Uri url = Uri.parse(AddCreditsDialog.telegramBotUrl);
+      final encodedMessage = Uri.encodeComponent(message);
+      final urlString = '${AddCreditsDialog.telegramBotUrl}?text=$encodedMessage';
+      final Uri url = Uri.parse(urlString);
       
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);

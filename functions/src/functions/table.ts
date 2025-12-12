@@ -1,6 +1,14 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 
+// Lazy initialization de Firestore para evitar timeout en deploy
+const getDb = () => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
+    return admin.firestore();
+};
+
 export const createPublicTable = functions.https.onCall(async (data, context) => {
     // 1. Validate Authentication
     if (!context.auth) {
@@ -204,27 +212,28 @@ interface CloseTableRequest {
 /**
  * PROCESS CASH OUT - Función Maestra de Transferencia
  * 
- * Esta función se ejecuta cuando un jugador sale o la mesa cierra.
+ * Esta función se ejecuta cuando la mesa cierra y procesa TODOS los jugadores.
  * Garantiza la integridad de los datos mediante transacciones atómicas.
  * 
- * PASO A: Cálculo
- * - Lee player.chips (Fichas en mesa)
- * - Si es > 0: Calcula Rake según tipo de sala
- *   * Privada: 100% Platform
- *   * Pública: Split 50-30-20 (Platform-Club-Seller)
- * - NetWinnings = player.chips - CalculatedRake
+ * CORRECCIONES CRÍTICAS:
+ * 1. Itera sobre TODOS los jugadores (no solo el current user)
+ * 2. Maneja correctamente perdedores: calcula LossAmount, actualiza chips a 0, crea GAME_LOSS con amount negativo
+ * 3. Acumula todo el rake y crea registro RAKE_COLLECTED en financial_ledger para el admin
+ * 4. Asegura que todos los jugadores queden con chips: 0 e inGame: false
  * 
- * PASO B: Transacción Atómica (OBLIGATORIO)
- * - User Update: credit = FieldValue.increment(NetWinnings)
- * - Clean Up: Cierra sesión en poker_sessions (status: 'completed')
- *   Esto elimina el indicador visual de "+X en mesa"
- * - Table Update: Pone el stack del jugador en 0
+ * PASO A: Iteración sobre todos los jugadores
+ * - Para cada jugador:
+ *   * Si chips > 0: Calcula Rake, NetWinnings, actualiza créditos
+ *   * Si chips == 0: Calcula LossAmount = buyInAmount, actualiza estado, crea GAME_LOSS
  * 
- * PASO C: Generación de Historial (Ledger)
- * - Escribe en financial_ledger:
- *   * Si NetWinnings > BuyIn: Tipo GAME_WIN (Color Verde)
- *   * Si NetWinnings < BuyIn: Tipo GAME_LOSS (Color Rojo)
- * - Incluye: amount, tableId, timestamp, rakePaid
+ * PASO B: Acumulación de Rake
+ * - Suma todo el rake recolectado de todos los jugadores
+ * - Distribuye según tipo de sala (Privada: 100% Platform, Pública: 50-30-20)
+ * - Crea registro RAKE_COLLECTED en financial_ledger
+ * 
+ * PASO C: Actualización de Mesa
+ * - Todos los jugadores quedan con chips: 0 e inGame: false
+ * - Mesa queda en estado 'inactive'
  */
 export const closeTableAndCashOut = async (data: CloseTableRequest, context: functions.https.CallableContext) => {
     // 1. Validación
@@ -237,285 +246,317 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
         throw new functions.https.HttpsError('invalid-argument', 'Missing tableId.');
     }
 
-    const db = admin.firestore();
-    const userId = context.auth.uid;
+    const db = getDb();
+    const timestamp = admin.firestore.FieldValue.serverTimestamp();
+    const RAKE_PERCENTAGE = 0.08;
 
     try {
+        // --- LECTURAS PRE-TRANSACCIÓN (para evitar queries dentro de la transacción) ---
+        
+        // 1. Leer Mesa
+        const tableRef = db.collection('poker_tables').doc(tableId);
+        const tableDoc = await tableRef.get();
+
+        if (!tableDoc.exists) {
+            throw new functions.https.HttpsError('not-found', 'Table not found.');
+        }
+
+        const tableData = tableDoc.data();
+        const players = Array.isArray(tableData?.players) ? [...tableData.players] : [];
+        const isPublic = tableData?.isPublic === true;
+        
+        if (players.length === 0) {
+            // Mesa vacía, solo cerrar
+            await tableRef.update({ status: 'inactive' });
+            return { success: true, message: 'Table closed (no players).' };
+        }
+
+        console.log(`[CASHOUT] Procesando cierre de mesa ${tableId} con ${players.length} jugadores`);
+
+        // 2. Leer todas las sesiones activas de la mesa ANTES de la transacción
+        const activeSessionsQuery = await db.collection('poker_sessions')
+            .where('roomId', '==', tableId)
+            .where('status', '==', 'active')
+            .get();
+        
+        // Crear mapa de userId -> sessionData para acceso rápido
+        const sessionMap = new Map<string, { ref: admin.firestore.DocumentReference, data: any }>();
+        activeSessionsQuery.docs.forEach(doc => {
+            const sessionData = doc.data();
+            const userId = sessionData.userId;
+            if (userId) {
+                sessionMap.set(userId, { ref: doc.ref, data: sessionData });
+            }
+        });
+
+        // 3. Leer todos los usuarios ANTES de la transacción
+        const userIds = players.map((p: any) => p.id);
+        const userDocs = await Promise.all(
+            userIds.map(id => db.collection('users').doc(id).get())
+        );
+        const userMap = new Map<string, { ref: admin.firestore.DocumentReference, data: any }>();
+        userDocs.forEach((doc, index) => {
+            if (doc.exists) {
+                userMap.set(userIds[index], { ref: doc.ref, data: doc.data() });
+            }
+        });
+
+        // --- EJECUTAR TRANSACCIÓN ---
         const result = await db.runTransaction(async (transaction) => {
-            // --- LECTURAS INICIALES ---
-            
-            // 1. Leer Mesa
-            const tableRef = db.collection('poker_tables').doc(tableId);
-            const tableDoc = await transaction.get(tableRef);
+            // Variables para acumular rake total
+            let totalRakeCollected = 0;
+            let totalPlatformShare = 0;
+            const clubRakeMap = new Map<string, number>(); // clubId -> amount
+            const sellerRakeMap = new Map<string, number>(); // sellerId -> amount
 
-            if (!tableDoc.exists) {
-                throw new functions.https.HttpsError('not-found', 'Table not found.');
-            }
+            // --- ITERAR SOBRE TODOS LOS JUGADORES ---
+            for (let i = 0; i < players.length; i++) {
+                const player = players[i];
+                const playerId = player.id;
+                const playerChips = Number(player.chips) || 0;
 
-            const tableData = tableDoc.data();
-            const players = Array.isArray(tableData?.players) ? [...tableData.players] : [];
-            
-            // 2. Buscar jugador en la mesa
-            const playerIndex = players.findIndex((p: any) => p.id === userId);
-            
-            if (playerIndex === -1) {
-                // Jugador no encontrado, pero puede tener sesión activa que necesita cerrarse
-                // Buscar y cerrar sesión activa si existe
-                const activeSessionQuery = await db.collection('poker_sessions')
-                    .where('userId', '==', userId)
-                    .where('roomId', '==', tableId)
-                    .where('status', '==', 'active')
-                    .limit(1)
-                    .get();
-                
-                if (!activeSessionQuery.empty) {
-                    const sessionDoc = activeSessionQuery.docs[0];
-                    transaction.update(sessionDoc.ref, {
-                        status: 'completed',
-                        endTime: admin.firestore.FieldValue.serverTimestamp()
-                    });
+                console.log(`[CASHOUT] Procesando jugador ${playerId} con ${playerChips} fichas`);
+
+                // 1. Obtener datos del usuario (ya leídos antes)
+                const userInfo = userMap.get(playerId);
+                if (!userInfo) {
+                    console.warn(`[CASHOUT] Usuario ${playerId} no encontrado, saltando...`);
+                    continue;
                 }
+
+                const userRef = userInfo.ref;
+                const userData = userInfo.data;
+                const userClubId = userData?.clubId;
+                const userSellerId = userData?.sellerId;
+
+                // 2. Obtener sesión activa (ya leída antes)
+                const sessionInfo = sessionMap.get(playerId);
+                let sessionRef: admin.firestore.DocumentReference | null = null;
+                let buyInAmount = 0;
                 
-                return { success: true, message: 'Player not found on table. Session closed if existed.' };
-            }
-
-            const player = players[playerIndex];
-            const playerChips = Number(player.chips) || 0;
-
-            // 3. Leer Usuario
-            const userRef = db.collection('users').doc(userId);
-            const userDoc = await transaction.get(userRef);
-            
-            if (!userDoc.exists) {
-                throw new functions.https.HttpsError('not-found', 'User not found.');
-            }
-
-            const userData = userDoc.data();
-            const userClubId = userData?.clubId;
-            const userSellerId = userData?.sellerId;
-
-            // 4. Buscar Sesión Activa del Jugador
-            const activeSessionQuery = await db.collection('poker_sessions')
-                .where('userId', '==', userId)
-                .where('roomId', '==', tableId)
-                .where('status', '==', 'active')
-                .limit(1)
-                .get();
-            
-            let sessionRef: admin.firestore.DocumentReference | null = null;
-            let buyInAmount = 0;
-            
-            if (!activeSessionQuery.empty) {
-                sessionRef = activeSessionQuery.docs[0].ref;
-                const sessionData = activeSessionQuery.docs[0].data();
-                buyInAmount = Number(sessionData.buyInAmount) || 0;
-            }
-
-            // --- PASO A: CÁLCULO DE RAKE Y NET WINNINGS ---
-            
-            if (playerChips === 0) {
-                // Sin fichas, solo limpiar
-                console.log(`[CASHOUT] Usuario ${userId} sale con 0 fichas. Solo limpieza.`);
-                
-                // LIMPIEZA DE ESTADO VISUAL incluso con 0 fichas
-                transaction.update(userRef, {
-                    currentTableId: admin.firestore.FieldValue.delete(),
-                    moneyInPlay: admin.firestore.FieldValue.delete()
-                });
-                
-                if (sessionRef) {
-                    transaction.update(sessionRef, {
-                        status: 'completed',
-                        endTime: admin.firestore.FieldValue.serverTimestamp(),
-                        currentChips: 0,
-                        netResult: 0
-                    });
+                if (sessionInfo) {
+                    sessionRef = sessionInfo.ref;
+                    buyInAmount = Number(sessionInfo.data.buyInAmount) || 0;
                 }
-                
-                // Crear registro en ledger incluso con 0 fichas (para historial completo)
-                const ledgerRef = db.collection('financial_ledger').doc();
-                const timestamp = admin.firestore.FieldValue.serverTimestamp();
-                transaction.set(ledgerRef, {
-                    type: 'GAME_LOSS',
-                    userId: userId,
+
+                // 3. Procesar según chips del jugador
+                if (playerChips === 0) {
+                    // PERDEDOR: Perdió todas sus fichas
+                    const lossAmount = buyInAmount; // Monto total perdido
+                    
+                    console.log(`[CASHOUT] Jugador ${playerId} PERDIÓ. Buy-in: ${buyInAmount}, Chips: ${playerChips}, Pérdida: -${lossAmount}`);
+
+                    // Actualizar estado del usuario: limpiar indicadores visuales
+                    transaction.update(userRef, {
+                        currentTableId: admin.firestore.FieldValue.delete(),
+                        moneyInPlay: admin.firestore.FieldValue.delete(),
+                        lastUpdated: timestamp
+                    });
+
+                    // Cerrar sesión
+                    if (sessionRef) {
+                        transaction.update(sessionRef, {
+                            status: 'completed',
+                            currentChips: 0,
+                            totalRakePaid: 0,
+                            netResult: 0,
+                            endTime: timestamp
+                        });
+                    }
+
+                    // Crear registro GAME_LOSS con amount negativo (FIX del -0)
+                    const lossLedgerRef = db.collection('financial_ledger').doc();
+                    transaction.set(lossLedgerRef, {
+                        type: 'GAME_LOSS',
+                        userId: playerId,
+                        tableId: tableId,
+                        amount: -lossAmount, // FIX: Monto negativo de la pérdida
+                        netAmount: -lossAmount,
+                        netProfit: -lossAmount, // Pérdida total vs buy-in
+                        grossAmount: playerChips,
+                        rakePaid: 0,
+                        buyInAmount: buyInAmount,
+                        timestamp: timestamp,
+                        description: `Cierre de Mesa ${tableId}. Pérdida Total: -${lossAmount} (Buy-in: ${buyInAmount}, Chips restantes: ${playerChips})`
+                    });
+
+                    // Actualizar jugador en la mesa: chips a 0
+                    players[i] = { ...player, chips: 0, inGame: false };
+
+                } else {
+                    // GANADOR O EMPATE: Tiene fichas, calcular rake y netWinnings
+                    const totalRake = Math.floor(playerChips * RAKE_PERCENTAGE);
+                    const netWinnings = playerChips - totalRake;
+                    totalRakeCollected += totalRake;
+
+                    console.log(`[CASHOUT] Jugador ${playerId} GANÓ. Chips: ${playerChips}, Rake: ${totalRake}, Net: ${netWinnings}`);
+
+                    // Determinar distribución de Rake según tipo de sala
+                    let platformShare = 0;
+                    let clubShare = 0;
+                    let sellerShare = 0;
+
+                    if (!isPublic) {
+                        // Mesa Privada: 100% Platform
+                        platformShare = totalRake;
+                    } else {
+                        // Mesa Pública: Split 50-30-20
+                        platformShare = Math.floor(totalRake * 0.50);
+                        clubShare = Math.floor(totalRake * 0.30);
+                        sellerShare = Math.floor(totalRake * 0.20);
+                        
+                        // Ajustar remainder a platform
+                        const remainder = totalRake - (platformShare + clubShare + sellerShare);
+                        platformShare += remainder;
+                    }
+
+                    // Acumular shares
+                    totalPlatformShare += platformShare;
+                    
+                    if (clubShare > 0) {
+                        if (userClubId) {
+                            const current = clubRakeMap.get(userClubId) || 0;
+                            clubRakeMap.set(userClubId, current + clubShare);
+                        } else {
+                            // Fallback a Platform
+                            totalPlatformShare += clubShare;
+                        }
+                    }
+
+                    if (sellerShare > 0) {
+                        if (userSellerId) {
+                            const current = sellerRakeMap.get(userSellerId) || 0;
+                            sellerRakeMap.set(userSellerId, current + sellerShare);
+                        } else if (userClubId) {
+                            // Fallback a Club
+                            const current = clubRakeMap.get(userClubId) || 0;
+                            clubRakeMap.set(userClubId, current + sellerShare);
+                        } else {
+                            // Fallback a Platform
+                            totalPlatformShare += sellerShare;
+                        }
+                    }
+
+                    // Actualizar crédito del usuario
+                    transaction.update(userRef, {
+                        credit: admin.firestore.FieldValue.increment(netWinnings),
+                        currentTableId: admin.firestore.FieldValue.delete(),
+                        moneyInPlay: admin.firestore.FieldValue.delete(),
+                        lastUpdated: timestamp
+                    });
+
+                    // Cerrar sesión
+                    if (sessionRef) {
+                        transaction.update(sessionRef, {
+                            status: 'completed',
+                            currentChips: playerChips,
+                            totalRakePaid: totalRake,
+                            netResult: netWinnings,
+                            endTime: timestamp
+                        });
+                    }
+
+                    // Determinar tipo de transacción según resultado
+                    const netProfit = netWinnings - buyInAmount;
+                    const ledgerType = netWinnings > buyInAmount ? 'GAME_WIN' : 'GAME_LOSS';
+
+                    // Crear entrada en financial_ledger
+                    const winLedgerRef = db.collection('financial_ledger').doc();
+                    transaction.set(winLedgerRef, {
+                        type: ledgerType,
+                        userId: playerId,
+                        tableId: tableId,
+                        amount: netWinnings,
+                        netAmount: netWinnings,
+                        netProfit: netProfit,
+                        grossAmount: playerChips,
+                        rakePaid: totalRake,
+                        buyInAmount: buyInAmount,
+                        timestamp: timestamp,
+                        description: `Cierre de Mesa ${tableId}. ${ledgerType === 'GAME_WIN' ? 'Ganancia' : 'Pérdida'} Neta: ${netProfit > 0 ? '+' : ''}${netProfit} (Recibido: ${netWinnings}, Rake: ${totalRake})`
+                    });
+
+                    // Actualizar jugador en la mesa: chips a 0
+                    players[i] = { ...player, chips: 0, inGame: false };
+                }
+            }
+
+            // --- DISTRIBUIR RAKE ACUMULADO ---
+            if (totalRakeCollected > 0) {
+                console.log(`[CASHOUT] Rake total recolectado: ${totalRakeCollected}`);
+
+                // Platform Share
+                if (totalPlatformShare > 0) {
+                    transaction.set(db.collection('system_stats').doc('economy'), {
+                        accumulated_rake: admin.firestore.FieldValue.increment(totalPlatformShare),
+                        lastUpdated: timestamp
+                    }, { merge: true });
+                    console.log(`[CASHOUT] Platform share: ${totalPlatformShare}`);
+                }
+
+                // Club Shares
+                for (const [clubId, amount] of clubRakeMap.entries()) {
+                    if (amount > 0) {
+                        transaction.update(db.collection('clubs').doc(clubId), {
+                            walletBalance: admin.firestore.FieldValue.increment(amount)
+                        });
+                        console.log(`[CASHOUT] Club ${clubId} share: ${amount}`);
+                    }
+                }
+
+                // Seller Shares
+                for (const [sellerId, amount] of sellerRakeMap.entries()) {
+                    if (amount > 0) {
+                        transaction.update(db.collection('users').doc(sellerId), {
+                            credit: admin.firestore.FieldValue.increment(amount)
+                        });
+                        console.log(`[CASHOUT] Seller ${sellerId} share: ${amount}`);
+                    }
+                }
+
+                // FIX CRÍTICO: Crear registro RAKE_COLLECTED en financial_ledger para el admin
+                const rakeLedgerRef = db.collection('financial_ledger').doc();
+                transaction.set(rakeLedgerRef, {
+                    type: 'RAKE_COLLECTED',
+                    userId: null, // Registro del sistema
                     tableId: tableId,
-                    amount: 0,
-                    netAmount: 0,
-                    netProfit: -buyInAmount, // Pérdida total del buy-in
-                    grossAmount: 0,
-                    rakePaid: 0,
-                    buyInAmount: buyInAmount,
+                    amount: totalRakeCollected,
+                    platformShare: totalPlatformShare,
+                    clubShares: Object.fromEntries(clubRakeMap),
+                    sellerShares: Object.fromEntries(sellerRakeMap),
                     timestamp: timestamp,
-                    description: `Retiro de Mesa ${tableId}. Pérdida Total: -${buyInAmount} (sin fichas restantes)`
+                    description: `Rake recolectado del cierre de Mesa ${tableId}. Total: ${totalRakeCollected} (Platform: ${totalPlatformShare}, Clubs: ${Array.from(clubRakeMap.values()).reduce((a, b) => a + b, 0)}, Sellers: ${Array.from(sellerRakeMap.values()).reduce((a, b) => a + b, 0)})`
                 });
-                
-                // Remover jugador de la mesa y poner chips en 0
-                players[playerIndex] = { ...player, chips: 0 };
-                const tableUpdate: any = { players: players };
-                if (players.length === 0) {
-                    tableUpdate.status = 'inactive';
-                }
-                transaction.update(tableRef, tableUpdate);
-                
-                console.log(`[CASHOUT] Cashout con 0 fichas completado. Registro en ledger creado.`);
-                
-                return { success: true, message: 'Zero balance cashout completed.' };
+                console.log(`[CASHOUT] Registro RAKE_COLLECTED creado: ${rakeLedgerRef.id}`);
             }
 
-            // Calcular Rake (8% del stack final)
-            const RAKE_PERCENTAGE = 0.08;
-            const totalRake = Math.floor(playerChips * RAKE_PERCENTAGE);
-            const netWinnings = playerChips - totalRake;
-
-            // Determinar distribución de Rake según tipo de sala
-            const isPublic = tableData?.isPublic === true;
-            
-            let platformShare = 0;
-            let clubShare = 0;
-            let sellerShare = 0;
-
-            if (!isPublic) {
-                // Mesa Privada: 100% Platform
-                platformShare = totalRake;
-            } else {
-                // Mesa Pública: Split 50-30-20
-                platformShare = Math.floor(totalRake * 0.50);
-                clubShare = Math.floor(totalRake * 0.30);
-                sellerShare = Math.floor(totalRake * 0.20);
-                
-                // Ajustar remainder a platform
-                const remainder = totalRake - (platformShare + clubShare + sellerShare);
-                platformShare += remainder;
-            }
-
-            // --- PASO B: TRANSACCIÓN ATÓMICA ---
-            
-            console.log(`[CASHOUT] Usuario: ${userId}, Mesa: ${tableId}`);
-            console.log(`[CASHOUT] Chips al salir: ${playerChips}`);
-            console.log(`[CASHOUT] Buy-in original: ${buyInAmount}`);
-            console.log(`[CASHOUT] Rake calculado: ${totalRake} (${(RAKE_PERCENTAGE * 100).toFixed(1)}%)`);
-            console.log(`[CASHOUT] Monto final (netWinnings): ${netWinnings}`);
-            
-            // 1. Actualizar crédito del usuario (OBLIGATORIO usar increment)
-            // CORRECCIÓN CRÍTICA: Sumar netWinnings (lo que tiene AHORA menos rake), NO buyInAmount
-            transaction.update(userRef, {
-                credit: admin.firestore.FieldValue.increment(netWinnings),
-                // LIMPIEZA DE ESTADO VISUAL - Elimina el indicador "+X en mesa"
-                currentTableId: admin.firestore.FieldValue.delete(),
-                moneyInPlay: admin.firestore.FieldValue.delete()
-            });
-            
-            console.log(`[CASHOUT] Crédito actualizado: +${netWinnings} al saldo del usuario`);
-
-            // 2. Cerrar sesión en poker_sessions (ELIMINA indicador visual)
-            if (sessionRef) {
-                transaction.update(sessionRef, {
-                    status: 'completed',
-                    currentChips: playerChips,
-                    totalRakePaid: totalRake,
-                    netResult: netWinnings, // Guardar resultado neto para referencia
-                    endTime: admin.firestore.FieldValue.serverTimestamp()
-                });
-                console.log(`[CASHOUT] Sesión cerrada: ${sessionRef.id}`);
-            }
-
-            // 3. Actualizar mesa: poner stack del jugador en 0 y remover
-            players[playerIndex] = { ...player, chips: 0 };
-            const tableUpdate: any = { players: players };
-            if (players.length === 0) {
-                tableUpdate.status = 'inactive';
-            }
+            // --- ACTUALIZAR MESA: Todos los jugadores con chips: 0 e inGame: false ---
+            const tableUpdate: any = {
+                players: players.map((p: any) => ({ ...p, chips: 0, inGame: false })),
+                status: 'inactive'
+            };
             transaction.update(tableRef, tableUpdate);
 
-            // 4. Distribuir Rake
-            const timestamp = admin.firestore.FieldValue.serverTimestamp();
+            console.log(`[CASHOUT] Mesa ${tableId} cerrada. Todos los jugadores procesados.`);
 
-            // Platform Share
-            if (platformShare > 0) {
-                transaction.set(db.collection('system_stats').doc('economy'), {
-                    accumulated_rake: admin.firestore.FieldValue.increment(platformShare)
-                }, { merge: true });
-            }
-
-            // Club Share
-            if (clubShare > 0) {
-                if (userClubId) {
-                    transaction.update(db.collection('clubs').doc(userClubId), {
-                        walletBalance: admin.firestore.FieldValue.increment(clubShare)
-                    });
-                } else {
-                    // Fallback a Platform
-                    transaction.set(db.collection('system_stats').doc('economy'), {
-                        accumulated_rake: admin.firestore.FieldValue.increment(clubShare)
-                    }, { merge: true });
-                }
-            }
-
-            // Seller Share
-            if (sellerShare > 0) {
-                if (userSellerId) {
-                    transaction.update(db.collection('users').doc(userSellerId), {
-                        credit: admin.firestore.FieldValue.increment(sellerShare)
-                    });
-                } else if (userClubId) {
-                    // Fallback a Club si no hay Seller
-                    transaction.update(db.collection('clubs').doc(userClubId), {
-                        walletBalance: admin.firestore.FieldValue.increment(sellerShare)
-                    });
-                } else {
-                    // Fallback a Platform
-                    transaction.set(db.collection('system_stats').doc('economy'), {
-                        accumulated_rake: admin.firestore.FieldValue.increment(sellerShare)
-                    }, { merge: true });
-                }
-            }
-
-            // --- PASO C: GENERACIÓN DE HISTORIAL (LEDGER) ---
-            
-            // Determinar tipo de transacción según resultado
-            const netProfit = netWinnings - buyInAmount; // Ganancia/Pérdida neta vs buy-in
-            const ledgerType = netWinnings > buyInAmount ? 'GAME_WIN' : 'GAME_LOSS';
-            
-            console.log(`[CASHOUT] Tipo de transacción: ${ledgerType}`);
-            console.log(`[CASHOUT] Ganancia/Pérdida neta: ${netProfit > 0 ? '+' : ''}${netProfit}`);
-            
-            // Crear entrada en financial_ledger (OBLIGATORIO - nunca debe estar vacío)
-            const ledgerRef = db.collection('financial_ledger').doc();
-            transaction.set(ledgerRef, {
-                type: ledgerType,
-                userId: userId,
-                tableId: tableId,
-                amount: netWinnings, // Monto final recibido
-                netAmount: netWinnings, // Alias para consistencia
-                netProfit: netProfit, // Ganancia/Pérdida vs buy-in original
-                grossAmount: playerChips, // Fichas antes del rake
-                rakePaid: totalRake,
-                buyInAmount: buyInAmount,
-                timestamp: timestamp,
-                description: `Retiro de Mesa ${tableId}. ${ledgerType === 'GAME_WIN' ? 'Ganancia' : 'Pérdida'} Neta: ${netProfit > 0 ? '+' : ''}${netProfit} (Recibido: ${netWinnings}, Rake: ${totalRake})`
-            });
-            
-            console.log(`[CASHOUT] Registro creado en financial_ledger: ${ledgerRef.id}`);
-
-            return { 
-                success: true, 
-                netWinnings,
-                grossAmount: playerChips,
-                rakePaid: totalRake,
-                ledgerType
+            return {
+                success: true,
+                playersProcessed: players.length,
+                totalRakeCollected: totalRakeCollected,
+                message: `Table closed. ${players.length} players processed.`
             };
         });
 
         return result;
 
     } catch (error: any) {
-        console.error('Error en processCashOut:', error);
+        console.error('Error en closeTableAndCashOut:', error);
         
         // Si es un error de Firestore conocido, propagarlo
         if (error instanceof functions.https.HttpsError) {
             throw error;
         }
         
-        throw new functions.https.HttpsError('internal', `Failed to cash out: ${error.message || 'Unknown error'}`);
+        throw new functions.https.HttpsError('internal', `Failed to close table and cash out: ${error.message || 'Unknown error'}`);
     }
 };

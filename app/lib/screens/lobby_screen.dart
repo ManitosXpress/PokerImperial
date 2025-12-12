@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../providers/auth_provider.dart' as app_auth;
 import '../providers/language_provider.dart';
 import '../services/socket_service.dart';
@@ -412,7 +411,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     },
                                   ),
                                   
-                                  // Admin Button (solo si ya es admin)
+                                  // Admin Button
                                   Consumer<ClubProvider>(
                                     builder: (context, clubProvider, _) {
                                       if (clubProvider.currentUserRole == 'admin') {
@@ -792,5 +791,4 @@ class _LobbyScreenState extends State<LobbyScreen> {
       ),
     );
   }
-
 }
