@@ -2,7 +2,13 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { v4 as uuidv4 } from 'uuid';
 
-const db = admin.firestore();
+// Lazy initialization de Firestore para evitar timeout en deploy
+const getDb = () => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
+    return admin.firestore();
+};
 
 // Create an invitation link
 export const createClubInvite = async (data: any, context: functions.https.CallableContext) => {
@@ -27,7 +33,7 @@ export const createClubInvite = async (data: any, context: functions.https.Calla
         // We assume the caller is a club owner. We need to find the club they own.
         // Option A: Pass clubId in data. Option B: Query clubs where ownerId == callerId.
         // Let's use Option B for security, or verify Option A.
-        const clubsQuery = await db.collection('clubs').where('ownerId', '==', callerId).limit(1).get();
+        const clubsQuery = await getDb().collection('clubs').where('ownerId', '==', callerId).limit(1).get();
 
         if (clubsQuery.empty) {
             throw new functions.https.HttpsError('permission-denied', 'You do not own a club.');
@@ -41,7 +47,7 @@ export const createClubInvite = async (data: any, context: functions.https.Calla
         const token = uuidv4();
 
         // 5. Save Invitation
-        await db.collection('invitations').doc(token).set({
+        await getDb().collection('invitations').doc(token).set({
             token,
             clubId,
             clubName,
@@ -80,7 +86,7 @@ export const completeInvitationRegistration = async (data: any, context: functio
 
     try {
         // 1. Validate Token
-        const inviteRef = db.collection('invitations').doc(token);
+        const inviteRef = getDb().collection('invitations').doc(token);
         const inviteDoc = await inviteRef.get();
 
         if (!inviteDoc.exists) {
@@ -105,7 +111,7 @@ export const completeInvitationRegistration = async (data: any, context: functio
         });
 
         // 3. Create Firestore User with Role
-        await db.collection('users').doc(userRecord.uid).set({
+        await getDb().collection('users').doc(userRecord.uid).set({
             uid: userRecord.uid,
             email,
             displayName,
@@ -124,7 +130,7 @@ export const completeInvitationRegistration = async (data: any, context: functio
         });
 
         // 5. Update Club Member Count (Optional but good)
-        await db.collection('clubs').doc(inviteData.clubId).update({
+        await getDb().collection('clubs').doc(inviteData.clubId).update({
             memberCount: admin.firestore.FieldValue.increment(1)
         });
 

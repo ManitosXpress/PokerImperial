@@ -6,8 +6,6 @@ import '../../widgets/club_request_modal.dart';
 import 'club_tournaments_screen.dart';
 import 'club_leaderboard_screen.dart';
 import 'tabs/live_tables_tab.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../widgets/poker_loading_indicator.dart';
 import '../../widgets/club_owner_dashboard.dart';
@@ -376,16 +374,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
 
 
   void _showJoinClubDialog(BuildContext context, String clubId, String clubName) async {
-    // ... existing implementation ...
-     final user = FirebaseAuth.instance.currentUser;
+    final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // Get club details to obtain ownerId
     final clubProvider = Provider.of<ClubProvider>(context, listen: false);
-    final club = clubProvider.clubs.firstWhere((c) => c['id'] == clubId, orElse: () => {});
-    final ownerId = club['ownerId'] ?? 'N/A';
-
-    final creditsController = TextEditingController();
 
     showDialog(
       context: context,
@@ -398,12 +390,12 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '¡Solicita unirte a este Club!',
+                '¡Únete a este Club!',
                 style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 18),
               ),
               const SizedBox(height: 16),
               const Text(
-                'Al enviar esta solicitud, el administrador del club recibirá tu petición y podrá aprobarte.',
+                'Al unirte a este club, podrás participar inmediatamente en las mesas y torneos del club.',
                 style: TextStyle(color: Colors.white70),
               ),
               const SizedBox(height: 16),
@@ -413,29 +405,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
               ),
               const SizedBox(height: 4),
               const Text(
-                'Una vez aprobado, podrás participar en las mesas y torneos del club.',
+                'Una vez que te unas, tendrás acceso completo a todas las funcionalidades del club.',
                 style: TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: creditsController,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Créditos a Cargar',
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  hintText: 'Ej: 10000',
-                  hintStyle: const TextStyle(color: Colors.white38),
-                  enabledBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white24),
-                  ),
-                  focusedBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFFFFD700)),
-                  ),
-                  prefixIcon: const Icon(Icons.monetization_on, color: Color(0xFFFFD700)),
-                  suffixText: 'créditos',
-                  suffixStyle: const TextStyle(color: Color(0xFFFFD700)),
-                ),
               ),
             ],
           ),
@@ -443,56 +414,23 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
         actions: [
           TextButton(
             onPressed: () {
-              creditsController.dispose();
               Navigator.pop(context);
             },
             child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
             onPressed: () async {
-              final credits = creditsController.text.trim();
-              if (credits.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Por favor ingresa la cantidad de créditos')),
-                );
-                return;
-              }
-
               Navigator.pop(context); // Close dialog
-              creditsController.dispose();
               
-              // Generate the message
-              final message = '''
-🤝 Solicitud de Ingreso a Club
-
-🏢 Datos del Club Destino
-🆔 Club ID: $clubId
-👑 Owner ID: $ownerId
-
-👤 Datos del Solicitante
-🆔 Usuario ID: ${user.uid}
-📧 Email: ${user.email ?? 'No email'}
-📱 Nombre: ${user.displayName ?? 'Sin nombre'}
-💰 Créditos: $credits
-
-This message was sent automatically with n8n''';
-
-              final encodedMessage = Uri.encodeComponent(message);
-              final urlString = 'https://t.me/AgenteBingobot?text=$encodedMessage';
-              final url = Uri.parse(urlString);
-
               try {
-                // Copy message to clipboard
-                await Clipboard.setData(ClipboardData(text: message));
+                // Join club directly
+                await clubProvider.joinClub(clubId);
                 
-                // Open Telegram
-                await launchUrl(url, mode: LaunchMode.externalApplication);
-                
-                // Show confirmation
+                // Show success message
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('✅ Mensaje copiado al portapapeles y enviado a Telegram'),
+                      content: Text('✅ Te has unido al club exitosamente'),
                       backgroundColor: Colors.green,
                       duration: Duration(seconds: 3),
                     ),
@@ -501,7 +439,10 @@ This message was sent automatically with n8n''';
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('No se pudo abrir Telegram: $e')),
+                    SnackBar(
+                      content: Text('Error al unirse al club: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ),
                   );
                 }
               }
@@ -510,7 +451,7 @@ This message was sent automatically with n8n''';
               backgroundColor: const Color(0xFFFFD700),
               foregroundColor: Colors.black,
             ),
-            child: const Text('Enviar Solicitud'),
+            child: const Text('Entrar al Club'),
           ),
         ],
       ),

@@ -229,42 +229,62 @@ export class PokerGame {
      * checkActivePlayers
      * Checks if only one player remains and triggers Walkover Victory.
      * Called on removePlayer or kickPlayer.
+     * 
+     * BUG FIX: Ahora detecta correctamente cuando solo queda un jugador activo
+     * y ejecuta forceGameEnd() + closeTableAndCashOut() automáticamente
      */
     private checkActivePlayers() {
-        // If we only have 1 active player left (survivor) and the game is effectively running
-        // Note: activePlayers includes players in the current hand.
-        // If players.length is 1, it means everyone else left the table completely.
-        
-        if (this.players.length === 1) {
-            console.log('🏆 Walkover Condition Met: Only 1 player remaining in the room.');
-            const winner = this.players[0];
+        // Verificar jugadores activos (no retirados, no esperando rebuy)
+        const activePlayers = this.players.filter(p => 
+            p.status !== 'WAITING_FOR_REBUY' && 
+            p.status !== 'ELIMINATED' &&
+            (p.chips > 0 || p.isBot) // Incluir bots o jugadores con fichas
+        );
+
+        // BUG FIX: Si solo queda 1 jugador activo, es victoria inmediata
+        if (activePlayers.length === 1) {
+            console.log('🏆 Last Man Standing Condition Met: Only 1 active player remaining.');
+            const winner = activePlayers[0];
             
-            // Stop any timers
+            // Detener cualquier timer activo
             if (this.turnTimer) {
                 clearTimeout(this.turnTimer);
                 this.turnTimer = null;
             }
 
-            // Award Current Pot to Winner (if any)
+            // Invalidar turno actual
+            this.currentTurnIndex = -1;
+
+            // Force Game End: Otorgar bote actual al ganador
             if (this.pot > 0) {
-                console.log(`Giving abandoned pot of ${this.pot} to ${winner.name}`);
+                console.log(`💰 Otorgando bote de ${this.pot} fichas a ${winner.name} (Last Man Standing)`);
                 winner.chips += this.pot;
                 this.pot = 0;
             }
 
-            // Emit Victory Event
+            // Emit Victory Event con reason 'last_man_standing' para que RoomManager cierre la mesa
             if (this.onSystemEvent) {
                 this.onSystemEvent('game_finished', { 
-                    winnerId: winner.id, 
-                    reason: 'walkover',
-                    message: "¡Ganaste! Todos los rivales se retiraron."
+                    winnerId: winner.id,
+                    winnerUid: winner.uid, // Incluir UID si está disponible
+                    reason: 'last_man_standing', // Cambiado de 'walkover' a 'last_man_standing'
+                    message: "¡Ganaste! Todos los rivales se retiraron o se quedaron sin fichas.",
+                    finalChips: winner.chips,
+                    totalRakePaid: winner.totalRakePaid || 0
                 });
-                
-                // Trigger Cashout immediately
-                // The server/RoomManager listens to 'game_finished' and calls closeTableAndCashOut
             }
             
             // Reset state
+            this.activePlayers = [];
+            this.round = 'pre-flop';
+            
+            // Nota: closeTableAndCashOut será llamado por RoomManager al recibir el evento 'game_finished'
+            return;
+        }
+
+        // Si hay 0 jugadores activos, la mesa está vacía (ya se maneja en RoomManager)
+        if (activePlayers.length === 0) {
+            console.log('⚠️ No hay jugadores activos en la mesa.');
             this.activePlayers = [];
             this.round = 'pre-flop';
         }
@@ -398,6 +418,26 @@ export class PokerGame {
         this.nextTurn();
     }
 
+    /**
+     * Verifica si todos los jugadores activos (o todos menos uno) están en estado ALL_IN
+     * Esto indica que debemos saltar automáticamente al showdown sin pedir más acciones
+     */
+    private areAllPlayersAllIn(): boolean {
+        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
+        
+        // Si solo queda un jugador, no es all-in, es victoria directa
+        if (activeNonFolded.length <= 1) {
+            return false;
+        }
+        
+        // Contar jugadores con fichas (que pueden actuar)
+        const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
+        
+        // Si hay 0 o 1 jugador con fichas, todos los demás están all-in
+        // Esto significa que debemos saltar al showdown automáticamente
+        return playersWithChips.length <= 1;
+    }
+
     private nextTurn() {
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
         const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
@@ -408,6 +448,13 @@ export class PokerGame {
         // 1. Verificar si solo queda un jugador (todos los demás se retiraron)
         if (activeNonFolded.length <= 1) {
             this.revealAllCardsAndShowdown();
+            return;
+        }
+
+        // 2. NUEVO: Verificar si todos están all-in (BUG FIX: All-In Automático)
+        if (this.areAllPlayersAllIn()) {
+            console.log('🔥 Todos los jugadores están ALL-IN. Saltando automáticamente al showdown...');
+            this.autoAdvanceToShowdown();
             return;
         }
 
@@ -535,6 +582,66 @@ export class PokerGame {
         this.startTurnTimer();
     }
 
+    /**
+     * Auto-avanza al showdown cuando todos los jugadores están all-in
+     * Reparte las cartas restantes secuencialmente y calcula el ganador
+     */
+    private autoAdvanceToShowdown() {
+        // Detener cualquier timer activo
+        if (this.turnTimer) {
+            clearTimeout(this.turnTimer);
+            this.turnTimer = null;
+        }
+
+        // Invalidar turno actual para evitar más acciones
+        this.currentTurnIndex = -1;
+
+        console.log(`🎴 Auto-repartiendo cartas comunitarias restantes... (Ronda actual: ${this.round})`);
+
+        // Repartir cartas restantes secuencialmente
+        const cardsToDeal: string[] = [];
+        let targetRound: 'flop' | 'turn' | 'river' | 'showdown' = 'showdown';
+
+        if (this.round === 'pre-flop') {
+            // Repartir Flop, Turn y River
+            cardsToDeal.push(...this.deal(3)); // Flop
+            cardsToDeal.push(...this.deal(1)); // Turn
+            cardsToDeal.push(...this.deal(1)); // River
+            targetRound = 'showdown';
+        } else if (this.round === 'flop') {
+            // Repartir Turn y River
+            cardsToDeal.push(...this.deal(1)); // Turn
+            cardsToDeal.push(...this.deal(1)); // River
+            targetRound = 'showdown';
+        } else if (this.round === 'turn') {
+            // Repartir River
+            cardsToDeal.push(...this.deal(1)); // River
+            targetRound = 'showdown';
+        } else if (this.round === 'river') {
+            // Ya estamos en river, solo evaluar
+            targetRound = 'showdown';
+        }
+
+        // Agregar cartas al mazo comunitario
+        if (cardsToDeal.length > 0) {
+            this.communityCards.push(...cardsToDeal);
+            console.log(`✅ Cartas repartidas: ${cardsToDeal.join(', ')}`);
+        }
+
+        // Actualizar estado del juego para que el frontend pueda animar las cartas
+        if (this.onGameStateChange) {
+            this.onGameStateChange(this.getGameState());
+        }
+
+        // Avanzar al showdown y evaluar ganador
+        // Usar un pequeño delay para que el frontend pueda mostrar las cartas
+        setTimeout(() => {
+            this.round = 'showdown';
+            console.log('🏆 Evaluando ganador en showdown automático...');
+            this.evaluateWinner();
+        }, 1500); // Delay de 1.5s para animación en frontend
+    }
+
     private revealAllCardsAndShowdown() {
         // Catch errors here to prevent freezing
         try {
@@ -598,6 +705,14 @@ export class PokerGame {
                 this.round = 'showdown';
                 this.evaluateWinner();
                 return;
+        }
+        
+        // BUG FIX: Verificar si todos están all-in después de repartir cartas
+        // Si todos están all-in, saltar automáticamente al showdown sin pedir más acciones
+        if (this.areAllPlayersAllIn()) {
+            console.log('🔥 Todos los jugadores están ALL-IN después de repartir cartas. Saltando al showdown...');
+            this.autoAdvanceToShowdown();
+            return;
         }
         
         if (this.onGameStateChange) {

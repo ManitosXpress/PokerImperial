@@ -1,12 +1,18 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 
-const db = admin.firestore();
+// Lazy initialization de Firestore para evitar timeout en deploy
+const getDb = () => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
+    return admin.firestore();
+};
 
 export const onUserCreate = functions.auth.user().onCreate(async (user) => {
     const { uid, email, displayName, photoURL } = user;
 
-    const userRef = db.collection('users').doc(uid);
+    const userRef = getDb().collection('users').doc(uid);
 
     try {
         const doc = await userRef.get();

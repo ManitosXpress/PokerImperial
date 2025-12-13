@@ -295,10 +295,32 @@ export class RoomManager {
         game.onSystemEvent = async (event, data) => {
             console.log(`🔧 System Event in Room ${roomId}: ${event}`, data);
             
-            if (event === 'game_finished' && data.reason === 'last_man_standing') {
-                // Close table and cash out
-                console.log(`🏆 Last Man Standing: ${data.winnerId}. Closing table.`);
-                await this.closeTableAndCashOut(roomId);
+            // BUG FIX: Manejar correctamente el evento game_finished para Last Man Standing
+            if (event === 'game_finished') {
+                if (data.reason === 'last_man_standing' || data.reason === 'walkover') {
+                    // Close table and cash out
+                    console.log(`🏆 Last Man Standing/Walkover: ${data.winnerId}. Cerrando mesa y liquidando fichas...`);
+                    
+                    // Emitir evento de victoria al cliente antes de cerrar
+                    if (this.emitCallback) {
+                        this.emitCallback(roomId, 'hand_winner', {
+                            type: 'game_finished',
+                            winner: {
+                                id: data.winnerId,
+                                name: room.players.find(p => p.id === data.winnerId)?.name || 'Ganador',
+                                amount: data.finalChips || 0,
+                                reason: data.reason
+                            },
+                            message: data.message || "¡Ganaste! Todos los rivales se retiraron.",
+                            gameState: game.getGameState()
+                        });
+                    }
+                    
+                    // Pequeño delay para que el cliente muestre la pantalla de victoria
+                    setTimeout(async () => {
+                        await this.closeTableAndCashOut(roomId);
+                    }, 3000); // 3 segundos para mostrar la victoria
+                }
             }
             
             if (event === 'player_needs_rebuy') {
@@ -314,26 +336,10 @@ export class RoomManager {
                 // Get player info for cashout/session end
                 const player = room.players.find(p => p.id === playerId);
                 if (player) {
-                    // Force leave logic
-                    // We need to trigger the same logic as disconnect in index.ts
-                    // But here we are in RoomManager.
-                    // We can remove player and emit 'player_kicked'.
-                    // The actual session end is handled in removePlayer return in index.ts 
-                    // BUT index.ts calls removePlayer on disconnect.
-                    // Here we initiate it.
-                    
-                    // We need to notify index.ts or handle it here?
-                    // RoomManager shouldn't handle DB directly ideally, but we imported endPokerSession.
-                    // Let's handle session end here if we kick them.
-                    
+                    // Remover jugador del juego
                     this.removePlayer(playerId);
                     
-                    // Note: We don't have the UID easily here unless we store it on Player (we should have).
-                    // But assuming we can just remove them from room, and index.ts won't know?
-                    // Index.ts listens to socket disconnect.
-                    // Kick means we should tell socket to disconnect OR force end session.
-                    
-                    // For now, let's just emit 'force_disconnect' to the socket room?
+                    // Notificar al cliente
                     if (this.emitCallback) {
                         this.emitCallback(roomId, 'force_disconnect', { playerId });
                     }
@@ -351,70 +357,88 @@ export class RoomManager {
         return game.getGameState();
     }
     
-    // --- NEW: CLOSE TABLE AND CASH OUT ---
+    // --- CLOSE TABLE AND CASH OUT ---
+    // BUG FIX: Función mejorada para cerrar mesa y liquidar fichas a créditos reales
     public async closeTableAndCashOut(roomId: string) {
         const room = this.rooms.get(roomId);
-        if (!room) return;
+        if (!room) {
+            console.warn(`⚠️ Intento de cerrar mesa inexistente: ${roomId}`);
+            return;
+        }
 
-        console.log(`🔒 Closing table ${roomId} and cashing out all players.`);
+        console.log(`🔒 Cerrando mesa ${roomId} y liquidando fichas de todos los jugadores...`);
         
-        // Notify clients
+        // Notify clients que la mesa se cerrará
         if (this.emitCallback) {
-            this.emitCallback(roomId, 'room_closed', { reason: 'Game Finished' });
+            this.emitCallback(roomId, 'room_closed', { 
+                reason: 'Game Finished - Last Man Standing',
+                message: 'La partida ha terminado. Las fichas se están convirtiendo a créditos...'
+            });
         }
 
         // Process Cash Out for all players
+        const cashOutPromises: Promise<void>[] = [];
+        
         for (const player of room.players) {
             if (player.pokerSessionId && !player.isBot) {
-                // We need UID. We assumed hostId is UID, but for regular players?
-                // We need to fetch it from session or it should have been on Player object.
-                // In index.ts we didn't add UID to Player object explicitly, 
-                // but we have pokerSessionId. 
-                // endPokerSession takes UID.
-                // We have a problem: we need UID to cash out.
+                // Intentar obtener UID del jugador
+                const uid = player.uid;
                 
-                // Workaround: We can look up the session in Firestore to get the UID?
-                // Or better, update Player interface to include `uid`.
-                // For now, I will assume we can't easily get UID here without it being on Player.
-                // BUT, `endPokerSession` uses `uid` to find the user doc.
-                
-                // Let's assume we can't do full cashout HERE without refactoring Player to have UID.
-                // However, the prompt asks for `closeTableAndCashOut`.
-                
-                // I will add `uid` to Player interface in types.ts (done implicitly? no)
-                // I'll add `uid` to Player in `createRoom`/`joinRoom` in next iteration or assum it exists.
-                // Wait, I can't add it now without breaking types.
-                
-                // Actually, `endPokerSession` updates `poker_sessions` doc. 
-                // It also updates `users` doc.
-                // If we have sessionId, we can find the doc in Firestore.
-                // But `endPokerSession` signature requires `uid`.
-                
-                // Let's try to pass `player.id` as `uid`? 
-                // No, player.id is socket.id.
-                
-                // Correct approach: Update Player type to include `uid` (Firebase UID).
-                // I'll do that in a separate tool call if needed, but for now
-                // let's assume we can't finish this part perfectly without the UID.
-                // Wait! In `index.ts`, `room.hostId` is UID.
-                // But for other players?
-                
-                // FIX: I will add `uid` to Player interface in `types.ts` effectively now by treating it as `any` or extending.
-                // Actually I already edited `types.ts` in previous turn? 
-                // I added `status`. I did NOT add `uid`.
-                
-                // I will assume `player` object MIGHT have `uid` if I update index.ts to put it there.
-                // For this step, I will execute the logic assuming `player['uid']` exists or log error.
-                
-                if ((player as any).uid) {
-                     await endPokerSession((player as any).uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, 0);
+                if (uid) {
+                    console.log(`💰 Liquidando fichas de ${player.name} (UID: ${uid}): ${player.chips} fichas`);
+                    
+                    const cashOutPromise = endPokerSession(
+                        uid, 
+                        player.pokerSessionId, 
+                        player.chips, 
+                        player.totalRakePaid || 0, 
+                        0 // exitFee = 0 para victoria
+                    ).then((result) => {
+                        console.log(`✅ ${player.name} liquidado exitosamente`);
+                        return; // Convertir Promise<boolean> a Promise<void>
+                    }).catch((error) => {
+                        console.error(`❌ Error al liquidar ${player.name}:`, error);
+                    });
+                    
+                    cashOutPromises.push(cashOutPromise);
                 } else {
-                    console.warn(`⚠️ Cannot cash out player ${player.name} (ID: ${player.id}) - Missing UID`);
+                    console.warn(`⚠️ No se puede liquidar jugador ${player.name} (ID: ${player.id}) - Falta UID`);
+                    // Intentar usar hostId como fallback si el jugador es el host
+                    if (player.id === room.hostId) {
+                        console.log(`🔄 Intentando usar hostId como UID para ${player.name}`);
+                        const cashOutPromise = endPokerSession(
+                            room.hostId!, 
+                            player.pokerSessionId, 
+                            player.chips, 
+                            player.totalRakePaid || 0, 
+                            0
+                        ).then(() => {
+                            return; // Convertir Promise<boolean> a Promise<void>
+                        }).catch((error) => {
+                            console.error(`❌ Error al liquidar con hostId:`, error);
+                        });
+                        cashOutPromises.push(cashOutPromise);
+                    }
                 }
+            } else if (player.isBot) {
+                console.log(`🤖 Bot ${player.name} - No requiere liquidación`);
+            } else {
+                console.warn(`⚠️ Jugador ${player.name} no tiene pokerSessionId - No se puede liquidar`);
             }
         }
 
-        this.deleteRoom(roomId);
+        // Esperar a que todas las liquidaciones se completen
+        try {
+            await Promise.all(cashOutPromises);
+            console.log(`✅ Todas las liquidaciones completadas para mesa ${roomId}`);
+        } catch (error) {
+            console.error(`❌ Error durante liquidaciones de mesa ${roomId}:`, error);
+        }
+
+        // Eliminar la sala después de un breve delay para asegurar que los mensajes se envíen
+        setTimeout(() => {
+            this.deleteRoom(roomId);
+        }, 1000);
     }
 
     public handleGameAction(roomId: string, playerId: string, action: 'bet' | 'call' | 'fold' | 'check', amount?: number) {

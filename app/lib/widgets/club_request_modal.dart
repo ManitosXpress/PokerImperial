@@ -58,8 +58,6 @@ class _ClubRequestModalState extends State<ClubRequestModal> {
     final logoUrl = _logoUrlController.text.trim();
     final credits = _creditsController.text.trim();
     
-    // ... (omitted logic)
-
     // TELEGRAM INTEGRATION - ENABLED
     // Pre-formatted message for Telegram (keeping this in Spanish as it's for the bot/admin, or should it be localized? Admin likely speaks Spanish. Keeping as is.)
     final message = '🎰 Solicitud de Nuevo Club\n\n'

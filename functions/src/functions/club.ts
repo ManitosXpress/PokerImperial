@@ -162,6 +162,66 @@ export const ownerCreateMember = async (data: any, context: functions.https.Call
 };
 
 /**
+ * leaveClub
+ * Removes a user from a club.
+ */
+export const leaveClub = async (data: any, context: functions.https.CallableContext) => {
+    const db = admin.firestore();
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
+    }
+
+    const userId = context.auth.uid;
+    
+    // Get user's current clubId
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+        throw new functions.https.HttpsError('not-found', 'User not found.');
+    }
+
+    const userData = userDoc.data();
+    const clubId = userData?.clubId;
+    
+    if (!clubId) {
+        throw new functions.https.HttpsError('failed-precondition', 'User is not a member of any club.');
+    }
+
+    const clubRef = db.collection('clubs').doc(clubId);
+
+    await db.runTransaction(async (transaction) => {
+        const clubDoc = await transaction.get(clubRef);
+        if (!clubDoc.exists) {
+            throw new functions.https.HttpsError('not-found', 'Club not found.');
+        }
+
+        const clubData = clubDoc.data();
+        
+        // Check if user is the owner
+        if (clubData?.ownerId === userId) {
+            throw new functions.https.HttpsError('permission-denied', 'Club owner cannot leave the club. Transfer ownership first.');
+        }
+
+        // Check if user is a member
+        if (!clubData?.members || !clubData.members.includes(userId)) {
+            throw new functions.https.HttpsError('failed-precondition', 'User is not a member of this club.');
+        }
+
+        // Remove user from club members
+        transaction.update(clubRef, {
+            members: admin.firestore.FieldValue.arrayRemove(userId),
+            memberCount: admin.firestore.FieldValue.increment(-1)
+        });
+
+        // Remove clubId from user document
+        transaction.update(db.collection('users').doc(userId), {
+            clubId: admin.firestore.FieldValue.delete()
+        });
+    });
+
+    return { success: true };
+};
+
+/**
  * sellerCreatePlayer
  * Allows a seller to create a new player in their club.
  * - Can only create 'player' role (not seller or club)
