@@ -9,7 +9,7 @@ import '../widgets/poker_loading_indicator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../screens/club/transaction_history_screen.dart';
 
-const String ADMIN_CONTACT_URL = 'https://t.me/AgenteImperialbot';
+const String ADMIN_CONTACT_URL = 'https://t.me/AgenteBingobot';
 
 class ClubOwnerDashboard extends StatefulWidget {
   final String clubId;
@@ -271,7 +271,7 @@ class _ClubOwnerDashboardState extends State<ClubOwnerDashboard> {
     showDialog(
       context: context,
       builder: (context) => _FinancialRequestDialog(
-        type: 'Solicitud de Carga',
+        type: 'Solicitud de recarga',
         clubName: widget.clubName,
       ),
     );

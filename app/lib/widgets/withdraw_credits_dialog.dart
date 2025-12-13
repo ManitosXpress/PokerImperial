@@ -87,7 +87,8 @@ Gracias!
       
       // Intentar abrir Telegram
       final encodedMessage = Uri.encodeComponent(message);
-      final telegramUrl = '$telegramBotUrl?text=$encodedMessage';
+      final targetBot = widget.isClubRequest ? telegramBotUrl : 'https://t.me/AgenteBingobot';
+      final telegramUrl = '$targetBot?text=$encodedMessage';
       
       final uri = Uri.parse(telegramUrl);
       

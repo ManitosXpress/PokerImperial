@@ -424,7 +424,17 @@ export const repairStuckSessions = functions.https.onRequest(async (req, res) =>
             .where('status', '==', 'active')
             .get();
 
-        console.log(`📊 Encontradas ${activeSessionsSnapshot.size} sesiones activas`);
+        console.log(`📊 Encontradas ${activeSessionsSnapshot.size} sesiones con status 'active'`);
+
+        // Filtrar sesiones inconsistentes (tienen endTime pero status 'active')
+        const inconsistentSessions = activeSessionsSnapshot.docs.filter(doc => {
+            const data = doc.data();
+            return data.endTime != null;
+        });
+
+        if (inconsistentSessions.length > 0) {
+            console.log(`⚠️ Encontradas ${inconsistentSessions.length} sesiones inconsistentes (status 'active' pero con endTime)`);
+        }
 
         const repairResults: Array<{
             userId: string;
@@ -436,9 +446,65 @@ export const repairStuckSessions = functions.https.onRequest(async (req, res) =>
             error?: string;
         }> = [];
 
-        // 2. Para cada sesión, verificar si el usuario está en una mesa activa
+        // 2. Primero reparar sesiones inconsistentes (tienen endTime pero status 'active')
+        for (const sessionDoc of inconsistentSessions) {
+            const sessionData = sessionDoc.data();
+            const userId = sessionData.userId;
+            const roomId = sessionData.roomId;
+            const sessionId = sessionDoc.id;
+            const buyInAmount = Number(sessionData.buyInAmount) || 0;
+            const currentChips = Number(sessionData.currentChips) || buyInAmount;
+
+            try {
+                console.log(`🔧 Reparando sesión inconsistente: ${sessionId} (tiene endTime pero status 'active')`);
+                // Solo cerrar la sesión y limpiar indicadores visuales (no devolver dinero, ya se procesó)
+                await db.runTransaction(async (transaction) => {
+                    const sessionRef = db.collection('poker_sessions').doc(sessionId);
+                    transaction.update(sessionRef, {
+                        status: 'completed',
+                        repairReason: 'inconsistent_status_has_endtime',
+                        repairedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Limpiar indicadores visuales del usuario
+                    const userRef = db.collection('users').doc(userId);
+                    transaction.update(userRef, {
+                        currentTableId: admin.firestore.FieldValue.delete(),
+                        moneyInPlay: admin.firestore.FieldValue.delete(),
+                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+                repairResults.push({
+                    userId,
+                    sessionId,
+                    roomId,
+                    buyInAmount,
+                    currentChips,
+                    status: 'repaired'
+                });
+            } catch (error: any) {
+                console.error(`❌ Error reparando sesión inconsistente ${sessionId}:`, error);
+                repairResults.push({
+                    userId,
+                    sessionId,
+                    roomId,
+                    buyInAmount,
+                    currentChips,
+                    status: 'error',
+                    error: error.message
+                });
+            }
+        }
+
+        // 3. Para cada sesión activa (sin endTime), verificar si el usuario está en una mesa activa
         for (const sessionDoc of activeSessionsSnapshot.docs) {
             const sessionData = sessionDoc.data();
+            
+            // Saltar si ya tiene endTime (ya se procesó arriba)
+            if (sessionData.endTime != null) {
+                continue;
+            }
+
             const userId = sessionData.userId;
             const roomId = sessionData.roomId;
             const sessionId = sessionDoc.id;
@@ -564,9 +630,12 @@ async function repairSession(
             throw new Error(`Usuario ${userId} no encontrado`);
         }
 
-        // 2. Actualizar crédito del usuario
+        // 2. Actualizar crédito del usuario y limpiar indicadores visuales
         transaction.update(userRef, {
-            credit: admin.firestore.FieldValue.increment(refundAmount)
+            credit: admin.firestore.FieldValue.increment(refundAmount),
+            currentTableId: admin.firestore.FieldValue.delete(),
+            moneyInPlay: admin.firestore.FieldValue.delete(),
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         });
 
         // 3. Cerrar sesión (esto elimina el indicador visual)

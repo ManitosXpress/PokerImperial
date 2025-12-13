@@ -67,7 +67,8 @@ class _AddCreditsDialogState extends State<AddCreditsDialog> {
 
       // Abrir Telegram
       final encodedMessage = Uri.encodeComponent(message);
-      final urlString = '${AddCreditsDialog.telegramBotUrl}?text=$encodedMessage';
+      final targetBot = widget.isClubRequest ? AddCreditsDialog.telegramBotUrl : 'https://t.me/AgenteBingobot';
+      final urlString = '$targetBot?text=$encodedMessage';
       final Uri url = Uri.parse(urlString);
       
       if (await canLaunchUrl(url)) {

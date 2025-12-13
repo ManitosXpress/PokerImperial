@@ -424,7 +424,17 @@ io.on('connection', (socket) => {
             }
 
             if (player.pokerSessionId && uid) {
-                await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, minBuyIn);
+                // CRÍTICO: Si el jugador tiene 0 chips, no hay exit fee (ya perdió todo)
+                // El exit fee solo aplica si se sale temprano con fichas restantes
+                const exitFee = player.chips > 0 ? minBuyIn : 0;
+                
+                if (player.chips === 0) {
+                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó con 0 chips - Sin exit fee`);
+                } else {
+                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó con ${player.chips} chips - Exit fee: ${exitFee}`);
+                }
+                
+                await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, exitFee);
             }
 
             if (uid) {

@@ -18,13 +18,11 @@ class ClubDashboardScreen extends StatefulWidget {
   State<ClubDashboardScreen> createState() => _ClubDashboardScreenState();
 }
 
-class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
+class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
+  
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
     Future.microtask(() async {
       final provider = Provider.of<ClubProvider>(context, listen: false);
       await provider.fetchClubs();
@@ -33,12 +31,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
         // If we need to do something else, we can do it here.
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   @override
@@ -104,157 +96,177 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> with SingleTi
   }
 
   Widget _buildMyClubView(Map<String, dynamic> club) {
-    return NestedScrollView(
-      headerSliverBuilder: (context, innerBoxIsScrolled) {
-        return [
-          SliverToBoxAdapter(
-            child: Column(
-              children: [
-                const SizedBox(height: 100), // AppBar spacer
-                // Club Header
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFFFFD700), width: 2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFFFFD700).withOpacity(0.3),
-                              blurRadius: 15,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                        child: const CircleAvatar(
-                          radius: 40,
-                          backgroundColor: Color(0xFF1A1A2E),
-                          child: Icon(Icons.shield, size: 40, color: Color(0xFFFFD700)),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        club['name'],
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: 1.2,
-                          shadows: [Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, 2))],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        club['description'],
-                        style: const TextStyle(color: Colors.white70, fontSize: 14),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // Role-Based Dashboard (Executive Panel / Seller Panel)
-                Consumer<ClubProvider>(
-                  builder: (context, provider, child) {
-                    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-                    final role = provider.currentUserRole;
-                    
-                    // Owner (club role) sees Executive Panel
-                    if (role == 'club' && club['ownerId'] == currentUserId) {
-                      return ClubOwnerDashboard(
-                        clubId: club['id'],
-                        clubName: club['name'],
-                      );
-                    }
-                    
-                    // Seller sees Seller Panel
-                    if (role == 'seller') {
-                      return Column(
-                        children: [
-                          SellerDashboard(
-                            clubId: club['id'],
-                            clubName: club['name'],
-                          ),
-                          const SizedBox(height: 24),
-                          _buildLeaveClubButton(context),
-                        ],
-                      );
-                    }
-                    
-                    // Player sees no panel but can leave
-                    if (role == 'player') {
-                      return _buildLeaveClubButton(context);
-                    }
-                    
-                    return const SizedBox.shrink();
-                  },
-                ),
+    final clubProvider = Provider.of<ClubProvider>(context, listen: false);
+    final role = clubProvider.currentUserRole;
+    final bool isPlayer = role == 'player';
+    
+    // Define tabs based on role
+    final List<Widget> tabs = [];
+    final List<Widget> tabViews = [];
+    
+    // 1. Staff Tab (Only for non-players: Owners, Sellers)
+    if (!isPlayer) {
+      tabs.add(const Tab(text: 'STAFF'));
+      tabViews.add(
+        ClubLeaderboardScreen(
+          clubId: club['id'],
+          ownerId: club['ownerId'],
+          isEmbedded: true,
+          filter: LeaderboardFilter.staff,
+        ),
+      );
+    }
+    
+    // 2. Jugadores Tab
+    tabs.add(const Tab(text: 'JUGADORES'));
+    tabViews.add(
+      ClubLeaderboardScreen(
+        clubId: club['id'],
+        ownerId: club['ownerId'],
+        isEmbedded: true,
+        filter: LeaderboardFilter.players,
+      ),
+    );
+    
+    // 3. Mesas en Vivo Tab
+    tabs.add(const Tab(text: 'MESAS EN VIVO'));
+    tabViews.add(LiveTablesTab(clubId: club['id']));
+    
+    // 4. Torneos Tab
+    tabs.add(const Tab(text: 'TORNEOS'));
+    tabViews.add(
+      ClubTournamentsScreen(
+        clubId: club['id'],
+        // Only show create button if role is explicitly 'club' (Owner)
+        isOwner: role == 'club',
+        isEmbedded: true,
+      ),
+    );
 
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
-          
-          // Sticky TabBar
-          SliverPersistentHeader(
-            delegate: _SliverAppBarDelegate(
-              TabBar(
-                controller: _tabController,
-                isScrollable: true, // Make scrollable to fit 4 tabs
-                indicator: BoxDecoration(
-                  color: const Color(0xFFFFD700),
-                  borderRadius: BorderRadius.circular(25),
-                ),
-                labelColor: Colors.black,
-                unselectedLabelColor: Colors.white60,
-                labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-                tabs: const [
-                  Tab(text: 'STAFF'),
-                  Tab(text: 'JUGADORES'),
-                  Tab(text: 'MESAS EN VIVO'),
-                  Tab(text: 'TORNEOS'),
+    return DefaultTabController(
+      length: tabs.length,
+      child: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverToBoxAdapter(
+              child: Column(
+                children: [
+                  const SizedBox(height: 100), // AppBar spacer
+                  // Club Header
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xFFFFD700), width: 2),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFFFD700).withOpacity(0.3),
+                                blurRadius: 15,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: const CircleAvatar(
+                            radius: 40,
+                            backgroundColor: Color(0xFF1A1A2E),
+                            child: Icon(Icons.shield, size: 40, color: Color(0xFFFFD700)),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          club['name'],
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: 1.2,
+                            shadows: [Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, 2))],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          club['description'],
+                          style: const TextStyle(color: Colors.white70, fontSize: 14),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Role-Based Dashboard (Executive Panel / Seller Panel)
+                  Consumer<ClubProvider>(
+                    builder: (context, provider, child) {
+                      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+                      final role = provider.currentUserRole;
+                      
+                      // Owner (club role) sees Executive Panel
+                      if (role == 'club' && club['ownerId'] == currentUserId) {
+                        return ClubOwnerDashboard(
+                          clubId: club['id'],
+                          clubName: club['name'],
+                        );
+                      }
+                      
+                      // Seller sees Seller Panel
+                      if (role == 'seller') {
+                        return Column(
+                          children: [
+                            SellerDashboard(
+                              clubId: club['id'],
+                              clubName: club['name'],
+                            ),
+                            const SizedBox(height: 24),
+                            _buildLeaveClubButton(context),
+                          ],
+                        );
+                      }
+                      
+                      // Player sees no panel but can leave
+                      if (role == 'player') {
+                        return _buildLeaveClubButton(context);
+                      }
+                      
+                      return const SizedBox.shrink();
+                    },
+                  ),
+  
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
-            pinned: true,
+            
+            // Sticky TabBar
+            SliverPersistentHeader(
+              delegate: _SliverAppBarDelegate(
+                TabBar(
+                  isScrollable: true, // Make scrollable to fit tabs
+                  indicator: BoxDecoration(
+                    color: const Color(0xFFFFD700),
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  labelColor: Colors.black,
+                  unselectedLabelColor: Colors.white60,
+                  labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+                  tabs: tabs,
+                ),
+              ),
+              pinned: true,
+            ),
+          ];
+        },
+        body: Container(
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.5), // Darken background for list readability
           ),
-        ];
-      },
-      body: Container(
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.5), // Darken background for list readability
-        ),
-        child: TabBarView(
-          controller: _tabController,
-          children: [
-            // Staff Tab (Owner + Sellers)
-            ClubLeaderboardScreen(
-              clubId: club['id'],
-              ownerId: club['ownerId'],
-              isEmbedded: true,
-              filter: LeaderboardFilter.staff,
-            ),
-            // Players Tab
-            ClubLeaderboardScreen(
-              clubId: club['id'],
-              ownerId: club['ownerId'],
-              isEmbedded: true,
-              filter: LeaderboardFilter.players,
-            ),
-            // Live Tables Tab
-            LiveTablesTab(clubId: club['id']),
-            // Tournaments Tab
-            ClubTournamentsScreen(
-              clubId: club['id'],
-              isOwner: club['ownerId'] == Provider.of<ClubProvider>(context, listen: false).myClub?['ownerId'],
-              isEmbedded: true,
-            ),
-          ],
+          child: TabBarView(
+            children: tabViews,
+          ),
         ),
       ),
     );

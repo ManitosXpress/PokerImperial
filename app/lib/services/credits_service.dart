@@ -129,6 +129,7 @@ class CreditsService {
   }
 
   /// Get in-game (reserved) balance stream
+  /// Solo cuenta sesiones realmente activas (status: 'active' Y sin endTime)
   Stream<double> getInGameBalanceStream() {
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
@@ -142,8 +143,32 @@ class CreditsService {
         .snapshots()
         .map((snapshot) {
       double total = 0;
+      final now = DateTime.now();
+      
       for (var doc in snapshot.docs) {
-        total += (doc.data()['buyInAmount'] ?? 0).toDouble();
+        final data = doc.data();
+        
+        // CRÍTICO: Filtrar sesiones que ya tienen endTime (cerradas)
+        // Esto previene mostrar "+X en mesa" cuando la sesión ya se cerró
+        if (data['endTime'] != null) {
+          // Sesión cerrada, no contar
+          continue;
+        }
+        
+        // Verificar que no tenga más de 1 hora sin actividad (sesión huérfana)
+        final startTime = data['startTime'] as Timestamp?;
+        if (startTime != null) {
+          final startDate = startTime.toDate();
+          final hoursSinceStart = now.difference(startDate).inHours;
+          
+          // Si la sesión tiene más de 24 horas, probablemente está stuck
+          if (hoursSinceStart > 24) {
+            print('⚠️ Sesión huérfana detectada: ${doc.id} (${hoursSinceStart}h de antigüedad)');
+            continue;
+          }
+        }
+        
+        total += (data['buyInAmount'] ?? 0).toDouble();
       }
       return total;
     });
