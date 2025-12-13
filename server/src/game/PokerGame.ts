@@ -419,8 +419,13 @@ export class PokerGame {
     }
 
     /**
-     * Verifica si todos los jugadores activos (o todos menos uno) están en estado ALL_IN
-     * Esto indica que debemos saltar automáticamente al showdown sin pedir más acciones
+     * Verifica si todos los jugadores activos están all-in (o todos menos uno que ya no puede actuar)
+     * IMPORTANTE: Esta verificación solo debe hacerse DESPUÉS de que todos hayan tenido oportunidad de actuar
+     * 
+     * Condiciones para saltar al showdown automáticamente:
+     * 1. Todos los jugadores activos han igualado la apuesta
+     * 2. Todos los jugadores con fichas han actuado
+     * 3. Y además, todos están all-in (0 o 1 jugador con fichas restantes)
      */
     private areAllPlayersAllIn(): boolean {
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
@@ -430,11 +435,25 @@ export class PokerGame {
             return false;
         }
         
-        // Contar jugadores con fichas (que pueden actuar)
-        const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
+        // Verificar que todos hayan igualado la apuesta
+        const allBetsMatched = activeNonFolded.every(p => {
+            return p.currentBet === this.currentBet || (p.chips === 0 && p.currentBet > 0);
+        });
         
-        // Si hay 0 o 1 jugador con fichas, todos los demás están all-in
-        // Esto significa que debemos saltar al showdown automáticamente
+        if (!allBetsMatched) {
+            return false; // Aún hay jugadores que no han igualado, no saltar
+        }
+        
+        // Verificar que todos los jugadores con fichas hayan actuado
+        const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
+        const allWithChipsActed = playersWithChips.length === 0 || playersWithChips.every(p => p.hasActed === true);
+        
+        if (!allWithChipsActed) {
+            return false; // Aún hay jugadores que no han actuado, no saltar
+        }
+        
+        // Si llegamos aquí, todos igualaron y actuaron
+        // Ahora verificar si todos están all-in (0 o 1 jugador con fichas)
         return playersWithChips.length <= 1;
     }
 
@@ -451,13 +470,6 @@ export class PokerGame {
             return;
         }
 
-        // 2. NUEVO: Verificar si todos están all-in (BUG FIX: All-In Automático)
-        if (this.areAllPlayersAllIn()) {
-            console.log('🔥 Todos los jugadores están ALL-IN. Saltando automáticamente al showdown...');
-            this.autoAdvanceToShowdown();
-            return;
-        }
-
         // 2. Verificar si todos los jugadores activos han igualado la apuesta
         const allBetsMatched = activeNonFolded.every(p => {
             return p.currentBet === this.currentBet || (p.chips === 0 && p.currentBet > 0);
@@ -468,6 +480,13 @@ export class PokerGame {
 
         // 4. Si todos igualaron Y todos actuaron, verificar si debemos avanzar ronda
         if (allBetsMatched && allWithChipsActed) {
+            // 4a. BUG FIX: Verificar si todos están all-in ANTES de avanzar ronda
+            // Si todos están all-in, saltar directamente al showdown sin avanzar ronda
+            if (this.areAllPlayersAllIn()) {
+                console.log('🔥 Todos los jugadores están ALL-IN y han actuado. Saltando automáticamente al showdown...');
+                this.autoAdvanceToShowdown();
+                return;
+            }
             // Buscar el siguiente jugador para verificar si es el último agresor
             let nextIndex = this.currentTurnIndex;
             let foundNext = false;
@@ -707,9 +726,14 @@ export class PokerGame {
                 return;
         }
         
-        // BUG FIX: Verificar si todos están all-in después de repartir cartas
-        // Si todos están all-in, saltar automáticamente al showdown sin pedir más acciones
-        if (this.areAllPlayersAllIn()) {
+        // BUG FIX: Después de repartir cartas, verificar si todos están all-in
+        // Si todos están all-in (0 o 1 jugador con fichas), saltar al showdown
+        // Esto solo se verifica DESPUÉS de repartir cartas y cuando todos ya actuaron en la ronda anterior
+        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
+        const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
+        
+        // Si todos están all-in (0 o 1 jugador con fichas), saltar al showdown
+        if (activeNonFolded.length > 1 && playersWithChips.length <= 1) {
             console.log('🔥 Todos los jugadores están ALL-IN después de repartir cartas. Saltando al showdown...');
             this.autoAdvanceToShowdown();
             return;
