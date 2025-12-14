@@ -8,8 +8,8 @@ import { getClubLeaderboard } from './functions/leaderboard';
 import { ownerTransferCredit, sellerTransferCredit } from './functions/clubWallet';
 import { createClubInvite, completeInvitationRegistration } from './functions/invitations';
 import { onUserCreate } from './functions/auth';
-import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers, adminCreateUser } from './functions/admin';
-import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, closeTableAndCashOut } from './functions/table';
+import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers, adminCreateUser, cleanStuckMoneyInPlay } from './functions/admin';
+import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, closeTableAndCashOut, universalTableSettlement } from './functions/table';
 
 // Initialize Firebase Admin SDK (lazy initialization)
 if (!admin.apps.length) {
@@ -55,7 +55,7 @@ export const bootstrapAdminFunction = functions.https.onCall(bootstrapAdmin);
 export const getUserTransactionHistoryFunction = functions.https.onCall(getUserTransactionHistory);
 export const adminDeleteUserFunction = functions.https.onCall(adminDeleteUser);
 export const adminCreateUserFunction = functions.https.onCall(adminCreateUser);
-export { repairStuckSessions, clearAllFirestoreData, cleanWelcomeBonusUsers }; // HTTP Functions para reparación y limpieza
+export { repairStuckSessions, clearAllFirestoreData, cleanWelcomeBonusUsers, cleanStuckMoneyInPlay }; // HTTP Functions para reparación y limpieza
 
 // External Integrations
 export * from './functions/external';
@@ -66,3 +66,4 @@ export const createClubTableFunctionExport = _createClubTableFunction; // Keep f
 export const createClubTableFunction = _createClubTableFunction;
 export const startGameFunction = _startGameFunction;
 export const closeTableAndCashOutFunction = functions.https.onCall(closeTableAndCashOut);
+export const universalTableSettlementFunction = functions.https.onCall(universalTableSettlement);

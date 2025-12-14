@@ -424,14 +424,35 @@ io.on('connection', (socket) => {
             }
 
             if (player.pokerSessionId && uid) {
-                // CRÍTICO: Si el jugador tiene 0 chips, no hay exit fee (ya perdió todo)
-                // El exit fee solo aplica si se sale temprano con fichas restantes
-                const exitFee = player.chips > 0 ? minBuyIn : 0;
+                // CRÍTICO: Determinar exit fee basado en el estado de la mesa
+                // - Si la mesa está 'finished' o 'inactive': No hay exit fee (juego terminó)
+                // - Si la mesa está 'active' y jugador tiene 0 chips: No hay exit fee (ya perdió)
+                // - Si la mesa está 'active' y jugador tiene fichas: Exit fee aplica (salida temprana)
                 
-                if (player.chips === 0) {
-                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó con 0 chips - Sin exit fee`);
+                let exitFee = 0;
+                let tableStatus = 'unknown';
+                
+                try {
+                    const tableDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
+                    if (tableDoc.exists) {
+                        tableStatus = tableDoc.data()?.status || 'unknown';
+                    }
+                } catch (err) {
+                    console.error(`[DISCONNECT] Error obteniendo estado de mesa ${roomId}:`, err);
+                }
+                
+                // Si la mesa ya terminó (finished/inactive), no hay exit fee
+                if (tableStatus === 'finished' || tableStatus === 'inactive') {
+                    exitFee = 0;
+                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó - Mesa ${tableStatus}, sin exit fee`);
+                } else if (player.chips === 0) {
+                    // Ya perdió todo, no hay exit fee
+                    exitFee = 0;
+                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó con 0 chips - Sin exit fee (ya perdió)`);
                 } else {
-                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó con ${player.chips} chips - Exit fee: ${exitFee}`);
+                    // Mesa activa y jugador tiene fichas - Salida temprana, exit fee aplica
+                    exitFee = minBuyIn;
+                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó con ${player.chips} chips - Exit fee: ${exitFee} (salida temprana de mesa activa)`);
                 }
                 
                 await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, exitFee);

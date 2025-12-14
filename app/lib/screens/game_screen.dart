@@ -173,6 +173,65 @@ class _GameScreenState extends State<GameScreen> {
     socketService.socket.on('hand_winner', (data) {
       if (mounted) {
         setState(() {
+          // Actualizar el estado del juego con las cartas y handRank de todos los jugadores
+          if (data['gameState'] != null) {
+            final updatedGameState = Map<String, dynamic>.from(data['gameState']);
+            
+            // Establecer el estado a showdown para mostrar todas las cartas
+            updatedGameState['stage'] = 'showdown';
+            updatedGameState['status'] = 'finished';
+            
+            // Actualizar los jugadores con sus cartas y handRank del evento hand_winner
+            if (data['players'] != null && updatedGameState['players'] != null) {
+              final playersFromEvent = data['players'] as List;
+              final playersInState = updatedGameState['players'] as List;
+              
+              // Crear un mapa de jugadores del evento para acceso rápido
+              final playersMap = <String, Map<String, dynamic>>{};
+              for (var player in playersFromEvent) {
+                playersMap[player['id']] = player;
+              }
+              
+              // Actualizar cada jugador en el estado con sus cartas y handRank
+              for (int i = 0; i < playersInState.length; i++) {
+                final playerId = playersInState[i]['id'];
+                if (playersMap.containsKey(playerId)) {
+                  final playerData = playersMap[playerId]!;
+                  playersInState[i] = {
+                    ...playersInState[i],
+                    'hand': playerData['hand'],
+                    'handRank': playerData['handDescription'],
+                  };
+                }
+              }
+            }
+            
+            // Actualizar winners en el estado del juego
+            if (data['winner'] != null) {
+              final winnerId = data['winner']['id'];
+              updatedGameState['winners'] = {
+                'winners': [
+                  <String, dynamic>{
+                    'playerId': winnerId,
+                    'amount': data['winner']['amount'] ?? 0,
+                  }
+                ]
+              };
+            } else if (data['winners'] != null) {
+              // Múltiples ganadores (split pot)
+              updatedGameState['winners'] = {
+                'winners': (data['winners'] as List).map<Map<String, dynamic>>((w) => 
+                  <String, dynamic>{
+                    'playerId': w['id'],
+                    'amount': w['amount'] ?? 0,
+                  }
+                ).toList(),
+              };
+            }
+            
+            gameState = updatedGameState;
+          }
+          
           _showVictoryScreen = true;
           _winnerData = data;
         });

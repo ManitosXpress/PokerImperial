@@ -868,6 +868,28 @@ export class PokerGame {
                     w.player.totalRakePaid = (w.player.totalRakePaid || 0) + rakePerWinner;
                 });
 
+                // Obtener estado del juego y actualizarlo para showdown
+                const gameState: any = this.getGameState();
+                gameState.stage = 'showdown';
+                gameState.status = 'finished';
+                
+                // Actualizar jugadores en gameState con handRank
+                const playerHandsMap = new Map<string, any>();
+                playerHands.forEach(ph => {
+                    playerHandsMap.set(ph.player.id, ph.hand);
+                });
+                
+                gameState.players = gameState.players.map((p: any) => {
+                    const hand = playerHandsMap.get(p.id);
+                    if (hand && !p.isFolded) {
+                        return {
+                            ...p,
+                            handRank: hand.descr || hand.name
+                        };
+                    }
+                    return p;
+                });
+
                 if (this.onGameStateChange) {
                     this.onGameStateChange({
                         type: 'hand_winner',
@@ -890,7 +912,7 @@ export class PokerGame {
                                 Hand.solve([...p.hand, ...this.communityCards]).name
                                 : null
                         })),
-                        gameState: this.getGameState()
+                        gameState: gameState
                     });
                 }
 
@@ -967,7 +989,30 @@ export class PokerGame {
         winner.chips += finalAmount;
 
         // Obtener estado del juego (currentTurn será undefined porque currentTurnIndex = -1)
-        const gameState = this.getGameState();
+        const gameState: any = this.getGameState();
+        
+        // Establecer el estado a showdown para que el cliente muestre todas las cartas
+        gameState.stage = 'showdown';
+        gameState.status = 'finished';
+        
+        // Actualizar jugadores en gameState con handRank
+        if (playerHands && playerHands.length > 0) {
+            const playerHandsMap = new Map<string, any>();
+            playerHands.forEach(ph => {
+                playerHandsMap.set(ph.player.id, ph.hand);
+            });
+            
+            gameState.players = gameState.players.map((p: any) => {
+                const hand = playerHandsMap.get(p.id);
+                if (hand && !p.isFolded) {
+                    return {
+                        ...p,
+                        handRank: hand.descr || hand.name
+                    };
+                }
+                return p;
+            });
+        }
 
         if (this.onGameStateChange) {
             this.onGameStateChange({

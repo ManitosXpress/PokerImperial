@@ -1021,3 +1021,189 @@ export const cleanWelcomeBonusUsers = functions.https.onRequest(async (req, res)
         });
     }
 });
+
+/**
+ * SCRIPT DE CORRECCIÓN - Limpia usuarios con moneyInPlay > 0 que no están jugando
+ * 
+ * Busca todos los usuarios con moneyInPlay > 0 pero que NO están en ninguna mesa activa
+ * y les resetea moneyInPlay a 0 y currentTableId a null.
+ * 
+ * USO:
+ * POST https://YOUR_REGION-YOUR_PROJECT.cloudfunctions.net/cleanStuckMoneyInPlay
+ * 
+ * Body (opcional):
+ * {
+ *   "dryRun": true  // Si es true, solo muestra qué usuarios serían afectados
+ * }
+ * 
+ * @returns Resumen de usuarios limpiados
+ */
+export const cleanStuckMoneyInPlay = functions.https.onRequest(async (req, res) => {
+    // Validar método POST
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed. Use POST.' });
+        return;
+    }
+
+    try {
+        const db = getDb();
+        const dryRun = req.body?.dryRun === true;
+
+        console.log(`\n[LIMPIAR_MONEY_IN_PLAY] Iniciando limpieza de usuarios con moneyInPlay > 0...`);
+        console.log(`   Modo: ${dryRun ? 'DRY RUN (sin cambios)' : 'EJECUCIÓN REAL'}`);
+
+        // Buscar usuarios con moneyInPlay > 0
+        const usersSnapshot = await db.collection('users')
+            .where('moneyInPlay', '>', 0)
+            .get();
+
+        if (usersSnapshot.empty) {
+            console.log('✅ No se encontraron usuarios con moneyInPlay > 0.');
+            res.status(200).json({
+                success: true,
+                message: 'No users found with moneyInPlay > 0.',
+                cleaned: 0,
+                dryRun: dryRun
+            });
+            return;
+        }
+
+        console.log(`   Encontrados ${usersSnapshot.size} usuarios con moneyInPlay > 0.`);
+
+        const usersToClean: Array<{ uid: string; email: string; displayName: string; moneyInPlay: number; currentTableId: string | null }> = [];
+        const usersSkipped: Array<{ uid: string; reason: string }> = [];
+
+        // Verificar cada usuario
+        for (const userDoc of usersSnapshot.docs) {
+            const userData = userDoc.data();
+            const uid = userDoc.id;
+            const email = userData.email || 'N/A';
+            const displayName = userData.displayName || 'N/A';
+            const moneyInPlay = Number(userData.moneyInPlay) || 0;
+            const currentTableId = userData.currentTableId || null;
+
+            // Verificar si el usuario está en una mesa activa
+            if (currentTableId) {
+                const tableDoc = await db.collection('poker_tables').doc(currentTableId).get();
+                
+                if (tableDoc.exists) {
+                    const tableData = tableDoc.data();
+                    const tableStatus = tableData?.status;
+                    const players = Array.isArray(tableData?.players) ? tableData.players : [];
+                    const playerInTable = players.some((p: any) => p.id === uid);
+
+                    // Si la mesa está activa y el jugador está en ella, saltar
+                    if (tableStatus === 'active' && playerInTable) {
+                        usersSkipped.push({
+                            uid,
+                            reason: 'Está en una mesa activa'
+                        });
+                        console.log(`   ⏭️  Saltando ${email} (${displayName}): está en mesa activa ${currentTableId}`);
+                        continue;
+                    }
+                }
+            }
+
+            // Verificar si tiene sesión activa
+            const activeSessionQuery = await db.collection('poker_sessions')
+                .where('userId', '==', uid)
+                .where('status', '==', 'active')
+                .get();
+
+            if (!activeSessionQuery.empty) {
+                // Verificar si la sesión tiene endTime (inconsistente)
+                const hasEndTime = activeSessionQuery.docs.some(doc => doc.data().endTime != null);
+                
+                if (!hasEndTime) {
+                    // Sesión realmente activa, saltar
+                    usersSkipped.push({
+                        uid,
+                        reason: 'Tiene sesión activa sin endTime'
+                    });
+                    console.log(`   ⏭️  Saltando ${email} (${displayName}): tiene sesión activa`);
+                    continue;
+                }
+            }
+
+            // Usuario está stuck - agregar a limpieza
+            usersToClean.push({ uid, email, displayName, moneyInPlay, currentTableId });
+            console.log(`   ✅ Usuario a limpiar: ${email} (${displayName}) - moneyInPlay: ${moneyInPlay}, tableId: ${currentTableId}`);
+        }
+
+        console.log(`\n📊 Resumen:`);
+        console.log(`   - Usuarios a limpiar: ${usersToClean.length}`);
+        console.log(`   - Usuarios saltados: ${usersSkipped.length}`);
+
+        if (usersToClean.length === 0) {
+            res.status(200).json({
+                success: true,
+                message: 'No users need cleaning. All users with moneyInPlay > 0 are in active games.',
+                cleaned: 0,
+                skipped: usersSkipped.length,
+                dryRun: dryRun
+            });
+            return;
+        }
+
+        // Ejecutar limpieza
+        if (!dryRun) {
+            const batch = db.batch();
+            let batchCount = 0;
+            const maxBatchSize = 500; // Firestore limit
+
+            for (const user of usersToClean) {
+                const userRef = db.collection('users').doc(user.uid);
+                batch.update(userRef, {
+                    moneyInPlay: 0,
+                    currentTableId: null,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+                batchCount++;
+
+                // Firestore tiene límite de 500 operaciones por batch
+                if (batchCount >= maxBatchSize) {
+                    await batch.commit();
+                    batchCount = 0;
+                    console.log(`   💾 Batch de ${maxBatchSize} usuarios guardado...`);
+                }
+            }
+
+            // Commit del batch final si hay operaciones pendientes
+            if (batchCount > 0) {
+                await batch.commit();
+            }
+
+            console.log(`\n✅ LIMPIEZA COMPLETADA:`);
+            console.log(`   - Usuarios limpiados: ${usersToClean.length}`);
+            console.log(`   - Usuarios saltados: ${usersSkipped.length}`);
+        } else {
+            console.log(`\n🔍 DRY RUN - No se realizaron cambios`);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: dryRun 
+                ? 'Dry run completed. No changes made.' 
+                : 'Stuck moneyInPlay users cleaned successfully.',
+            cleaned: usersToClean.length,
+            skipped: usersSkipped.length,
+            dryRun: dryRun,
+            cleanedUsers: usersToClean.map(u => ({
+                uid: u.uid,
+                email: u.email,
+                displayName: u.displayName,
+                moneyInPlay: u.moneyInPlay,
+                currentTableId: u.currentTableId
+            })),
+            skippedUsers: usersSkipped
+        });
+
+    } catch (error: any) {
+        console.error('❌ Error en script de limpieza de moneyInPlay:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Unknown error',
+            warning: 'Some users may have been cleaned. Check the logs.'
+        });
+    }
+});
