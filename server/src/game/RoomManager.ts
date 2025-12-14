@@ -358,7 +358,9 @@ export class RoomManager {
     }
     
     // --- CLOSE TABLE AND CASH OUT ---
-    // BUG FIX: Función mejorada para cerrar mesa y liquidar fichas a créditos reales
+    // CRÍTICO: Esta función SOLO notifica. La liquidación real se hace en la Cloud Function.
+    // La Cloud Function closeTableAndCashOut() es la única fuente de verdad para liquidaciones.
+    // NO llamar a endPokerSession() aquí para evitar doble liquidación.
     public async closeTableAndCashOut(roomId: string) {
         const room = this.rooms.get(roomId);
         if (!room) {
@@ -366,9 +368,10 @@ export class RoomManager {
             return;
         }
 
-        console.log(`🔒 Cerrando mesa ${roomId} y liquidando fichas de todos los jugadores...`);
+        console.log(`🔒 Notificando cierre de mesa ${roomId}. La liquidación será procesada por la Cloud Function.`);
         
         // Notify clients que la mesa se cerrará
+        // La Cloud Function closeTableAndCashOut() se encargará de la liquidación real
         if (this.emitCallback) {
             this.emitCallback(roomId, 'room_closed', { 
                 reason: 'Game Finished - Last Man Standing',
@@ -376,64 +379,10 @@ export class RoomManager {
             });
         }
 
-        // Process Cash Out for all players
-        const cashOutPromises: Promise<void>[] = [];
-        
-        for (const player of room.players) {
-            if (player.pokerSessionId && !player.isBot) {
-                // Intentar obtener UID del jugador
-                const uid = player.uid;
-                
-                if (uid) {
-                    console.log(`💰 Liquidando fichas de ${player.name} (UID: ${uid}): ${player.chips} fichas`);
-                    
-                    const cashOutPromise = endPokerSession(
-                        uid, 
-                        player.pokerSessionId, 
-                        player.chips, 
-                        player.totalRakePaid || 0, 
-                        0 // exitFee = 0 para victoria
-                    ).then((result) => {
-                        console.log(`✅ ${player.name} liquidado exitosamente`);
-                        return; // Convertir Promise<boolean> a Promise<void>
-                    }).catch((error) => {
-                        console.error(`❌ Error al liquidar ${player.name}:`, error);
-                    });
-                    
-                    cashOutPromises.push(cashOutPromise);
-                } else {
-                    console.warn(`⚠️ No se puede liquidar jugador ${player.name} (ID: ${player.id}) - Falta UID`);
-                    // Intentar usar hostId como fallback si el jugador es el host
-                    if (player.id === room.hostId) {
-                        console.log(`🔄 Intentando usar hostId como UID para ${player.name}`);
-                        const cashOutPromise = endPokerSession(
-                            room.hostId!, 
-                            player.pokerSessionId, 
-                            player.chips, 
-                            player.totalRakePaid || 0, 
-                            0
-                        ).then(() => {
-                            return; // Convertir Promise<boolean> a Promise<void>
-                        }).catch((error) => {
-                            console.error(`❌ Error al liquidar con hostId:`, error);
-                        });
-                        cashOutPromises.push(cashOutPromise);
-                    }
-                }
-            } else if (player.isBot) {
-                console.log(`🤖 Bot ${player.name} - No requiere liquidación`);
-            } else {
-                console.warn(`⚠️ Jugador ${player.name} no tiene pokerSessionId - No se puede liquidar`);
-            }
-        }
-
-        // Esperar a que todas las liquidaciones se completen
-        try {
-            await Promise.all(cashOutPromises);
-            console.log(`✅ Todas las liquidaciones completadas para mesa ${roomId}`);
-        } catch (error) {
-            console.error(`❌ Error durante liquidaciones de mesa ${roomId}:`, error);
-        }
+        // CRÍTICO: NO procesar liquidaciones aquí.
+        // La Cloud Function closeTableAndCashOut() debe ser llamada desde el cliente
+        // o desde un trigger de Firestore para procesar TODOS los jugadores en una sola transacción atómica.
+        console.log(`ℹ️ Mesa ${roomId} notificada. Esperando que la Cloud Function procese la liquidación.`);
 
         // Eliminar la sala después de un breve delay para asegurar que los mensajes se envíen
         setTimeout(() => {

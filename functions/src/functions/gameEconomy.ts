@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { SettleRoundRequest } from "../types";
+import { updateDailyStats } from "../utils/dailyStatsHelper";
 
 /**
  * settleGameRound
@@ -24,10 +25,13 @@ import { SettleRoundRequest } from "../types";
  * 
  * Atomicity:
  * - Uses Firestore Transaction to ensure all balance updates and ledger entries happen or fail together.
+ * 
+ * Real-time Stats:
+ * - Updates daily statistics immediately after settlement for live dashboard metrics
  */
 export const settleGameRound = async (data: SettleRoundRequest, context: functions.https.CallableContext) => {
     const db = admin.firestore();
-    
+
     // 1. Validation
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
@@ -41,7 +45,7 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
 
     // 2. Calculate Rake and Prize
     const RAKE_PERCENTAGE = 0.08;
-    const totalRake = Math.floor(potTotal * RAKE_PERCENTAGE); // Use floor to avoid fractions
+    const totalRake = Math.floor(potTotal * RAKE_PERCENTAGE);
     const winnerPrize = potTotal - totalRake;
 
     // 3. Prepare Distribution Data
@@ -51,8 +55,6 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
     try {
         await db.runTransaction(async (transaction) => {
             // --- READS ---
-
-            // Read Winner
             const winnerRef = db.collection('users').doc(winnerUid);
             const winnerDoc = await transaction.get(winnerRef);
             if (!winnerDoc.exists) {
@@ -71,17 +73,9 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
             let targetSellerId: string | null = null;
 
             // --- LOGIC BRANCHING ---
-
             if (!winnerClubId) {
-                // SCENARIO A: Independent User (No Club)
-                // 100% Rake to Platform
                 platformShare = totalRake;
             } else {
-                // SCENARIO B: Club User
-                // 50% Platform
-                // 30% Club
-                // 20% Seller (or Club fallback)
-                
                 targetClubId = winnerClubId;
                 targetSellerId = winnerSellerId;
 
@@ -89,103 +83,81 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
                 const baseClubShare = Math.floor(totalRake * 0.30);
                 const baseSellerShare = Math.floor(totalRake * 0.20);
 
-                // Check remainder from floor operations to avoid losing pennies
                 const remainder = totalRake - (basePlatformShare + baseClubShare + baseSellerShare);
-                platformShare = basePlatformShare + remainder; // Give remainder to platform
+                platformShare = basePlatformShare + remainder;
 
                 if (targetSellerId) {
                     clubShare = baseClubShare;
                     sellerShare = baseSellerShare;
                 } else {
-                    // Fallback: No Seller -> Seller share goes to Club
                     clubShare = baseClubShare + baseSellerShare;
                     sellerShare = 0;
                 }
             }
 
             // --- READS FOR DISTRIBUTION ---
-            
-            // Read Club Doc if needed
             let clubRef: FirebaseFirestore.DocumentReference | null = null;
             if (clubShare > 0 && targetClubId) {
                 clubRef = db.collection('clubs').doc(targetClubId);
                 const clubDoc = await transaction.get(clubRef);
                 if (!clubDoc.exists) {
-                    // Fallback if club doc missing: give to platform
                     platformShare += clubShare;
                     clubShare = 0;
                 }
             }
 
-            // Read Seller Doc if needed
             let sellerRef: FirebaseFirestore.DocumentReference | null = null;
             if (sellerShare > 0 && targetSellerId) {
-                sellerRef = db.collection('users').doc(targetSellerId); // Sellers are Users with role='seller' OR separate collection? 
-                // Based on previous search, sellers seem to be in 'users' collection or have a 'sellers' collection.
-                // The previous code used db.collection('sellers'). Let's stick to that if it exists, 
-                // but usually sellers are users. 
-                // Let's check the previous code again... it used `db.collection('sellers').doc(sellerId)`.
-                // However, `sellerCreatePlayer` in `club.ts` checked `db.collection('users').doc(sellerId)`.
-                // I will check `users` first.
-                
-                // Wait, the previous code explicitly read from `sellers` collection:
-                // `sellerRefs.push(db.collection('sellers').doc(sellerId));`
-                // But `sellerCreatePlayer` reads from `users`. This is inconsistent in the codebase.
-                // I will try to read from `users` as that is where wallets usually are.
                 sellerRef = db.collection('users').doc(targetSellerId);
                 const sellerDoc = await transaction.get(sellerRef);
                 if (!sellerDoc.exists) {
-                     // Fallback: give to club
-                     clubShare += sellerShare;
-                     sellerShare = 0;
+                    clubShare += sellerShare;
+                    sellerShare = 0;
                 }
             }
 
             // --- WRITES ---
 
-            // 1. Update Winner Balance (Prize)
-            const currentWinnerCredits = winnerData?.credits || 0; // Use credits (plural) based on previous code usage
-            // Previous code used `credits` in `update`.
+            // 1. Update Winner Balance
+            const currentWinnerCredits = winnerData?.credits || 0;
             transaction.update(winnerRef, {
                 credits: currentWinnerCredits + winnerPrize
             });
-            
+
             // Log Prize
             const prizeLogRef = db.collection('financial_ledger').doc();
             transaction.set(prizeLogRef, {
                 type: 'WIN_PRIZE',
                 amount: winnerPrize,
+                userId: winnerUid,
                 source: `game_${gameId}`,
                 destination: `user_${winnerUid}`,
                 description: `Winner prize for game ${gameId}`,
                 timestamp: timestamp
             });
 
-            // 2. Update Platform (System Stats)
+            // 2. Update Platform
             if (platformShare > 0) {
                 const statsRef = db.collection('system_stats').doc('economy');
-                // We use set with merge because doc might not exist
                 transaction.set(statsRef, {
                     accumulated_rake: admin.firestore.FieldValue.increment(platformShare),
                     lastUpdated: timestamp
                 }, { merge: true });
 
-                 // Log Platform Rake
-                 const platformLogRef = db.collection('financial_ledger').doc();
-                 transaction.set(platformLogRef, {
-                     type: 'RAKE_DISTRIBUTION',
-                     amount: platformShare,
-                     source: `game_${gameId}`,
-                     destination: 'platform',
-                     description: `Platform Rake Share (${!winnerClubId ? '100%' : '50%'})`,
-                     timestamp: timestamp
-                 });
+                const platformLogRef = db.collection('financial_ledger').doc();
+                transaction.set(platformLogRef, {
+                    type: 'RAKE',
+                    amount: platformShare,
+                    userId: 'platform',
+                    source: `game_${gameId}`,
+                    destination: 'platform',
+                    description: `Platform Rake Share (${!winnerClubId ? '100%' : '50%'})`,
+                    timestamp: timestamp
+                });
             }
 
             // 3. Update Club
             if (clubShare > 0 && clubRef) {
-                // Assuming clubs have 'walletBalance' or 'credit'
-                // Previous code used 'walletBalance' for clubs/sellers.
                 transaction.update(clubRef, {
                     walletBalance: admin.firestore.FieldValue.increment(clubShare)
                 });
@@ -194,6 +166,7 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
                 transaction.set(clubLogRef, {
                     type: 'RAKE_DISTRIBUTION',
                     amount: clubShare,
+                    userId: targetClubId!,
                     source: `game_${gameId}`,
                     destination: `club_${targetClubId}`,
                     description: `Club Rake Share (${sellerShare === 0 ? '50%' : '30%'})`,
@@ -203,20 +176,6 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
 
             // 4. Update Seller
             if (sellerShare > 0 && sellerRef) {
-                // Sellers are users, so they use 'credits' usually? Or 'walletBalance'?
-                // If they are in 'users' collection, it is likely 'credits'.
-                // If they are in 'sellers' collection, it is 'walletBalance'.
-                // I will use `credit` (singular) as seen in `credits.ts` or `credits` (plural)?
-                // `credits.ts` used `credit` (singular) in `addCredits` but `credits` (plural) might be used elsewhere.
-                // The previous `settleGameRound` used `credits` for winner update.
-                // `functions/src/types.ts` defined User with `credits: number`.
-                // `functions/src/functions/auth.ts` initialized `credit: 0`.
-                // This is a mess. I will use `credit` because `auth.ts` and `credits.ts` use it.
-                // AND I will check if the previous code used `walletBalance`.
-                // Previous code: `transaction.update(doc.ref, { walletBalance: ... })` for sellers.
-                // If sellers are in `users` collection, they should use `credit`.
-                // I will assume sellers are users and use `credit`.
-                
                 transaction.update(sellerRef, {
                     credit: admin.firestore.FieldValue.increment(sellerShare)
                 });
@@ -225,6 +184,7 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
                 transaction.set(sellerLogRef, {
                     type: 'RAKE_DISTRIBUTION',
                     amount: sellerShare,
+                    userId: targetSellerId!,
                     source: `game_${gameId}`,
                     destination: `seller_${targetSellerId}`,
                     description: `Seller Rake Share (20%)`,
@@ -232,6 +192,9 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
                 });
             }
         });
+
+        // ✅ UPDATE DAILY STATS IN REAL-TIME
+        await updateDailyStats(potTotal, totalRake);
 
         return { success: true, message: 'Game round settled successfully.', gameId };
 

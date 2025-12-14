@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:math' as math;
 import 'dart:async';
 import '../services/socket_service.dart';
@@ -352,9 +353,21 @@ class _GameScreenState extends State<GameScreen> {
      );
   }
   
-  void _handleRoomClosed(String? reason) {
+  void _handleRoomClosed(String? reason) async {
      if (_isRebuyDialogShowing) {
         Navigator.of(context).pop();
+     }
+     
+     // CRÍTICO: Llamar a la Cloud Function para procesar la liquidación
+     // Esto garantiza que solo se ejecute UNA VEZ y con el algoritmo correcto
+     try {
+        await FirebaseFunctions.instance.httpsCallable('closeTableAndCashOutFunction').call({
+           'tableId': widget.roomId,
+        });
+        print('✅ Liquidación procesada por Cloud Function para mesa ${widget.roomId}');
+     } catch (e) {
+        print('❌ Error al llamar a closeTableAndCashOutFunction: $e');
+        // Continuar de todas formas para que el usuario pueda salir
      }
      
      showDialog(

@@ -10,6 +10,9 @@ import { createClubInvite, completeInvitationRegistration } from './functions/in
 import { onUserCreate } from './functions/auth';
 import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers, adminCreateUser, cleanStuckMoneyInPlay } from './functions/admin';
 import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, closeTableAndCashOut, universalTableSettlement } from './functions/table';
+import { dailyEconomyCron } from './functions/cron';
+import { dailyEconomyCron as newDailyEconomyCron, triggerDailyStats } from './functions/scheduled_functions';
+import { getTopHolders, getTopWinners24h, get24hMetrics, getWeeklyTrends, getCurrentLiquidity, getTotalRake } from './functions/analytics';
 
 // Initialize Firebase Admin SDK (lazy initialization)
 if (!admin.apps.length) {
@@ -67,3 +70,17 @@ export const createClubTableFunction = _createClubTableFunction;
 export const startGameFunction = _startGameFunction;
 export const closeTableAndCashOutFunction = functions.https.onCall(closeTableAndCashOut);
 export const universalTableSettlementFunction = functions.https.onCall(universalTableSettlement);
+export const dailyEconomyCronFunction = dailyEconomyCron;
+
+// New Economic Intelligence Functions
+export { newDailyEconomyCron, triggerDailyStats }; // Scheduled stats aggregation
+export const getTopHoldersFunction = getTopHolders;
+export const getTopWinners24hFunction = getTopWinners24h;
+export const get24hMetricsFunction = get24hMetrics;
+export const getWeeklyTrendsFunction = getWeeklyTrends;
+export const getCurrentLiquidityFunction = getCurrentLiquidity;
+export const getTotalRakeFunction = getTotalRake;
+
+// Backfill / Repair Script (Callable version to avoid timeout)
+export { recalcDailyStatsCallable } from './functions/backfillStats';
+

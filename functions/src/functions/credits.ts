@@ -184,61 +184,78 @@ export async function adminWithdrawCredits(
 
     if (!targetUid) throw new Error("Target UID required");
     if (!amount || amount <= 0) throw new Error("Invalid amount");
-    
+
     try {
         const db = admin.firestore();
         const result = await db.runTransaction(async (transaction) => {
-             const userRef = db.collection("users").doc(targetUid);
-             const userDoc = await transaction.get(userRef);
- 
-             if (!userDoc.exists) {
-                 throw new Error("User not found");
-             }
- 
-             const currentBalance = userDoc.data()?.credit || 0;
-             
-             if (currentBalance < amount) {
-                 throw new Error(`Insufficient user balance: ${currentBalance}`);
-             }
- 
-             const newBalance = currentBalance - amount;
-             const timestamp = Date.now();
- 
-             const hash = generateTransactionHash(
-                 targetUid,
-                 amount,
-                 "admin_debit",
-                 timestamp,
-                 currentBalance,
-                 newBalance
-             );
- 
-             transaction.update(userRef, {
-                 credit: newBalance,
-                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-             });
- 
-             const logRef = db.collection("transaction_logs").doc();
-             transaction.set(logRef, {
-                 userId: targetUid,
-                 adminId: context.auth!.uid,
-                 amount,
-                 type: "admin_debit", // distinct from normal debit
-                 reason: reason || "Admin Withdrawal / Burn",
-                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                 beforeBalance: currentBalance,
-                 afterBalance: newBalance,
-                 hash,
-                 metadata: {
+            const userRef = db.collection("users").doc(targetUid);
+            const userDoc = await transaction.get(userRef);
+
+            if (!userDoc.exists) {
+                throw new Error("User not found");
+            }
+
+            const currentBalance = userDoc.data()?.credit || 0;
+
+            if (currentBalance < amount) {
+                throw new Error(`Insufficient user balance: ${currentBalance}`);
+            }
+
+            const newBalance = currentBalance - amount;
+            const timestamp = Date.now();
+
+            const hash = generateTransactionHash(
+                targetUid,
+                amount,
+                "admin_debit",
+                timestamp,
+                currentBalance,
+                newBalance
+            );
+
+            transaction.update(userRef, {
+                credit: newBalance,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            const logRef = db.collection("transaction_logs").doc();
+            transaction.set(logRef, {
+                userId: targetUid,
+                adminId: context.auth!.uid,
+                amount,
+                type: "admin_debit", // distinct from normal debit
+                reason: reason || "Admin Withdrawal / Burn",
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                beforeBalance: currentBalance,
+                afterBalance: newBalance,
+                hash,
+                metadata: {
                     action: "burn_liquidity"
-                 }
-             });
- 
-             return {
-                 success: true,
-                 newBalance,
-                 transactionId: logRef.id
-             };
+                }
+            });
+
+            // CRÍTICO: Registrar en financial_ledger para agregación diaria
+            const ledgerRef = db.collection("financial_ledger").doc();
+            transaction.set(ledgerRef, {
+                type: "ADMIN_BURN",
+                userId: targetUid,
+                adminId: context.auth!.uid,
+                amount: amount, // Positive amount, type indicates direction
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                description: reason || "Admin Withdrawal / Burn"
+            });
+
+            // 4. Update Total Circulation Counter (Decrement)
+            const statsRef = db.collection('system_stats').doc('economy');
+            transaction.set(statsRef, {
+                totalCirculation: admin.firestore.FieldValue.increment(-amount)
+            }, { merge: true });
+
+            return {
+                success: true,
+                newBalance,
+                transactionId: logRef.id
+            };
         });
 
         // --- N8N Webhook Trigger (WITHDRAWAL) ---

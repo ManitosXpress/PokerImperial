@@ -66,7 +66,7 @@ function persistGameStateAsync(roomId: string, gameState: any) {
                 })),
                 lastActionTime: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
-            
+
             console.log(`💾 Game state persisted to Firestore for room ${roomId}`);
         } catch (error) {
             // No lanzar error - solo loguear para no interrumpir el flujo
@@ -88,7 +88,7 @@ roomManager.setEmitCallback((roomId, event, data) => {
         io.to(roomId).emit('player_left', { id: playerId, reason: 'kicked' });
         return;
     }
-    
+
     // OPTIMIZACIÓN: Socket First - Emitir inmediatamente
     io.to(roomId).emit(event, data);
 
@@ -105,7 +105,31 @@ roomManager.setEmitCallback((roomId, event, data) => {
                 console.error(`⚠️ Could not sync game_started to Firestore for room ${roomId}:`, e);
             }
         });
-    } else if (event === 'game_update' || event === 'hand_winner') {
+    } else if (event === 'hand_winner') {
+        // Persistir actualizaciones del juego de forma asíncrona
+        persistGameStateAsync(roomId, data);
+
+        // CRÍTICO: Incrementar contador de manos jugadas (Turnover) para estadísticas diarias
+        setImmediate(async () => {
+            try {
+                const now = new Date();
+                const year = now.getFullYear();
+                const month = String(now.getMonth() + 1).padStart(2, '0');
+                const day = String(now.getDate()).padStart(2, '0');
+                const dateId = `${year}-${month}-${day}`;
+
+                await admin.firestore().collection('stats_daily').doc(dateId).set({
+                    handsPlayed: admin.firestore.FieldValue.increment(1),
+                    date: dateId,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                console.log(`📈 Hand count incremented for ${dateId}`);
+            } catch (e) {
+                console.error(`⚠️ Failed to increment handsPlayed:`, e);
+            }
+        });
+    } else if (event === 'game_update') {
         // Persistir actualizaciones del juego de forma asíncrona
         persistGameStateAsync(roomId, data);
     }
@@ -173,9 +197,9 @@ io.on('connection', (socket) => {
                 socket.emit('error', 'Authentication required to create room');
                 return;
             }
-            
+
             const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee, customRoomId || undefined, { addHostAsPlayer: true, isPublic, hostUid: uid });
-            
+
             // Inject UID into player object for the host
             if (uid && room.players.length > 0) {
                 room.players[0].uid = uid;
@@ -183,7 +207,7 @@ io.on('connection', (socket) => {
 
             room.hostId = uid;
             socket.join(room.id);
-            
+
             const roomResponse = { ...room, isPublic, hostId: uid };
             socket.emit('room_created', roomResponse);
             console.log(`Room created: ${room.id} by ${playerName} (UID: ${uid})`);
@@ -313,7 +337,7 @@ io.on('connection', (socket) => {
     socket.on('start_game', ({ roomId }: { roomId: string }) => {
         try {
             console.log(`🎮 Starting game for room ${roomId}...`);
-            
+
             // OPTIMIZACIÓN: Socket First, Database Later
             // 1. Actualizar estado en memoria
             const gameState = roomManager.startGame(roomId, socket.id, (data) => {
@@ -325,21 +349,21 @@ io.on('connection', (socket) => {
                     console.log(`📡 Emitting game_update for room ${roomId} (Socket First)`);
                     io.to(roomId).emit('game_update', data);
                 }
-                
+
                 // 3. Persistir en Firestore después (async, no bloquea)
                 if (data.type === 'hand_winner' || data.gameState) {
                     persistGameStateAsync(roomId, data.gameState || data);
                 }
             });
-            
+
             console.log(`🃏 Game started! Players: ${gameState.players?.length}`);
-            
+
             // 2. Emitir evento de inicio inmediatamente
             io.to(roomId).emit('game_started', gameState);
-            
+
             // 3. Persistir en Firestore después (async, no bloquea)
             persistGameStateAsync(roomId, gameState);
-            
+
         } catch (e: any) {
             console.error(`❌ Error starting game: ${e.message}`);
             socket.emit('error', e.message);
@@ -349,19 +373,19 @@ io.on('connection', (socket) => {
     socket.on('game_action', ({ roomId, action, amount }: { roomId: string, action: 'bet' | 'call' | 'fold' | 'check', amount?: number }) => {
         try {
             console.log(`🎲 game_action received: roomId=${roomId}, playerId=${socket.id}, action=${action}, amount=${amount}`);
-            
+
             // OPTIMIZACIÓN: Socket First, Database Later
             // 1. Actualizar estado en memoria (RAM) inmediatamente
             const gameState = roomManager.handleGameAction(roomId, socket.id, action, amount);
             console.log(`✅ Action processed successfully. Current turn: ${gameState.currentTurn}`);
-            
+
             // 2. EMITIR evento Socket INMEDIATAMENTE (sin esperar Firestore)
             io.to(roomId).emit('game_update', gameState);
             console.log(`📡 game_update emitted to room ${roomId} (Socket First)`);
-            
+
             // 3. Persistir en Firestore DESPUÉS (sin await - no bloquea)
             persistGameStateAsync(roomId, gameState);
-            
+
         } catch (e: any) {
             console.error(`❌ Error processing game_action: ${e.message}`);
             socket.emit('error', e.message);
@@ -387,7 +411,7 @@ io.on('connection', (socket) => {
                 socket.emit('error', 'Room not found');
                 return;
             }
-            
+
             const uid = (socket as any).userId;
             if (!uid || room.hostId !== uid) {
                 socket.emit('error', 'Only host can close the room');
@@ -396,7 +420,7 @@ io.on('connection', (socket) => {
 
             console.log(`🛑 Host ${uid} closing room ${roomId}`);
             await roomManager.closeTableAndCashOut(roomId);
-            
+
         } catch (e: any) {
             console.error(`Error closing room: ${e.message}`);
             socket.emit('error', e.message);
@@ -428,10 +452,10 @@ io.on('connection', (socket) => {
                 // - Si la mesa está 'finished' o 'inactive': No hay exit fee (juego terminó)
                 // - Si la mesa está 'active' y jugador tiene 0 chips: No hay exit fee (ya perdió)
                 // - Si la mesa está 'active' y jugador tiene fichas: Exit fee aplica (salida temprana)
-                
+
                 let exitFee = 0;
                 let tableStatus = 'unknown';
-                
+
                 try {
                     const tableDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
                     if (tableDoc.exists) {
@@ -440,7 +464,7 @@ io.on('connection', (socket) => {
                 } catch (err) {
                     console.error(`[DISCONNECT] Error obteniendo estado de mesa ${roomId}:`, err);
                 }
-                
+
                 // Si la mesa ya terminó (finished/inactive), no hay exit fee
                 if (tableStatus === 'finished' || tableStatus === 'inactive') {
                     exitFee = 0;
@@ -454,7 +478,7 @@ io.on('connection', (socket) => {
                     exitFee = minBuyIn;
                     console.log(`[DISCONNECT] Jugador ${uid} se desconectó con ${player.chips} chips - Exit fee: ${exitFee} (salida temprana de mesa activa)`);
                 }
-                
+
                 await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, exitFee);
             }
 
@@ -462,7 +486,7 @@ io.on('connection', (socket) => {
                 try {
                     const tableRef = admin.firestore().collection('poker_tables').doc(roomId);
                     const tableDoc = await tableRef.get();
-                    
+
                     if (tableDoc.exists) {
                         const tableData = tableDoc.data();
                         if (tableData) {
