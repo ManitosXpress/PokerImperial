@@ -244,24 +244,24 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
                 status: 'completed'
             });
 
-            // Actualizar crédito del usuario (OBLIGATORIO usar increment para evitar race conditions)
+            // CRÍTICO: LIMPIEZA DE ESTADO VISUAL OBLIGATORIA
+            // Esto DEBE ejecutarse SIEMPRE, sin importar si tiene fichas o no
+            // Separar la lógica: el cálculo de crédito depende de fichas, pero la limpieza es incondicional
+            const userUpdate: any = {
+                moneyInPlay: 0,  // Establecer explícitamente a 0 (no delete)
+                currentTableId: null,  // Establecer explícitamente a null (no delete)
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            };
+
+            // Actualizar crédito del usuario SOLO si tiene fichas para devolver
             if (netWinnings > 0) {
-                transaction.update(userRef, {
-                    credit: admin.firestore.FieldValue.increment(netWinnings),
-                    // LIMPIEZA DE ESTADO VISUAL - Elimina el indicador "+X en mesa"
-                    currentTableId: admin.firestore.FieldValue.delete(),
-                    moneyInPlay: admin.firestore.FieldValue.delete(),
-                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                });
+                userUpdate.credit = admin.firestore.FieldValue.increment(netWinnings);
                 console.log(`[CASHOUT] Crédito actualizado: +${netWinnings} al saldo del usuario`);
-            } else {
-                // Aunque sea 0, limpiar estado visual
-                transaction.update(userRef, {
-                    currentTableId: admin.firestore.FieldValue.delete(),
-                    moneyInPlay: admin.firestore.FieldValue.delete(),
-                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                });
             }
+
+            // Ejecutar update con limpieza incondicional
+            transaction.update(userRef, userUpdate);
+            console.log(`[CASHOUT] Limpieza visual aplicada: moneyInPlay=0, currentTableId=null`);
 
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
@@ -295,21 +295,26 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
             }
 
             // Escribir en financial_ledger (OBLIGATORIO - nunca debe estar vacío)
+            // CRÍTICO: Para perdedores (finalChips === 0), usar -buyInAmount en lugar de 0
+            const ledgerAmount = finalChips === 0 && netWinnings === 0 
+                ? -buyInAmount  // Perdedor: registrar pérdida total del buy-in
+                : netWinnings;   // Ganador o empate: registrar monto recibido
+            
             const ledgerRef = db.collection('financial_ledger').doc();
             transaction.set(ledgerRef, {
                 type: ledgerType,
                 userId: uid,
                 userName: displayName, // CRÍTICO: Guardar displayName para evitar "Unknown"
                 tableId: sessionData?.roomId || null,
-                amount: netWinnings,
-                netAmount: netWinnings,
+                amount: ledgerAmount,  // Usar ledgerAmount corregido (negativo para perdedores)
+                netAmount: netWinnings,  // Lo que realmente recibió (puede ser 0)
                 netProfit: netProfit,
                 grossAmount: finalChips, // Fichas antes del exit fee
                 rakePaid: totalRake,
                 exitFee: exitFee,
                 buyInAmount: buyInAmount,
                 timestamp: timestamp,
-                description: `Cashout de sesión ${sessionId}. ${ledgerType === 'GAME_WIN' ? 'Ganancia' : 'Pérdida'} Neta: ${netProfit > 0 ? '+' : ''}${netProfit} (Recibido: ${netWinnings}, Rake: ${totalRake}${exitFee > 0 ? `, Exit Fee: ${exitFee}` : ''})`
+                description: `Cashout de sesión ${sessionId}. ${ledgerType === 'GAME_WIN' ? 'Ganancia' : 'Pérdida'} Neta: ${netProfit > 0 ? '+' : ''}${netProfit} (Recibido: ${netWinnings}, Buy-in: ${buyInAmount}, Rake: ${totalRake}${exitFee > 0 ? `, Exit Fee: ${exitFee}` : ''})`
             });
             console.log(`[CASHOUT] Registro creado en financial_ledger: ${ledgerRef.id}`);
 
