@@ -13,6 +13,7 @@ import { createPublicTable, createClubTableFunction as _createClubTableFunction,
 import { dailyEconomyCron } from './functions/cron';
 import { dailyEconomyCron as newDailyEconomyCron, triggerDailyStats } from './functions/scheduled_functions';
 import { getTopHolders, getTopWinners24h, get24hMetrics, getWeeklyTrends, getCurrentLiquidity, getTotalRake } from './functions/analytics';
+import { cleanupDuplicateSessions, checkUserSessions } from './functions/cleanupDuplicateSessions';
 
 // Initialize Firebase Admin SDK (lazy initialization)
 if (!admin.apps.length) {
@@ -59,6 +60,9 @@ export const getUserTransactionHistoryFunction = functions.https.onCall(getUserT
 export const adminDeleteUserFunction = functions.https.onCall(adminDeleteUser);
 export const adminCreateUserFunction = functions.https.onCall(adminCreateUser);
 export { repairStuckSessions, clearAllFirestoreData, cleanWelcomeBonusUsers, cleanStuckMoneyInPlay }; // HTTP Functions para reparación y limpieza
+
+// Session Cleanup Functions (Admin)
+export { cleanupDuplicateSessions, checkUserSessions };
 
 // External Integrations
 export * from './functions/external';

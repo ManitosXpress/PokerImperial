@@ -98,7 +98,9 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
     const db = admin.firestore();
 
     try {
-        // Check for existing active session for this user in this room
+        // PARTE 1: IDEMPOTENCIA - Verificación inicial (rápida, pero no atómica)
+        // Esta verificación es una optimización para evitar transacciones innecesarias.
+        // La protección real está DENTRO de la transacción.
         const existingSessionQuery = await db.collection('poker_sessions')
             .where('userId', '==', uid)
             .where('roomId', '==', roomId)
@@ -107,11 +109,19 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
             .get();
 
         if (!existingSessionQuery.empty) {
-            console.log(`User ${uid} already has an active session in room ${roomId}. Reusing.`);
-            return existingSessionQuery.docs[0].id;
+            const existingId = existingSessionQuery.docs[0].id;
+            console.log(`[IDEMPOTENCY] User ${uid} already has active session ${existingId} in room ${roomId}. Returning existing.`);
+
+            // Actualizar lastActive para mantener la sesión viva
+            await db.collection('poker_sessions').doc(existingId).update({
+                lastActive: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            return existingId;
         }
 
-        const sessionId = await db.runTransaction(async (transaction) => {
+        // PARTE 2: TRANSACCIÓN ATÓMICA - Verificación + Creación
+        const result = await db.runTransaction(async (transaction) => {
             const userRef = db.collection('users').doc(uid);
             const userDoc = await transaction.get(userRef);
 
@@ -119,28 +129,47 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
                 throw new Error('User not found');
             }
 
-            const currentBalance = userDoc.data()?.credit || 0;
+            const userData = userDoc.data();
+            const currentBalance = userData?.credit || 0;
+            const currentTableId = userData?.currentTableId;
+            const moneyInPlay = userData?.moneyInPlay || 0;
+
+            // VERIFICACIÓN CRÍTICA DENTRO DE LA TRANSACCIÓN
+            // Esta es la verdadera protección contra race conditions
+            if (currentTableId === roomId) {
+                console.log(`[IDEMPOTENCY] User ${uid} already registered in room ${roomId} (currentTableId check). Signaling to find existing session.`);
+                return { type: 'existing', sessionId: null };
+            }
+
+            if (moneyInPlay > 0) {
+                console.log(`[IDEMPOTENCY] User ${uid} has ${moneyInPlay} in play. Cannot create new session.`);
+                return { type: 'existing', sessionId: null };
+            }
 
             if (currentBalance < amount) {
                 throw new Error('Insufficient balance');
             }
 
-            // Deduct balance from main wallet
-            transaction.update(userRef, {
-                credit: currentBalance - amount,
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-            });
-
-            // Create Poker Session
+            // Crear nueva sesión - Usuario está limpio
             const sessionRef = db.collection('poker_sessions').doc();
             const newSessionId = sessionRef.id;
 
+            // Deducir balance y marcar estado
+            transaction.update(userRef, {
+                credit: currentBalance - amount,
+                moneyInPlay: amount,
+                currentTableId: roomId,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Crear documento de sesión
             transaction.set(sessionRef, {
                 userId: uid,
                 roomId: roomId,
                 buyInAmount: amount,
                 currentChips: amount,
                 startTime: admin.firestore.FieldValue.serverTimestamp(),
+                lastActive: admin.firestore.FieldValue.serverTimestamp(),
                 status: 'active',
                 totalRakePaid: 0
             });
@@ -148,7 +177,7 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
             const newBalance = currentBalance - amount;
 
-            // Record transaction log in sub-collection (for backward compatibility)
+            // Registro en sub-colección de transacciones
             const transactionRef = userRef.collection('transactions').doc();
             transaction.set(transactionRef, {
                 type: 'poker_buyin',
@@ -158,11 +187,11 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
                 timestamp: timestamp
             });
 
-            // Record in transaction_logs (main collection for history)
+            // Registro en colección principal de logs
             const logRef = db.collection('transaction_logs').doc();
             transaction.set(logRef, {
                 userId: uid,
-                amount: -amount, // Negative for debit
+                amount: -amount,
                 type: 'debit',
                 reason: `Poker Room Buy-in: ${roomId}`,
                 timestamp: timestamp,
@@ -175,16 +204,47 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
                 }
             });
 
-            return newSessionId;
+            console.log(`[NEW_SESSION] Created session ${newSessionId} for user ${uid} in room ${roomId}`);
+            return { type: 'new', sessionId: newSessionId };
         });
 
-        console.log(`Reserved poker session ${sessionId} for user ${uid} in room ${roomId}`);
-        return sessionId;
+        // PARTE 3: MANEJO DE RESULTADO
+        if (result.type === 'new') {
+            console.log(`Reserved poker session ${result.sessionId} for user ${uid} in room ${roomId}`);
+            return result.sessionId;
+        }
+
+        // Usuario ya estaba en la mesa - buscar sesión existente
+        console.log(`[IDEMPOTENCY] Transaction detected existing state. Searching for active session...`);
+        const retryQuery = await db.collection('poker_sessions')
+            .where('userId', '==', uid)
+            .where('roomId', '==', roomId)
+            .where('status', '==', 'active')
+            .orderBy('startTime', 'desc')
+            .limit(1)
+            .get();
+
+        if (!retryQuery.empty) {
+            const existingId = retryQuery.docs[0].id;
+            console.log(`[IDEMPOTENCY] Found existing session ${existingId} for user ${uid}`);
+
+            // Actualizar lastActive
+            await db.collection('poker_sessions').doc(existingId).update({
+                lastActive: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            return existingId;
+        }
+
+        console.error(`[IDEMPOTENCY] User ${uid} marked as in room ${roomId} but no session found. Possible data corruption.`);
+        return null;
+
     } catch (error) {
         console.error('Error reserving poker session:', error);
         return null;
     }
 }
+
 
 export async function endPokerSession(uid: string, sessionId: string, finalChips: number, totalRake: number, exitFee: number = 0): Promise<boolean> {
     if (!admin.apps.length) return false;
@@ -215,16 +275,16 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
 
             // Obtener buy-in original de la sesión
             const buyInAmount = Number(sessionData?.buyInAmount) || 0;
-            
+
             // Calcular monto neto (fichas finales - exit fee)
             const netWinnings = Math.max(0, finalChips - exitFee);
-            
+
             // Calcular ganancia/pérdida vs buy-in
             const netProfit = netWinnings - buyInAmount;
-            
+
             // Determinar tipo de transacción
             const ledgerType = netWinnings > buyInAmount ? 'GAME_WIN' : 'GAME_LOSS';
-            
+
             console.log(`[CASHOUT] Usuario: ${uid} (${displayName}), Sesión: ${sessionId}`);
             console.log(`[CASHOUT] Fichas finales: ${finalChips}`);
             console.log(`[CASHOUT] Buy-in original: ${buyInAmount}`);
@@ -296,10 +356,10 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
 
             // Escribir en financial_ledger (OBLIGATORIO - nunca debe estar vacío)
             // CRÍTICO: Para perdedores (finalChips === 0), usar -buyInAmount en lugar de 0
-            const ledgerAmount = finalChips === 0 && netWinnings === 0 
+            const ledgerAmount = finalChips === 0 && netWinnings === 0
                 ? -buyInAmount  // Perdedor: registrar pérdida total del buy-in
                 : netWinnings;   // Ganador o empate: registrar monto recibido
-            
+
             const ledgerRef = db.collection('financial_ledger').doc();
             transaction.set(ledgerRef, {
                 type: ledgerType,

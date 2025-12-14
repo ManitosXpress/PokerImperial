@@ -271,10 +271,10 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
         // CRÍTICO: Verificar si la mesa ya fue procesada para evitar doble liquidación
         if (currentStatus === 'inactive' || currentStatus === 'FINISHED') {
             console.log(`[LIQUIDACION] Mesa ${tableId} ya fue procesada (status: ${currentStatus}). Saltando...`);
-            return { 
-                success: true, 
-                message: 'Table already processed.', 
-                alreadyProcessed: true 
+            return {
+                success: true,
+                message: 'Table already processed.',
+                alreadyProcessed: true
             };
         }
 
@@ -286,20 +286,30 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
 
         console.log(`[LIQUIDACION] Procesando cierre de mesa ${tableId} con ${players.length} jugadores (Pública: ${isPublic})`);
 
-        // 2. Leer todas las sesiones activas ANTES de la transacción
+        // 2. Leer TODAS las sesiones activas ANTES de la transacción
+        // CRÍTICO: Mapeo de TODAS las sesiones por usuario (array en lugar de single)
         const activeSessionsQuery = await db.collection('poker_sessions')
             .where('roomId', '==', tableId)
             .where('status', '==', 'active')
             .get();
 
-        const sessionMap = new Map<string, { ref: admin.firestore.DocumentReference, data: any }>();
+        const sessionsByUser = new Map<string, Array<{ ref: admin.firestore.DocumentReference, data: any }>>();
         activeSessionsQuery.docs.forEach(doc => {
             const sessionData = doc.data();
             const userId = sessionData.userId;
             if (userId) {
-                sessionMap.set(userId, { ref: doc.ref, data: sessionData });
+                const existing = sessionsByUser.get(userId) || [];
+                existing.push({ ref: doc.ref, data: sessionData });
+                sessionsByUser.set(userId, existing);
             }
         });
+
+        // CRÍTICO: Si hay duplicados, loguear warning
+        for (const [userId, sessions] of sessionsByUser.entries()) {
+            if (sessions.length > 1) {
+                console.warn(`[LIQUIDACION] ⚠️ DUPLICADOS DETECTADOS: Usuario ${userId} tiene ${sessions.length} sesiones activas. Cerrando TODAS.`);
+            }
+        }
 
         // 3. Leer todos los usuarios ANTES de la transacción
         const userIds = players.map((p: any) => p.id);
@@ -329,8 +339,8 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
             for (let i = 0; i < players.length; i++) {
                 const player = players[i];
                 const playerId = player.id;
-                
-                // PASO 1: Obtener PlayerChips (Fuente de Verdad)
+
+                // PASO 1: Obtener PlayerChips (Fuente de Verdad - LA MESA, no la sesión)
                 const playerChips = Number(player.chips) || 0;
 
                 console.log(`[LIQUIDACION] Jugador ${playerId}: PlayerChips = ${playerChips}`);
@@ -346,14 +356,17 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                 const userData = userInfo.data;
                 const displayName = userData?.displayName || 'Unknown';
 
-                // Obtener sesión activa para BuyIn
-                const sessionInfo = sessionMap.get(playerId);
-                let sessionRef: admin.firestore.DocumentReference | null = null;
-                let buyInAmount = 0;
+                // Obtener TODAS las sesiones activas para este usuario
+                const sessions = sessionsByUser.get(playerId) || [];
 
-                if (sessionInfo) {
-                    sessionRef = sessionInfo.ref;
-                    buyInAmount = Number(sessionInfo.data.buyInAmount) || 0;
+                // Usar la sesión más reciente para obtener el buyIn (o fallback a minBuyIn)
+                let buyInAmount = 0;
+                if (sessions.length > 0) {
+                    // Ordenar por startTime descendente y usar la más reciente
+                    const sortedSessions = sessions.sort((a, b) =>
+                        (b.data.startTime?.toMillis() || 0) - (a.data.startTime?.toMillis() || 0)
+                    );
+                    buyInAmount = Number(sortedSessions[0].data.buyInAmount) || 0;
                 } else {
                     // Fallback: usar minBuyIn de la mesa
                     buyInAmount = Number(tableData?.minBuyIn) || 0;
@@ -371,14 +384,14 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                     rakeAmount = Math.floor(grossProfit * RAKE_PERCENTAGE);
                     netPayout = playerChips - rakeAmount;
                     ledgerType = 'GAME_WIN';
-                    
+
                     console.log(`[LIQUIDACION] ${playerId} GANÓ (Público). BuyIn: ${buyInAmount}, PlayerChips: ${playerChips}, GrossProfit: ${grossProfit}, Rake: ${rakeAmount}, NetPayout: ${netPayout}`);
                 } else {
                     // Sin rake: PlayerChips <= BuyIn o mesa privada
                     rakeAmount = 0;
                     netPayout = playerChips;
                     ledgerType = playerChips > buyInAmount ? 'GAME_WIN' : (playerChips < buyInAmount ? 'GAME_LOSS' : 'GAME_LOSS');
-                    
+
                     console.log(`[LIQUIDACION] ${playerId} ${playerChips > buyInAmount ? 'GANÓ' : 'PERDIÓ'} (Sin Rake). BuyIn: ${buyInAmount}, PlayerChips: ${playerChips}, NetPayout: ${netPayout}`);
                 }
 
@@ -388,7 +401,7 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                 totalDailyGGR += rakeAmount;
 
                 // PASO 3: Ejecución de Transacción (Atomic Batch)
-                
+
                 // 3.1. Usuario: Actualizar crédito, limpiar estado
                 transaction.update(userRef, {
                     credit: admin.firestore.FieldValue.increment(netPayout),
@@ -397,18 +410,26 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                     lastUpdated: timestamp
                 });
 
-                // 3.2. Cerrar sesión
-                if (sessionRef) {
-                    transaction.update(sessionRef, {
+                // 3.2. CRÍTICO: Cerrar TODAS las sesiones del usuario (incluye duplicados)
+                for (let j = 0; j < sessions.length; j++) {
+                    const session = sessions[j];
+                    const isPrimary = j === 0; // La primera (más reciente) es la primaria
+
+                    transaction.update(session.ref, {
                         status: 'completed',
-                        currentChips: playerChips,
-                        totalRakePaid: rakeAmount,
-                        netResult: netPayout,
-                        endTime: timestamp
+                        currentChips: isPrimary ? playerChips : 0,
+                        totalRakePaid: isPrimary ? rakeAmount : 0,
+                        netResult: isPrimary ? netPayout : 0,
+                        endTime: timestamp,
+                        closedReason: isPrimary ? 'primary_cashout' : 'duplicate_cleanup'
                     });
+
+                    if (!isPrimary) {
+                        console.log(`[LIQUIDACION] Sesión duplicada ${session.ref.id} cerrada como 'duplicate_cleanup'`);
+                    }
                 }
 
-                // 3.3. Ledger: UN SOLO documento por jugador
+                // 3.3. Ledger: UN SOLO documento por jugador (ignora duplicados)
                 const ledgerRef = db.collection('financial_ledger').doc();
                 const netProfit = netPayout - buyInAmount;
                 transaction.set(ledgerRef, {
@@ -423,7 +444,8 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                     rakePaid: rakeAmount,
                     buyInAmount: buyInAmount,
                     timestamp: timestamp,
-                    description: `Cashout Final (Stack: ${playerChips} - Rake: ${rakeAmount})`
+                    description: `Cashout Final (Stack: ${playerChips} - Rake: ${rakeAmount})`,
+                    duplicateSessionsClosed: sessions.length > 1 ? sessions.length : undefined
                 });
 
                 // Actualizar jugador en la mesa: chips a 0
@@ -540,19 +562,29 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
 
         console.log(`[UNIVERSAL_SETTLEMENT] Procesando ${players.length} jugadores`);
 
-        // Leer todas las sesiones activas ANTES de la transacción
+        // Leer TODAS las sesiones activas ANTES de la transacción
+        // CRÍTICO: Mapeo de TODAS las sesiones por usuario (array en lugar de single)
         const activeSessionsQuery = await db.collection('poker_sessions')
             .where('roomId', '==', tableId)
             .where('status', '==', 'active')
             .get();
 
-        const sessionMap = new Map<string, { ref: admin.firestore.DocumentReference, data: any }>();
+        const sessionsByUser = new Map<string, Array<{ ref: admin.firestore.DocumentReference, data: any }>>();
         activeSessionsQuery.docs.forEach(doc => {
-            const data = doc.data();
-            if (data.userId) {
-                sessionMap.set(data.userId, { ref: doc.ref, data: data });
+            const sessionData = doc.data();
+            if (sessionData.userId) {
+                const existing = sessionsByUser.get(sessionData.userId) || [];
+                existing.push({ ref: doc.ref, data: sessionData });
+                sessionsByUser.set(sessionData.userId, existing);
             }
         });
+
+        // CRÍTICO: Si hay duplicados, loguear warning
+        for (const [userId, sessions] of sessionsByUser.entries()) {
+            if (sessions.length > 1) {
+                console.warn(`[UNIVERSAL_SETTLEMENT] ⚠️ DUPLICADOS DETECTADOS: Usuario ${userId} tiene ${sessions.length} sesiones activas. Cerrando TODAS.`);
+            }
+        }
 
         // Leer todos los usuarios ANTES de la transacción
         const userIds = players.map(p => p.id).filter(Boolean);
@@ -609,14 +641,17 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                 const userClubId = userData?.clubId;
                 const userSellerId = userData?.sellerId;
 
-                // Obtener sesión activa
-                const sessionInfo = sessionMap.get(playerId);
-                let sessionRef: admin.firestore.DocumentReference | null = null;
-                let initialBuyIn = 0;
+                // Obtener TODAS las sesiones activas para este usuario
+                const sessions = sessionsByUser.get(playerId) || [];
 
-                if (sessionInfo) {
-                    sessionRef = sessionInfo.ref;
-                    initialBuyIn = Number(sessionInfo.data.buyInAmount) || 0;
+                // Usar la sesión más reciente para obtener el buyIn (o fallback a minBuyIn)
+                let initialBuyIn = 0;
+                if (sessions.length > 0) {
+                    // Ordenar por startTime descendente y usar la más reciente
+                    sessions.sort((a, b) =>
+                        (b.data.startTime?.toMillis() || 0) - (a.data.startTime?.toMillis() || 0)
+                    );
+                    initialBuyIn = Number(sessions[0].data.buyInAmount) || 0;
                 } else {
                     // Si no hay sesión, usar el buy-in de la mesa como fallback
                     initialBuyIn = Number(tableData?.minBuyIn) || 1000;
@@ -684,15 +719,23 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                         totalPlatformShare += sellerShare;
                     }
 
-                    // Cerrar sesión
-                    if (sessionRef) {
-                        transaction.update(sessionRef, {
+                    // CRÍTICO: Cerrar TODAS las sesiones del usuario (incluye duplicados)
+                    for (let j = 0; j < sessions.length; j++) {
+                        const session = sessions[j];
+                        const isPrimary = j === 0;
+
+                        transaction.update(session.ref, {
                             status: 'completed',
-                            currentChips: finalStack,
-                            totalRakePaid: rake,
-                            netResult: payout,
-                            endTime: timestamp
+                            currentChips: isPrimary ? finalStack : 0,
+                            totalRakePaid: isPrimary ? rake : 0,
+                            netResult: isPrimary ? payout : 0,
+                            endTime: timestamp,
+                            closedReason: isPrimary ? 'primary_cashout' : 'duplicate_cleanup'
                         });
+
+                        if (!isPrimary) {
+                            console.log(`[UNIVERSAL_SETTLEMENT] Sesión duplicada ${session.ref.id} cerrada como 'duplicate_cleanup'`);
+                        }
                     }
 
                     // Registrar en ledger
@@ -737,15 +780,23 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                         console.log(`[UNIVERSAL_SETTLEMENT] ${playerId} recibió ${finalStack} créditos restantes`);
                     }
 
-                    // Cerrar sesión
-                    if (sessionRef) {
-                        transaction.update(sessionRef, {
+                    // CRÍTICO: Cerrar TODAS las sesiones del usuario (incluye duplicados)
+                    for (let j = 0; j < sessions.length; j++) {
+                        const session = sessions[j];
+                        const isPrimary = j === 0;
+
+                        transaction.update(session.ref, {
                             status: 'completed',
-                            currentChips: finalStack,
+                            currentChips: isPrimary ? finalStack : 0,
                             totalRakePaid: 0,
-                            netResult: finalStack,
-                            endTime: timestamp
+                            netResult: isPrimary ? finalStack : 0,
+                            endTime: timestamp,
+                            closedReason: isPrimary ? 'primary_cashout' : 'duplicate_cleanup'
                         });
+
+                        if (!isPrimary) {
+                            console.log(`[UNIVERSAL_SETTLEMENT] Sesión duplicada ${session.ref.id} cerrada como 'duplicate_cleanup'`);
+                        }
                     }
 
                     // Registrar en ledger

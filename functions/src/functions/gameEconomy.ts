@@ -1,60 +1,96 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { SettleRoundRequest } from "../types";
-import { updateDailyStats } from "../utils/dailyStatsHelper";
 
 /**
  * settleGameRound
  * 
- * Handles the distribution of the pot and rake at the end of a game round.
+ * ALGORITMO ESTRICTO Y SECUENCIAL PARA LIQUIDACIÓN DE RONDAS
  * 
- * Economic Model:
- * - Rake: 8% of the Total Pot.
- * - Winner Prize: Total Pot - Rake.
+ * Garantiza integridad financiera mediante el siguiente flujo:
  * 
- * Rake Distribution Logic:
+ * Paso 1: Cálculo del Bote y Rake (EN MEMORIA)
+ * Paso 2: Distribución del Rake (ESCRIBIR EN BD)
+ * Paso 3: Asignación al Ganador (ACTUALIZAR STACK EN MESA)
+ * Paso 4: Cashout / Liquidación (TRANSFERIR A BILLETERA)
+ * Paso 5: Historial (Ledger)
  * 
- * 1. Independent User (Winner has no clubId):
- *    - 100% of Rake -> Platform (system_stats/economy accumulated_rake)
- * 
- * 2. Club User (Winner has clubId):
- *    - 50% -> Platform
- *    - 30% -> Club Owner (club wallet)
- *    - 20% -> Seller (seller wallet)
- *    * Fallback: If no seller, the 20% goes to the Club (Total 50% Club).
- * 
- * Atomicity:
- * - Uses Firestore Transaction to ensure all balance updates and ledger entries happen or fail together.
- * 
- * Real-time Stats:
- * - Updates daily statistics immediately after settlement for live dashboard metrics
+ * CRÍTICO: Primero se suma el bote al stack, luego se cobra el rake, y al final se transfiere a la billetera.
  */
 export const settleGameRound = async (data: SettleRoundRequest, context: functions.https.CallableContext) => {
     const db = admin.firestore();
 
-    // 1. Validation
+    // 1. Validación
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
     }
 
-    const { potTotal, winnerUid, playersInvolved, gameId } = data;
+    const { potTotal, winnerUid, playersInvolved, gameId, tableId } = data;
 
-    if (!potTotal || !winnerUid || !playersInvolved || playersInvolved.length === 0) {
-        throw new functions.https.HttpsError('invalid-argument', 'Missing required parameters.');
+    if (!potTotal || !winnerUid || !playersInvolved || playersInvolved.length === 0 || !tableId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing required parameters: potTotal, winnerUid, playersInvolved, tableId.');
     }
 
-    // 2. Calculate Rake and Prize
-    const RAKE_PERCENTAGE = 0.08;
-    const totalRake = Math.floor(potTotal * RAKE_PERCENTAGE);
-    const winnerPrize = potTotal - totalRake;
-
-    // 3. Prepare Distribution Data
     const timestamp = admin.firestore.Timestamp.now();
+    const RAKE_PERCENTAGE = 0.08;
 
-    // 4. Execute Atomic Transaction
+    // ============================================
+    // PASO 1: CÁLCULO DEL BOTE Y RAKE (EN MEMORIA)
+    // ============================================
+    const totalPot = potTotal; // Suma de todas las apuestas
+    const rakeAmount = Math.floor(totalPot * RAKE_PERCENTAGE); // 8% del bote
+    const winnerPrize = totalPot - rakeAmount; // Premio neto que se lleva el ganador
+
+    console.log(`[SETTLE_ROUND] Paso 1 - Pot Total: ${totalPot}, Rake Calculado: ${rakeAmount}, Premio Neto: ${winnerPrize}`);
+
+    // Buscar sesión activa del ganador ANTES de la transacción (las queries no se pueden hacer dentro de transacciones)
+    const activeSessionsQuery = await db.collection('poker_sessions')
+        .where('userId', '==', winnerUid)
+        .where('roomId', '==', tableId)
+        .where('status', '==', 'active')
+        .limit(1)
+        .get();
+
+    let winnerSessionRef: admin.firestore.DocumentReference | null = null;
+    if (!activeSessionsQuery.empty) {
+        winnerSessionRef = activeSessionsQuery.docs[0].ref;
+        console.log(`[SETTLE_ROUND] Sesión activa encontrada para ganador: ${activeSessionsQuery.docs[0].id}`);
+        
+        // Si hay múltiples sesiones activas, registrar advertencia
+        if (activeSessionsQuery.size > 1) {
+            console.warn(`[SETTLE_ROUND] ⚠️ ADVERTENCIA: Se encontraron ${activeSessionsQuery.size} sesiones activas para ${winnerUid} en mesa ${tableId}. Esto puede causar problemas.`);
+        }
+    } else {
+        console.warn(`[SETTLE_ROUND] No se encontró sesión activa para ganador ${winnerUid} en mesa ${tableId}`);
+    }
+
+    // 4. Ejecutar Transacción Atómica
     try {
         await db.runTransaction(async (transaction) => {
-            // --- READS ---
+            // Leer mesa para obtener información (isPublic, players)
+            const tableRef = db.collection('poker_tables').doc(tableId);
+            const tableDoc = await transaction.get(tableRef);
+            
+            if (!tableDoc.exists) {
+                throw new functions.https.HttpsError('not-found', `Table ${tableId} not found.`);
+            }
+
+            const tableData = tableDoc.data();
+            const isPublic = tableData?.isPublic === true;
+            const players = Array.isArray(tableData?.players) ? [...tableData.players] : [];
+
+            // Encontrar el jugador ganador en la mesa
+            const winnerPlayerIndex = players.findIndex((p: any) => p.id === winnerUid);
+            if (winnerPlayerIndex === -1) {
+                throw new functions.https.HttpsError('not-found', `Winner ${winnerUid} not found in table players.`);
+            }
+
+            const winnerPlayer = players[winnerPlayerIndex];
+            const currentWinnerChips = Number(winnerPlayer.chips) || 0;
+
+            console.log(`[SETTLE_ROUND] Mesa ${tableId} - Pública: ${isPublic}, Chips actuales del ganador: ${currentWinnerChips}`);
+
+            // Leer datos del ganador
             const winnerRef = db.collection('users').doc(winnerUid);
             const winnerDoc = await transaction.get(winnerRef);
             if (!winnerDoc.exists) {
@@ -65,141 +101,229 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
             const winnerClubId = winnerData?.clubId;
             const winnerSellerId = winnerData?.sellerId;
 
-            // Distribution Variables
-            let platformShare = 0;
-            let clubShare = 0;
-            let sellerShare = 0;
+            // ============================================
+            // PASO 2: DISTRIBUCIÓN DEL RAKE (ESCRIBIR EN BD)
+            // ============================================
+            let platformProfit = 0;
+            let clubProfit = 0;
+            let sellerProfit = 0;
             let targetClubId: string | null = null;
             let targetSellerId: string | null = null;
 
-            // --- LOGIC BRANCHING ---
-            if (!winnerClubId) {
-                platformShare = totalRake;
+            if (!isPublic) {
+                // Sala Privada: 100% del rake va a la plataforma
+                platformProfit = rakeAmount;
+                console.log(`[SETTLE_ROUND] Paso 2 - Sala Privada: PlatformProfit = ${platformProfit}`);
             } else {
-                targetClubId = winnerClubId;
-                targetSellerId = winnerSellerId;
+                // Sala Pública: Distribución 50-30-20
+                platformProfit = Math.floor(rakeAmount * 0.50);
+                clubProfit = Math.floor(rakeAmount * 0.30);
+                sellerProfit = Math.floor(rakeAmount * 0.20);
+                
+                // Ajustar por redondeo
+                const remainder = rakeAmount - (platformProfit + clubProfit + sellerProfit);
+                platformProfit += remainder;
 
-                const basePlatformShare = Math.floor(totalRake * 0.50);
-                const baseClubShare = Math.floor(totalRake * 0.30);
-                const baseSellerShare = Math.floor(totalRake * 0.20);
+                targetClubId = winnerClubId || null;
+                targetSellerId = winnerSellerId || null;
 
-                const remainder = totalRake - (basePlatformShare + baseClubShare + baseSellerShare);
-                platformShare = basePlatformShare + remainder;
-
-                if (targetSellerId) {
-                    clubShare = baseClubShare;
-                    sellerShare = baseSellerShare;
-                } else {
-                    clubShare = baseClubShare + baseSellerShare;
-                    sellerShare = 0;
+                // Si no hay seller, el 20% va al club
+                if (!targetSellerId && targetClubId) {
+                    clubProfit += sellerProfit;
+                    sellerProfit = 0;
+                } else if (!targetSellerId && !targetClubId) {
+                    // Si no hay club ni seller, todo va a la plataforma
+                    platformProfit += clubProfit + sellerProfit;
+                    clubProfit = 0;
+                    sellerProfit = 0;
                 }
+
+                console.log(`[SETTLE_ROUND] Paso 2 - Sala Pública: PlatformProfit = ${platformProfit}, ClubProfit = ${clubProfit}, SellerProfit = ${sellerProfit}`);
             }
 
-            // --- READS FOR DISTRIBUTION ---
-            let clubRef: FirebaseFirestore.DocumentReference | null = null;
-            if (clubShare > 0 && targetClubId) {
-                clubRef = db.collection('clubs').doc(targetClubId);
-                const clubDoc = await transaction.get(clubRef);
-                if (!clubDoc.exists) {
-                    platformShare += clubShare;
-                    clubShare = 0;
-                }
-            }
-
-            let sellerRef: FirebaseFirestore.DocumentReference | null = null;
-            if (sellerShare > 0 && targetSellerId) {
-                sellerRef = db.collection('users').doc(targetSellerId);
-                const sellerDoc = await transaction.get(sellerRef);
-                if (!sellerDoc.exists) {
-                    clubShare += sellerShare;
-                    sellerShare = 0;
-                }
-            }
-
-            // --- WRITES ---
-
-            // 1. Update Winner Balance
-            const currentWinnerCredits = winnerData?.credits || 0;
-            transaction.update(winnerRef, {
-                credits: currentWinnerCredits + winnerPrize
-            });
-
-            // Log Prize
-            const prizeLogRef = db.collection('financial_ledger').doc();
-            transaction.set(prizeLogRef, {
-                type: 'WIN_PRIZE',
-                amount: winnerPrize,
-                userId: winnerUid,
-                source: `game_${gameId}`,
-                destination: `user_${winnerUid}`,
-                description: `Winner prize for game ${gameId}`,
-                timestamp: timestamp
-            });
-
-            // 2. Update Platform
-            if (platformShare > 0) {
+            // Actualizar billeteras de Admin, Club y Seller
+            if (platformProfit > 0) {
                 const statsRef = db.collection('system_stats').doc('economy');
                 transaction.set(statsRef, {
-                    accumulated_rake: admin.firestore.FieldValue.increment(platformShare),
+                    accumulated_rake: admin.firestore.FieldValue.increment(platformProfit),
                     lastUpdated: timestamp
                 }, { merge: true });
-
-                const platformLogRef = db.collection('financial_ledger').doc();
-                transaction.set(platformLogRef, {
-                    type: 'RAKE',
-                    amount: platformShare,
-                    userId: 'platform',
-                    source: `game_${gameId}`,
-                    destination: 'platform',
-                    description: `Platform Rake Share (${!winnerClubId ? '100%' : '50%'})`,
-                    timestamp: timestamp
-                });
+                console.log(`[SETTLE_ROUND] Paso 2 - Platform wallet actualizada: +${platformProfit}`);
             }
 
-            // 3. Update Club
-            if (clubShare > 0 && clubRef) {
-                transaction.update(clubRef, {
-                    walletBalance: admin.firestore.FieldValue.increment(clubShare)
-                });
-
-                const clubLogRef = db.collection('financial_ledger').doc();
-                transaction.set(clubLogRef, {
-                    type: 'RAKE_DISTRIBUTION',
-                    amount: clubShare,
-                    userId: targetClubId!,
-                    source: `game_${gameId}`,
-                    destination: `club_${targetClubId}`,
-                    description: `Club Rake Share (${sellerShare === 0 ? '50%' : '30%'})`,
-                    timestamp: timestamp
-                });
+            if (clubProfit > 0 && targetClubId) {
+                const clubRef = db.collection('clubs').doc(targetClubId);
+                const clubDoc = await transaction.get(clubRef);
+                if (clubDoc.exists) {
+                    transaction.update(clubRef, {
+                        walletBalance: admin.firestore.FieldValue.increment(clubProfit)
+                    });
+                    console.log(`[SETTLE_ROUND] Paso 2 - Club ${targetClubId} wallet actualizada: +${clubProfit}`);
+                } else {
+                    // Si el club no existe, el rake va a la plataforma
+                    platformProfit += clubProfit;
+                    const statsRef = db.collection('system_stats').doc('economy');
+                    transaction.set(statsRef, {
+                        accumulated_rake: admin.firestore.FieldValue.increment(clubProfit),
+                        lastUpdated: timestamp
+                    }, { merge: true });
+                    clubProfit = 0;
+                    console.log(`[SETTLE_ROUND] Paso 2 - Club no encontrado, rake transferido a plataforma`);
+                }
             }
 
-            // 4. Update Seller
-            if (sellerShare > 0 && sellerRef) {
-                transaction.update(sellerRef, {
-                    credit: admin.firestore.FieldValue.increment(sellerShare)
-                });
-
-                const sellerLogRef = db.collection('financial_ledger').doc();
-                transaction.set(sellerLogRef, {
-                    type: 'RAKE_DISTRIBUTION',
-                    amount: sellerShare,
-                    userId: targetSellerId!,
-                    source: `game_${gameId}`,
-                    destination: `seller_${targetSellerId}`,
-                    description: `Seller Rake Share (20%)`,
-                    timestamp: timestamp
-                });
+            if (sellerProfit > 0 && targetSellerId) {
+                const sellerRef = db.collection('users').doc(targetSellerId);
+                const sellerDoc = await transaction.get(sellerRef);
+                if (sellerDoc.exists) {
+                    transaction.update(sellerRef, {
+                        credit: admin.firestore.FieldValue.increment(sellerProfit)
+                    });
+                    console.log(`[SETTLE_ROUND] Paso 2 - Seller ${targetSellerId} wallet actualizada: +${sellerProfit}`);
+                } else {
+                    // Si el seller no existe, el rake va al club o plataforma
+                    if (targetClubId) {
+                        const clubRef = db.collection('clubs').doc(targetClubId);
+                        const clubDoc = await transaction.get(clubRef);
+                        if (clubDoc.exists) {
+                            transaction.update(clubRef, {
+                                walletBalance: admin.firestore.FieldValue.increment(sellerProfit)
+                            });
+                            clubProfit += sellerProfit;
+                            console.log(`[SETTLE_ROUND] Paso 2 - Seller no encontrado, rake transferido a club`);
+                        } else {
+                            platformProfit += sellerProfit;
+                            const statsRef = db.collection('system_stats').doc('economy');
+                            transaction.set(statsRef, {
+                                accumulated_rake: admin.firestore.FieldValue.increment(sellerProfit),
+                                lastUpdated: timestamp
+                            }, { merge: true });
+                            console.log(`[SETTLE_ROUND] Paso 2 - Seller y Club no encontrados, rake transferido a plataforma`);
+                        }
+                    } else {
+                        platformProfit += sellerProfit;
+                        const statsRef = db.collection('system_stats').doc('economy');
+                        transaction.set(statsRef, {
+                            accumulated_rake: admin.firestore.FieldValue.increment(sellerProfit),
+                            lastUpdated: timestamp
+                        }, { merge: true });
+                        console.log(`[SETTLE_ROUND] Paso 2 - Seller no encontrado, rake transferido a plataforma`);
+                    }
+                    sellerProfit = 0;
+                }
             }
+
+            // Actualizar dailyGGR y totalVolume en stats_daily
+            const now = new Date();
+            const dateKey = now.toISOString().split('T')[0];
+            const dailyStatsRef = db.collection('stats_daily').doc(dateKey);
+            transaction.set(dailyStatsRef, {
+                dateKey: dateKey,
+                date: admin.firestore.Timestamp.now(),
+                totalVolume: admin.firestore.FieldValue.increment(totalPot),
+                dailyGGR: admin.firestore.FieldValue.increment(rakeAmount),
+                totalRake: admin.firestore.FieldValue.increment(rakeAmount),
+                handsPlayed: admin.firestore.FieldValue.increment(1),
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            console.log(`[SETTLE_ROUND] Paso 2 - stats_daily actualizado: totalVolume +${totalPot}, dailyGGR +${rakeAmount}, totalRake +${rakeAmount}, handsPlayed +1`);
+
+            // ============================================
+            // PASO 3: ASIGNACIÓN AL GANADOR (ACTUALIZAR STACK)
+            // ============================================
+            // CRÍTICO: El potTotal ya incluye todas las apuestas del pot.
+            // El ganador debe recibir: sus chips actuales + el pot total - el rake
+            // Pero como el pot ya incluye sus apuestas, solo necesitamos sumar el premio neto
+            const newWinnerChips = currentWinnerChips + winnerPrize;
+            players[winnerPlayerIndex] = {
+                ...winnerPlayer,
+                chips: newWinnerChips
+            };
+
+            // Actualizar la mesa con las nuevas fichas del ganador
+            transaction.update(tableRef, {
+                [`players.${winnerPlayerIndex}.chips`]: newWinnerChips
+            });
+
+            console.log(`[SETTLE_ROUND] Paso 3 - Stack Final del Ganador: ${newWinnerChips} (chips actuales: ${currentWinnerChips}, premio neto sumado: ${winnerPrize})`);
+
+            // ============================================
+            // PASO 4: CASHOUT / LIQUIDACIÓN (TRANSFERIR A BILLETERA)
+            // ============================================
+            // CRÍTICO: El ganador debe recibir TODO su stack final (chips actuales + premio neto)
+            // porque el buy-in ya fue descontado cuando entró a la mesa.
+            // 
+            // Ejemplo:
+            // - Buy-in: 1000 (ya descontado del crédito al entrar)
+            // - Chips actuales: 500 (después de apostar)
+            // - Pot ganado: 2000, Rake: 160, Premio neto: 1840
+            // - Stack final: 500 + 1840 = 2340
+            // - Debe recibir: 2340 en crédito (para compensar el buy-in ya descontado)
+            const creditToAdd = newWinnerChips; // Stack completo (chips actuales + premio neto)
+
+            transaction.update(winnerRef, {
+                credit: admin.firestore.FieldValue.increment(creditToAdd),
+                moneyInPlay: 0
+            });
+
+            // Resetear chips del ganador en la mesa a 0 (ya transferimos todo)
+            transaction.update(tableRef, {
+                [`players.${winnerPlayerIndex}.chips`]: 0
+            });
+
+            // Actualizar sesión de poker del ganador con el rake pagado
+            if (winnerSessionRef) {
+                transaction.update(winnerSessionRef, {
+                    currentChips: newWinnerChips, // Actualizar chips actuales
+                    totalRakePaid: admin.firestore.FieldValue.increment(rakeAmount) // Acumular rake pagado
+                });
+                console.log(`[SETTLE_ROUND] Sesión de poker actualizada: currentChips=${newWinnerChips}, totalRakePaid+=${rakeAmount}`);
+            }
+
+            console.log(`[SETTLE_ROUND] Paso 4 - Cashout: ${creditToAdd} (stack completo) transferido a billetera. Chips actuales: ${currentWinnerChips}, Premio neto: ${winnerPrize}, Total: ${newWinnerChips}`);
+
+            // ============================================
+            // PASO 5: HISTORIAL (LEDGER)
+            // ============================================
+            const ledgerRef = db.collection('financial_ledger').doc();
+            transaction.set(ledgerRef, {
+                type: 'GAME_WIN',
+                userId: winnerUid,
+                userName: winnerData?.displayName || 'Unknown',
+                tableId: tableId,
+                gameId: gameId,
+                amount: winnerPrize, // Lo que ganó neto en la mano (después del rake)
+                totalCashedOut: creditToAdd, // Stack completo transferido a billetera
+                currentChips: currentWinnerChips, // Chips que tenía antes de ganar
+                potTotal: totalPot,
+                rakeAmount: rakeAmount,
+                platformProfit: platformProfit,
+                clubProfit: clubProfit,
+                sellerProfit: sellerProfit,
+                timestamp: timestamp,
+                description: `Ganador de ronda - Pot: ${totalPot}, Premio Neto: ${winnerPrize}, Rake: ${rakeAmount}, Stack Final: ${newWinnerChips}, Credit Añadido: ${creditToAdd}`
+            });
+
+            console.log(`[SETTLE_ROUND] Paso 5 - Ledger creado: GAME_WIN, Premio Neto: ${winnerPrize}, Stack Final: ${newWinnerChips}, Credit Añadido: ${creditToAdd}`);
         });
 
-        // ✅ UPDATE DAILY STATS IN REAL-TIME
-        await updateDailyStats(potTotal, totalRake);
+        // NOTA: stats_daily ya se actualiza dentro de la transacción (Paso 2)
+        // No es necesario llamar a updateDailyStats() aquí para evitar duplicados
 
-        return { success: true, message: 'Game round settled successfully.', gameId };
+        console.log(`[SETTLE_ROUND] ✅ Liquidación completada exitosamente para mesa ${tableId}, ganador ${winnerUid}`);
 
-    } catch (error) {
-        console.error('Transaction failure:', error);
-        throw new functions.https.HttpsError('internal', 'Transaction failed: ' + error);
+        return { 
+            success: true, 
+            message: 'Game round settled successfully.', 
+            gameId,
+            tableId,
+            potTotal,
+            rakeAmount,
+            winnerPrize
+        };
+
+    } catch (error: any) {
+        console.error('[SETTLE_ROUND] ❌ Error en transacción:', error);
+        throw new functions.https.HttpsError('internal', `Transaction failed: ${error.message || 'Unknown error'}`);
     }
 };

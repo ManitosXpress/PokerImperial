@@ -43,6 +43,7 @@ export interface SettleRoundRequest {
     winnerUid: string;
     playersInvolved: PlayerInvolved[];
     gameId: string; // For audit logs
+    tableId: string; // ID de la mesa para actualizar el stack del jugador
 }
 
 export interface LedgerEntry {
