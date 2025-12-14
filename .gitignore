@@ -2,3 +2,9 @@ node_modules/
 .env
 npm-debug.log
 *.log
+
+# Service Account Keys (CRÍTICO: Nunca subir credenciales)
+serviceAccountKey.json
+**/serviceAccountKey.json
+*.json.key
+*.key.json
