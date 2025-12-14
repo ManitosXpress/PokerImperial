@@ -135,22 +135,41 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
             const moneyInPlay = userData?.moneyInPlay || 0;
 
             // VERIFICACIÓN CRÍTICA DENTRO DE LA TRANSACCIÓN
-            // Esta es la verdadera protección contra race conditions
+            // CASO 1: Usuario ya está en ESTA MISMA sala
             if (currentTableId === roomId) {
                 console.log(`[IDEMPOTENCY] User ${uid} already registered in room ${roomId} (currentTableId check). Signaling to find existing session.`);
-                return { type: 'existing', sessionId: null };
+                return { type: 'existing_same_room', sessionId: null };
             }
 
-            if (moneyInPlay > 0) {
-                console.log(`[IDEMPOTENCY] User ${uid} has ${moneyInPlay} in play. Cannot create new session.`);
-                return { type: 'existing', sessionId: null };
+            // CASO 2: Usuario tiene dinero en juego pero en OTRA sala (estado sucio/stuck)
+            // Esto puede pasar si el settlement no limpió correctamente
+            if (moneyInPlay > 0 && currentTableId && currentTableId !== roomId) {
+                console.warn(`[IDEMPOTENCY] ⚠️ User ${uid} has stuck state: moneyInPlay=${moneyInPlay}, currentTableId=${currentTableId}. Auto-cleaning...`);
+
+                // Buscar y cerrar sesiones huérfanas en la mesa anterior
+                // NOTA: No podemos hacer queries en transacciones, así que solo limpiamos el usuario
+                transaction.update(userRef, {
+                    moneyInPlay: 0,
+                    currentTableId: null,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                console.log(`[IDEMPOTENCY] Auto-cleaned stuck state for user ${uid}. Proceeding with new session.`);
+                // Continuar con la creación de sesión normal - el balance no cambia
+            } else if (moneyInPlay > 0 && !currentTableId) {
+                // Dinero en juego pero sin mesa asignada - estado corrupto
+                console.warn(`[IDEMPOTENCY] ⚠️ User ${uid} has moneyInPlay=${moneyInPlay} but no currentTableId. Cleaning corrupt state.`);
+                transaction.update(userRef, {
+                    moneyInPlay: 0,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
             }
 
             if (currentBalance < amount) {
                 throw new Error('Insufficient balance');
             }
 
-            // Crear nueva sesión - Usuario está limpio
+            // Crear nueva sesión - Usuario está limpio o fue limpiado
             const sessionRef = db.collection('poker_sessions').doc();
             const newSessionId = sessionRef.id;
 
@@ -214,36 +233,42 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
             return result.sessionId;
         }
 
-        // Usuario ya estaba en la mesa - buscar sesión existente
-        console.log(`[IDEMPOTENCY] Transaction detected existing state. Searching for active session...`);
-        const retryQuery = await db.collection('poker_sessions')
-            .where('userId', '==', uid)
-            .where('roomId', '==', roomId)
-            .where('status', '==', 'active')
-            .orderBy('startTime', 'desc')
-            .limit(1)
-            .get();
+        // Usuario ya estaba en ESTA MISMA mesa - buscar sesión existente
+        if (result.type === 'existing_same_room') {
+            console.log(`[IDEMPOTENCY] Transaction detected user in same room. Searching for active session...`);
+            const retryQuery = await db.collection('poker_sessions')
+                .where('userId', '==', uid)
+                .where('roomId', '==', roomId)
+                .where('status', '==', 'active')
+                .orderBy('startTime', 'desc')
+                .limit(1)
+                .get();
 
-        if (!retryQuery.empty) {
-            const existingId = retryQuery.docs[0].id;
-            console.log(`[IDEMPOTENCY] Found existing session ${existingId} for user ${uid}`);
+            if (!retryQuery.empty) {
+                const existingId = retryQuery.docs[0].id;
+                console.log(`[IDEMPOTENCY] Found existing session ${existingId} for user ${uid}`);
 
-            // Actualizar lastActive
-            await db.collection('poker_sessions').doc(existingId).update({
-                lastActive: admin.firestore.FieldValue.serverTimestamp()
-            });
+                // Actualizar lastActive
+                await db.collection('poker_sessions').doc(existingId).update({
+                    lastActive: admin.firestore.FieldValue.serverTimestamp()
+                });
 
-            return existingId;
+                return existingId;
+            }
+
+            console.error(`[IDEMPOTENCY] User ${uid} marked as in room ${roomId} but no session found. Possible data corruption.`);
+            return null;
         }
 
-        console.error(`[IDEMPOTENCY] User ${uid} marked as in room ${roomId} but no session found. Possible data corruption.`);
-        return null;
+        // No debería llegar aquí
+        return result.sessionId;
 
     } catch (error) {
         console.error('Error reserving poker session:', error);
         return null;
     }
 }
+
 
 
 export async function endPokerSession(uid: string, sessionId: string, finalChips: number, totalRake: number, exitFee: number = 0): Promise<boolean> {
