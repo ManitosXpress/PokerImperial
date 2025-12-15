@@ -203,11 +203,458 @@ export const startGameFunction = functions.https.onCall(async (data, context) =>
 });
 
 /**
+ * INTERFAZ PARA JOIN TABLE REQUEST
+ */
+interface JoinTableRequest {
+    roomId: string;
+    buyInAmount?: number;
+}
+
+/**
+ * JOIN TABLE - Función Blindada con Validaciones Estrictas
+ * 
+ * VALIDACIONES CRÍTICAS:
+ * 1. Rechaza roomId === 'new_room' o roomId vacío
+ * 2. Idempotencia: Verifica sesión existente antes de crear
+ * 3. Transacción atómica para evitar duplicados
+ * 
+ * @param data - JoinTableRequest con roomId y opcional buyInAmount
+ * @param context - Contexto de autenticación Firebase
+ * @returns ID de sesión (existente o nueva)
+ */
+export const joinTable = async (data: JoinTableRequest, context: functions.https.CallableContext) => {
+    // 1. Validación de Autenticación
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
+    }
+
+    const uid = context.auth.uid;
+    const db = getDb();
+    const { roomId, buyInAmount } = data;
+
+    // 2. VALIDACIÓN CRÍTICA: Rechazar 'new_room' o roomId inválido
+    if (!roomId || roomId === 'new_room' || roomId.trim() === '') {
+        console.error(`[JOIN_TABLE] ❌ BLOCKED: Invalid Room ID: "${roomId}"`);
+        throw new functions.https.HttpsError('invalid-argument', 'Invalid Room ID. Cannot join with placeholder ID.');
+    }
+
+    console.log(`[JOIN_TABLE] Usuario ${uid} intentando unirse a mesa ${roomId}`);
+
+    try {
+        // 3. Verificar que la mesa existe
+        const tableRef = db.collection('poker_tables').doc(roomId);
+        const tableDoc = await tableRef.get();
+
+        if (!tableDoc.exists) {
+            throw new functions.https.HttpsError('not-found', `Table ${roomId} not found.`);
+        }
+
+        const tableData = tableDoc.data();
+        const minBuyIn = Number(tableData?.minBuyIn) || 1000;
+        const finalBuyIn = buyInAmount && buyInAmount >= minBuyIn ? buyInAmount : minBuyIn;
+
+        // 4. IDEMPOTENCIA: Verificar sesión existente ANTES de la transacción
+        const existingSessionQuery = await db.collection('poker_sessions')
+            .where('userId', '==', uid)
+            .where('roomId', '==', roomId)
+            .where('status', '==', 'active')
+            .limit(1)
+            .get();
+
+        if (!existingSessionQuery.empty) {
+            const existingSessionId = existingSessionQuery.docs[0].id;
+            console.log(`[JOIN_TABLE] ✅ IDEMPOTENCIA: Usuario ${uid} ya tiene sesión activa ${existingSessionId} en mesa ${roomId}. Retornando existente.`);
+            
+            // Actualizar lastActive para mantener la sesión viva
+            await db.collection('poker_sessions').doc(existingSessionId).update({
+                lastActive: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            return {
+                success: true,
+                sessionId: existingSessionId,
+                isExisting: true,
+                message: 'Session already exists. Returning existing session ID.'
+            };
+        }
+
+        // 5. TRANSACCIÓN ATÓMICA: Crear sesión con verificación doble
+        const result = await db.runTransaction(async (transaction) => {
+            // 5.1. Verificar usuario
+            const userRef = db.collection('users').doc(uid);
+            const userDoc = await transaction.get(userRef);
+
+            if (!userDoc.exists) {
+                throw new functions.https.HttpsError('not-found', 'User not found.');
+            }
+
+            const userData = userDoc.data();
+            const currentBalance = Number(userData?.credit) || 0;
+
+            // 5.2. Verificación doble dentro de la transacción (protección contra race conditions)
+            const doubleCheckQuery = await db.collection('poker_sessions')
+                .where('userId', '==', uid)
+                .where('roomId', '==', roomId)
+                .where('status', '==', 'active')
+                .limit(1)
+                .get();
+
+            if (!doubleCheckQuery.empty) {
+                const existingId = doubleCheckQuery.docs[0].id;
+                console.log(`[JOIN_TABLE] ⚠️ RACE CONDITION DETECTADA: Sesión ${existingId} creada durante transacción. Retornando existente.`);
+                return { type: 'existing', sessionId: existingId };
+            }
+
+            // 5.3. Verificar balance
+            if (currentBalance < finalBuyIn) {
+                throw new functions.https.HttpsError('failed-precondition', `Insufficient balance. Required: ${finalBuyIn}, Current: ${currentBalance}`);
+            }
+
+            // 5.4. Verificar estado del usuario (limpiar estados stuck)
+            const currentTableId = userData?.currentTableId;
+            const moneyInPlay = Number(userData?.moneyInPlay) || 0;
+
+            if (moneyInPlay > 0 && currentTableId && currentTableId !== roomId) {
+                console.warn(`[JOIN_TABLE] ⚠️ Limpiando estado stuck: moneyInPlay=${moneyInPlay}, currentTableId=${currentTableId}`);
+                transaction.update(userRef, {
+                    moneyInPlay: 0,
+                    currentTableId: null,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+
+            // 5.5. Crear nueva sesión
+            const sessionRef = db.collection('poker_sessions').doc();
+            const newSessionId = sessionRef.id;
+            const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+            // Actualizar usuario: descontar buy-in, marcar estado
+            transaction.update(userRef, {
+                credit: currentBalance - finalBuyIn,
+                moneyInPlay: finalBuyIn,
+                currentTableId: roomId,
+                lastUpdated: timestamp
+            });
+
+            // Crear documento de sesión
+            transaction.set(sessionRef, {
+                userId: uid,
+                roomId: roomId,
+                buyInAmount: finalBuyIn,
+                currentChips: finalBuyIn,
+                startTime: timestamp,
+                lastActive: timestamp,
+                status: 'active',
+                totalRakePaid: 0
+            });
+
+            // Registrar transacción
+            const transactionLogRef = db.collection('transaction_logs').doc();
+            transaction.set(transactionLogRef, {
+                userId: uid,
+                amount: -finalBuyIn,
+                type: 'debit',
+                reason: `Poker Room Buy-in: ${roomId}`,
+                timestamp: timestamp,
+                beforeBalance: currentBalance,
+                afterBalance: currentBalance - finalBuyIn,
+                metadata: {
+                    sessionId: newSessionId,
+                    roomId: roomId,
+                    buyInAmount: finalBuyIn
+                }
+            });
+
+            console.log(`[JOIN_TABLE] ✅ Nueva sesión ${newSessionId} creada para usuario ${uid} en mesa ${roomId}`);
+            return { type: 'new', sessionId: newSessionId };
+        });
+
+        if (result.type === 'existing') {
+            return {
+                success: true,
+                sessionId: result.sessionId,
+                isExisting: true,
+                message: 'Session created during transaction. Returning existing session ID.'
+            };
+        }
+
+        return {
+            success: true,
+            sessionId: result.sessionId,
+            isExisting: false,
+            message: 'Session created successfully.'
+        };
+
+    } catch (error: any) {
+        console.error(`[JOIN_TABLE] ❌ Error:`, error);
+        
+        if (error instanceof functions.https.HttpsError) {
+            throw error;
+        }
+
+        throw new functions.https.HttpsError('internal', `Failed to join table: ${error.message || 'Unknown error'}`);
+    }
+};
+
+/**
  * Interface for closing table request
  */
 interface CloseTableRequest {
     tableId: string;
 }
+
+/**
+ * Interface for processCashOut request
+ */
+interface ProcessCashOutRequest {
+    tableId: string;
+    userId?: string; // Opcional: si no se proporciona, usa el usuario autenticado
+}
+
+/**
+ * PROCESS CASHOUT - Función de Consolidación y Liquidación
+ * 
+ * ALGORITMO DE CONSOLIDACIÓN:
+ * 
+ * Paso A: Consolidación
+ * - Busca TODAS las sesiones del usuario en esa sala (activas o completed)
+ * - Toma solo la más reciente como válida
+ * - Marca el resto como status: 'duplicate_error' para ignorarlas matemáticamente
+ * 
+ * Paso B: Cálculo Único
+ * - Usa la variable player.chips de la mesa (Fuente de Verdad)
+ * - NetResult = player.chips - BuyInAmount
+ * 
+ * Paso C: Rake y Ledger
+ * - Calcula el Rake solo si NetResult > 0
+ * - Guarda el Rake en system_stats
+ * - Ledger: Escribe un único registro en financial_ledger:
+ *   * Type: SESSION_END (neutral)
+ *   * Amount: NetResult (Puede ser positivo o negativo)
+ *   * Details: "Cashout Final - Chips: X, BuyIn: Y, Rake: Z"
+ * 
+ * @param data - ProcessCashOutRequest con tableId y opcional userId
+ * @param context - Contexto de autenticación Firebase
+ * @returns Resumen de liquidación
+ */
+export const processCashOut = async (data: ProcessCashOutRequest, context: functions.https.CallableContext) => {
+    // 1. Validación de Autenticación
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
+    }
+
+    const uid = context.auth.uid;
+    const targetUserId = data.userId || uid; // Si se proporciona userId, usarlo (para admin), sino usar el autenticado
+    const db = getDb();
+    const { tableId } = data;
+
+    if (!tableId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing tableId.');
+    }
+
+    // Validar permisos: solo el propio usuario o admin puede hacer cashout
+    if (targetUserId !== uid) {
+        // Verificar si es admin (opcional, puedes agregar esta validación)
+        // Por ahora, solo permitimos cashout del propio usuario
+        throw new functions.https.HttpsError('permission-denied', 'You can only cash out your own session.');
+    }
+
+    const timestamp = admin.firestore.FieldValue.serverTimestamp();
+    const RAKE_PERCENTAGE = 0.08; // 8%
+
+    try {
+        console.log(`[PROCESS_CASHOUT] Iniciando cashout para usuario ${targetUserId} en mesa ${tableId}`);
+
+        // --- LECTURAS PRE-TRANSACCIÓN ---
+
+        // 1. Leer Mesa
+        const tableRef = db.collection('poker_tables').doc(tableId);
+        const tableDoc = await tableRef.get();
+
+        if (!tableDoc.exists) {
+            throw new functions.https.HttpsError('not-found', 'Table not found.');
+        }
+
+        const tableData = tableDoc.data();
+        const players = Array.isArray(tableData?.players) ? [...tableData.players] : [];
+
+        // 2. Encontrar el jugador en la mesa
+        const player = players.find((p: any) => p.id === targetUserId);
+        if (!player) {
+            throw new functions.https.HttpsError('not-found', `Player ${targetUserId} not found in table ${tableId}.`);
+        }
+
+        // 3. PASO A: CONSOLIDACIÓN - Buscar TODAS las sesiones del usuario en esa sala
+        const allSessionsQuery = await db.collection('poker_sessions')
+            .where('userId', '==', targetUserId)
+            .where('roomId', '==', tableId)
+            .get();
+
+        const allSessions = allSessionsQuery.docs.map(doc => ({
+            ref: doc.ref,
+            id: doc.id,
+            data: doc.data()
+        }));
+
+        if (allSessions.length === 0) {
+            throw new functions.https.HttpsError('not-found', `No sessions found for user ${targetUserId} in table ${tableId}.`);
+        }
+
+        // Ordenar por startTime descendente (más reciente primero)
+        allSessions.sort((a, b) => {
+            const timeA = a.data.startTime?.toMillis() || 0;
+            const timeB = b.data.startTime?.toMillis() || 0;
+            return timeB - timeA;
+        });
+
+        const primarySession = allSessions[0]; // La más reciente es la válida
+        const duplicateSessions = allSessions.slice(1); // El resto son duplicados
+
+        console.log(`[PROCESS_CASHOUT] Sesiones encontradas: ${allSessions.length} (1 primaria, ${duplicateSessions.length} duplicadas)`);
+
+        // 4. Leer datos del usuario
+        const userRef = db.collection('users').doc(targetUserId);
+        const userDoc = await userRef.get();
+        if (!userDoc.exists) {
+            throw new functions.https.HttpsError('not-found', 'User not found.');
+        }
+
+        const userData = userDoc.data();
+        const displayName = userData?.displayName || 'Unknown';
+
+        // --- EJECUTAR TRANSACCIÓN ATÓMICA ---
+        const result = await db.runTransaction(async (transaction) => {
+            // PASO A: Consolidación - Marcar duplicados como 'duplicate_error'
+            for (const dupSession of duplicateSessions) {
+                transaction.update(dupSession.ref, {
+                    status: 'duplicate_error',
+                    endTime: timestamp,
+                    closedReason: 'duplicate_consolidation',
+                    note: 'Marcada como duplicada durante consolidación de cashout'
+                });
+                console.log(`[PROCESS_CASHOUT] Sesión duplicada ${dupSession.id} marcada como 'duplicate_error'`);
+            }
+
+            // PASO B: Cálculo Único usando player.chips (Fuente de Verdad)
+            const playerChips = Number(player.chips) || 0;
+            const buyInAmount = Number(primarySession.data.buyInAmount) || 0;
+            const netResult = playerChips - buyInAmount;
+
+            console.log(`[PROCESS_CASHOUT] Cálculo: Chips=${playerChips}, BuyIn=${buyInAmount}, NetResult=${netResult}`);
+
+            // PASO C: Rake y Ledger
+            let rakeAmount = 0;
+            let finalPayout = playerChips;
+
+            if (netResult > 0) {
+                // Solo calcular rake si hay ganancia
+                rakeAmount = Math.floor(netResult * RAKE_PERCENTAGE);
+                finalPayout = playerChips - rakeAmount;
+
+                // Guardar rake en system_stats
+                const statsRef = db.collection('system_stats').doc('economy');
+                transaction.set(statsRef, {
+                    accumulated_rake: admin.firestore.FieldValue.increment(rakeAmount),
+                    lastUpdated: timestamp
+                }, { merge: true });
+
+                console.log(`[PROCESS_CASHOUT] Rake calculado: ${rakeAmount} (8% de ganancia ${netResult})`);
+            }
+
+            // Actualizar sesión primaria
+            transaction.update(primarySession.ref, {
+                status: 'completed',
+                currentChips: playerChips,
+                totalRakePaid: rakeAmount,
+                netResult: finalPayout,
+                endTime: timestamp,
+                closedReason: 'cashout_consolidated'
+            });
+
+            // Actualizar usuario: devolver crédito, limpiar estado
+            transaction.update(userRef, {
+                credit: admin.firestore.FieldValue.increment(finalPayout),
+                moneyInPlay: 0,
+                currentTableId: null,
+                lastUpdated: timestamp
+            });
+
+            // Actualizar jugador en la mesa: chips a 0
+            const playerIndex = players.findIndex((p: any) => p.id === targetUserId);
+            if (playerIndex !== -1) {
+                players[playerIndex] = { ...player, chips: 0, inGame: false };
+                transaction.update(tableRef, {
+                    [`players.${playerIndex}.chips`]: 0,
+                    [`players.${playerIndex}.inGame`]: false
+                });
+            }
+
+            // Ledger: UN SOLO registro
+            const ledgerRef = db.collection('financial_ledger').doc();
+            transaction.set(ledgerRef, {
+                type: 'SESSION_END',
+                userId: targetUserId,
+                userName: displayName,
+                tableId: tableId,
+                amount: netResult, // Puede ser positivo o negativo
+                netAmount: finalPayout, // Lo que realmente recibió
+                netProfit: netResult,
+                grossAmount: playerChips,
+                rakePaid: rakeAmount,
+                buyInAmount: buyInAmount,
+                timestamp: timestamp,
+                description: `Cashout Final - Chips: ${playerChips}, BuyIn: ${buyInAmount}, Rake: ${rakeAmount}, NetResult: ${netResult}`,
+                duplicateSessionsClosed: duplicateSessions.length > 0 ? duplicateSessions.length : undefined
+            });
+
+            // Registrar en transaction_logs
+            const txLogRef = db.collection('transaction_logs').doc();
+            transaction.set(txLogRef, {
+                userId: targetUserId,
+                amount: finalPayout,
+                type: 'credit',
+                reason: `Cashout Mesa ${tableId}: ${netResult >= 0 ? '+' : ''}${netResult} (Chips: ${playerChips}, Rake: -${rakeAmount})`,
+                timestamp: timestamp,
+                beforeBalance: 0,
+                afterBalance: 0,
+                metadata: {
+                    tableId: tableId,
+                    sessionType: 'poker_cashout',
+                    grossStack: playerChips,
+                    buyInAmount: buyInAmount,
+                    rakePaid: rakeAmount,
+                    netProfit: netResult,
+                    primarySessionId: primarySession.id,
+                    duplicateSessionsClosed: duplicateSessions.length
+                }
+            });
+
+            console.log(`[PROCESS_CASHOUT] ✅ Cashout completado: NetResult=${netResult}, Rake=${rakeAmount}, Payout=${finalPayout}`);
+
+            return {
+                success: true,
+                sessionId: primarySession.id,
+                playerChips,
+                buyInAmount,
+                netResult,
+                rakeAmount,
+                finalPayout,
+                duplicateSessionsClosed: duplicateSessions.length
+            };
+        });
+
+        return result;
+
+    } catch (error: any) {
+        console.error(`[PROCESS_CASHOUT] ❌ Error:`, error);
+
+        if (error instanceof functions.https.HttpsError) {
+            throw error;
+        }
+
+        throw new functions.https.HttpsError('internal', `Failed to process cashout: ${error.message || 'Unknown error'}`);
+    }
+};
 
 /**
  * ALGORITMO MAESTRO DE LIQUIDACIÓN - Implementación Definitiva
@@ -446,6 +893,29 @@ export const closeTableAndCashOut = async (data: CloseTableRequest, context: fun
                     timestamp: timestamp,
                     description: `Cashout Final (Stack: ${playerChips} - Rake: ${rakeAmount})`,
                     duplicateSessionsClosed: sessions.length > 1 ? sessions.length : undefined
+                });
+
+                // 3.4. NUEVO: También escribir a transaction_logs para consistencia con billetera
+                const txLogRef = db.collection('transaction_logs').doc();
+                transaction.set(txLogRef, {
+                    userId: playerId,
+                    amount: netPayout, // Positivo porque es crédito devuelto
+                    type: ledgerType === 'GAME_WIN' ? 'credit' : 'credit', // Siempre credit porque devolvemos chips
+                    reason: ledgerType === 'GAME_WIN'
+                        ? `Ganancia en Mesa ${tableId}: +${netProfit} (Stack: ${playerChips}, Rake: -${rakeAmount})`
+                        : `Cashout Mesa ${tableId}: ${netProfit >= 0 ? '+' : ''}${netProfit}`,
+                    timestamp: timestamp,
+                    beforeBalance: 0, // No tenemos acceso fácil aquí, dejamos en 0
+                    afterBalance: 0,
+                    metadata: {
+                        tableId: tableId,
+                        sessionType: 'poker_cashout',
+                        grossStack: playerChips,
+                        buyInAmount: buyInAmount,
+                        rakePaid: rakeAmount,
+                        netProfit: netProfit,
+                        gameResult: ledgerType
+                    }
                 });
 
                 // Actualizar jugador en la mesa: chips a 0
@@ -755,6 +1225,27 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                         description: `Liquidación Universal - Mesa ${tableId}. Ganancia: +${netResult} (FinalStack: ${finalStack}, BuyIn: ${initialBuyIn}, Rake: ${rake}, Payout: ${payout}) - Usuario: ${displayName}`
                     });
 
+                    // Registrar en transaction_logs para que aparezca en billetera
+                    const txLogRef = db.collection('transaction_logs').doc();
+                    transaction.set(txLogRef, {
+                        userId: playerId,
+                        amount: payout,
+                        type: 'credit',
+                        reason: `Ganancia en Mesa ${tableId}: +${netResult} (Stack: ${finalStack}, Rake: -${rake})`,
+                        timestamp: timestamp,
+                        beforeBalance: 0,
+                        afterBalance: 0,
+                        metadata: {
+                            tableId: tableId,
+                            sessionType: 'poker_cashout',
+                            grossStack: finalStack,
+                            buyInAmount: initialBuyIn,
+                            rakePaid: rake,
+                            netProfit: netResult,
+                            gameResult: 'GAME_WIN'
+                        }
+                    });
+
                     processedPlayers.push({
                         userId: playerId,
                         displayName,
@@ -815,6 +1306,29 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                         timestamp: timestamp,
                         description: `Liquidación Universal - Mesa ${tableId}. Pérdida: -${lossAmount} (FinalStack: ${finalStack}, BuyIn: ${initialBuyIn}) - Usuario: ${displayName}`
                     });
+
+                    // Registrar en transaction_logs para que aparezca en billetera
+                    if (finalStack > 0) {
+                        const txLogRef = db.collection('transaction_logs').doc();
+                        transaction.set(txLogRef, {
+                            userId: playerId,
+                            amount: finalStack,
+                            type: 'credit',
+                            reason: `Cashout Mesa ${tableId}: ${-lossAmount} (Stack: ${finalStack})`,
+                            timestamp: timestamp,
+                            beforeBalance: 0,
+                            afterBalance: 0,
+                            metadata: {
+                                tableId: tableId,
+                                sessionType: 'poker_cashout',
+                                grossStack: finalStack,
+                                buyInAmount: initialBuyIn,
+                                rakePaid: 0,
+                                netProfit: -lossAmount,
+                                gameResult: 'GAME_LOSS'
+                            }
+                        });
+                    }
 
                     processedPlayers.push({
                         userId: playerId,

@@ -98,6 +98,12 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
     const db = admin.firestore();
 
     try {
+        // VALIDACIÓN CRÍTICA: Rechazar 'new_room' o roomId inválido
+        if (!roomId || roomId === 'new_room' || roomId.trim() === '') {
+            console.error(`[RESERVE_SESSION] ❌ BLOCKED: Invalid Room ID: "${roomId}"`);
+            throw new Error('Invalid Room ID. Cannot reserve session with placeholder ID.');
+        }
+
         // PARTE 1: IDEMPOTENCIA - Verificación inicial (rápida, pero no atómica)
         // Esta verificación es una optimización para evitar transacciones innecesarias.
         // La protección real está DENTRO de la transacción.

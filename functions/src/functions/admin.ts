@@ -1207,3 +1207,228 @@ export const cleanStuckMoneyInPlay = functions.https.onRequest(async (req, res) 
         });
     }
 });
+
+/**
+ * SCRIPT DE SANEAMIENTO - Limpieza de Datos Corruptos
+ * 
+ * Este script HTTP ejecuta una limpieza completa de datos corruptos:
+ * 
+ * 1. Elimina todas las sesiones con roomId: 'new_room'
+ * 2. Busca usuarios con sesiones duplicadas en la misma sala
+ * 3. Borra las sesiones viejas y deja solo una activa
+ * 4. Recalcula el saldo de los usuarios afectados sumando lo que se les descontó erróneamente
+ * 
+ * USO:
+ * POST https://YOUR_REGION-YOUR_PROJECT.cloudfunctions.net/cleanupCorruptedSessions
+ * Headers: { "Authorization": "Bearer YOUR_ID_TOKEN" }
+ * 
+ * @param req - Request HTTP
+ * @param res - Response HTTP
+ */
+export const cleanupCorruptedSessions = functions.https.onRequest(async (req, res) => {
+    // CORS
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+    }
+
+    // Validación básica (puedes agregar validación de admin si lo deseas)
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed. Use POST.' });
+        return;
+    }
+
+    const db = getDb();
+    const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+    try {
+        console.log('[CLEANUP] 🧹 Iniciando script de saneamiento de datos corruptos...');
+
+        const results = {
+            newRoomSessionsDeleted: 0,
+            duplicateSessionsCleaned: 0,
+            usersBalanceFixed: 0,
+            totalCreditsRestored: 0,
+            errors: [] as string[]
+        };
+
+        // ============================================
+        // PASO 1: Eliminar sesiones con roomId: 'new_room'
+        // ============================================
+        console.log('[CLEANUP] Paso 1: Buscando sesiones con roomId "new_room"...');
+        
+        const newRoomSessionsQuery = await db.collection('poker_sessions')
+            .where('roomId', '==', 'new_room')
+            .get();
+
+        console.log(`[CLEANUP] Encontradas ${newRoomSessionsQuery.size} sesiones con roomId "new_room"`);
+
+        let batch1 = db.batch();
+        let batchCount1 = 0;
+
+        for (const doc of newRoomSessionsQuery.docs) {
+            const sessionData = doc.data();
+            const userId = sessionData.userId;
+            const buyInAmount = Number(sessionData.buyInAmount) || 0;
+
+            // Si la sesión tenía un buy-in, restaurar crédito al usuario
+            if (userId && buyInAmount > 0) {
+                const userRef = db.collection('users').doc(userId);
+                batch1.update(userRef, {
+                    credit: admin.firestore.FieldValue.increment(buyInAmount),
+                    lastUpdated: timestamp
+                });
+                results.totalCreditsRestored += buyInAmount;
+                console.log(`[CLEANUP] Restaurando ${buyInAmount} créditos a usuario ${userId} por sesión corrupta ${doc.id}`);
+            }
+
+            batch1.delete(doc.ref);
+            batchCount1++;
+
+            if (batchCount1 >= 500) {
+                await batch1.commit();
+                results.newRoomSessionsDeleted += batchCount1;
+                batchCount1 = 0;
+                batch1 = db.batch();
+            }
+        }
+
+        if (batchCount1 > 0) {
+            await batch1.commit();
+            results.newRoomSessionsDeleted += batchCount1;
+        }
+
+        console.log(`[CLEANUP] ✅ Paso 1 completado: ${results.newRoomSessionsDeleted} sesiones eliminadas, ${results.totalCreditsRestored} créditos restaurados`);
+
+        // ============================================
+        // PASO 2: Buscar y limpiar sesiones duplicadas
+        // ============================================
+        console.log('[CLEANUP] Paso 2: Buscando sesiones duplicadas...');
+
+        // Obtener todas las sesiones activas agrupadas por usuario y sala
+        const allActiveSessionsQuery = await db.collection('poker_sessions')
+            .where('status', '==', 'active')
+            .get();
+
+        // Agrupar por userId + roomId
+        const sessionsByUserAndRoom = new Map<string, Array<{ ref: admin.firestore.DocumentReference, data: any, id: string }>>();
+
+        allActiveSessionsQuery.docs.forEach(doc => {
+            const data = doc.data();
+            const userId = data.userId;
+            const roomId = data.roomId;
+
+            if (userId && roomId) {
+                const key = `${userId}_${roomId}`;
+                const existing = sessionsByUserAndRoom.get(key) || [];
+                existing.push({ ref: doc.ref, data, id: doc.id });
+                sessionsByUserAndRoom.set(key, existing);
+            }
+        });
+
+        // Encontrar duplicados (más de 1 sesión para el mismo usuario en la misma sala)
+        const duplicateGroups: Array<{ userId: string, roomId: string, sessions: Array<{ ref: admin.firestore.DocumentReference, data: any, id: string }> }> = [];
+
+        for (const [key, sessions] of sessionsByUserAndRoom.entries()) {
+            if (sessions.length > 1) {
+                const [userId, roomId] = key.split('_');
+                duplicateGroups.push({ userId, roomId, sessions });
+            }
+        }
+
+        console.log(`[CLEANUP] Encontrados ${duplicateGroups.length} grupos de sesiones duplicadas`);
+
+        let batch2 = db.batch();
+        let batchCount2 = 0;
+
+        for (const group of duplicateGroups) {
+            // Ordenar por startTime descendente (más reciente primero)
+            group.sessions.sort((a, b) => {
+                const timeA = a.data.startTime?.toMillis() || 0;
+                const timeB = b.data.startTime?.toMillis() || 0;
+                return timeB - timeA;
+            });
+
+            // La más reciente es la válida (no la tocamos)
+            const duplicateSessions = group.sessions.slice(1); // El resto son duplicados
+
+            console.log(`[CLEANUP] Usuario ${group.userId} en sala ${group.roomId}: ${group.sessions.length} sesiones (1 primaria, ${duplicateSessions.length} duplicadas)`);
+
+            // Calcular créditos a restaurar (suma de buy-ins de duplicados)
+            let creditsToRestore = 0;
+            for (const dupSession of duplicateSessions) {
+                const buyInAmount = Number(dupSession.data.buyInAmount) || 0;
+                creditsToRestore += buyInAmount;
+
+                // Marcar como duplicada y cerrar
+                batch2.update(dupSession.ref, {
+                    status: 'duplicate_error',
+                    endTime: timestamp,
+                    closedReason: 'cleanup_duplicate',
+                    note: 'Eliminada durante script de saneamiento'
+                });
+                batchCount2++;
+            }
+
+            // Restaurar créditos al usuario
+            if (creditsToRestore > 0) {
+                const userRef = db.collection('users').doc(group.userId);
+                batch2.update(userRef, {
+                    credit: admin.firestore.FieldValue.increment(creditsToRestore),
+                    lastUpdated: timestamp
+                });
+                results.totalCreditsRestored += creditsToRestore;
+                results.usersBalanceFixed++;
+                console.log(`[CLEANUP] Restaurando ${creditsToRestore} créditos a usuario ${group.userId} por ${duplicateSessions.length} sesiones duplicadas`);
+            }
+
+            results.duplicateSessionsCleaned += duplicateSessions.length;
+
+            if (batchCount2 >= 500) {
+                await batch2.commit();
+                batchCount2 = 0;
+                batch2 = db.batch();
+            }
+        }
+
+        if (batchCount2 > 0) {
+            await batch2.commit();
+        }
+
+        console.log(`[CLEANUP] ✅ Paso 2 completado: ${results.duplicateSessionsCleaned} sesiones duplicadas limpiadas, ${results.usersBalanceFixed} usuarios corregidos`);
+
+        // ============================================
+        // RESUMEN FINAL
+        // ============================================
+        console.log('[CLEANUP] ✅ Script de saneamiento completado exitosamente');
+        console.log(`[CLEANUP] Resumen:`);
+        console.log(`  - Sesiones "new_room" eliminadas: ${results.newRoomSessionsDeleted}`);
+        console.log(`  - Sesiones duplicadas limpiadas: ${results.duplicateSessionsCleaned}`);
+        console.log(`  - Usuarios con saldo corregido: ${results.usersBalanceFixed}`);
+        console.log(`  - Créditos totales restaurados: ${results.totalCreditsRestored}`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Script de saneamiento completado exitosamente',
+            results: {
+                newRoomSessionsDeleted: results.newRoomSessionsDeleted,
+                duplicateSessionsCleaned: results.duplicateSessionsCleaned,
+                usersBalanceFixed: results.usersBalanceFixed,
+                totalCreditsRestored: results.totalCreditsRestored,
+                errors: results.errors
+            }
+        });
+
+    } catch (error: any) {
+        console.error('[CLEANUP] ❌ Error en script de saneamiento:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Unknown error',
+            message: 'Error durante el script de saneamiento. Revisa los logs para más detalles.'
+        });
+    }
+});

@@ -8,8 +8,8 @@ import { getClubLeaderboard } from './functions/leaderboard';
 import { ownerTransferCredit, sellerTransferCredit } from './functions/clubWallet';
 import { createClubInvite, completeInvitationRegistration } from './functions/invitations';
 import { onUserCreate } from './functions/auth';
-import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers, adminCreateUser, cleanStuckMoneyInPlay } from './functions/admin';
-import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, closeTableAndCashOut, universalTableSettlement } from './functions/table';
+import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers, adminCreateUser, cleanStuckMoneyInPlay, cleanupCorruptedSessions } from './functions/admin';
+import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, closeTableAndCashOut, universalTableSettlement, joinTable, processCashOut } from './functions/table';
 import { dailyEconomyCron } from './functions/cron';
 import { dailyEconomyCron as newDailyEconomyCron, triggerDailyStats } from './functions/scheduled_functions';
 import { getTopHolders, getTopWinners24h, get24hMetrics, getWeeklyTrends, getCurrentLiquidity, getTotalRake } from './functions/analytics';
@@ -59,7 +59,7 @@ export const bootstrapAdminFunction = functions.https.onCall(bootstrapAdmin);
 export const getUserTransactionHistoryFunction = functions.https.onCall(getUserTransactionHistory);
 export const adminDeleteUserFunction = functions.https.onCall(adminDeleteUser);
 export const adminCreateUserFunction = functions.https.onCall(adminCreateUser);
-export { repairStuckSessions, clearAllFirestoreData, cleanWelcomeBonusUsers, cleanStuckMoneyInPlay }; // HTTP Functions para reparación y limpieza
+export { repairStuckSessions, clearAllFirestoreData, cleanWelcomeBonusUsers, cleanStuckMoneyInPlay, cleanupCorruptedSessions }; // HTTP Functions para reparación y limpieza
 
 // Session Cleanup Functions (Admin)
 export { cleanupDuplicateSessions, checkUserSessions };
@@ -74,6 +74,8 @@ export const createClubTableFunction = _createClubTableFunction;
 export const startGameFunction = _startGameFunction;
 export const closeTableAndCashOutFunction = functions.https.onCall(closeTableAndCashOut);
 export const universalTableSettlementFunction = functions.https.onCall(universalTableSettlement);
+export const joinTableFunction = functions.https.onCall(joinTable);
+export const processCashOutFunction = functions.https.onCall(processCashOut);
 export const dailyEconomyCronFunction = dailyEconomyCron;
 
 // New Economic Intelligence Functions

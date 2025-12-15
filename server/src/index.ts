@@ -186,19 +186,34 @@ io.on('connection', (socket) => {
                         socket.emit('insufficient_balance', { required: entryFee, current: balance });
                         return;
                     }
-                    sessionId = await reservePokerSession(uid, entryFee, customRoomId || 'new_room') || undefined;
-                    if (!sessionId) {
-                        socket.emit('error', 'Failed to reserve credits');
-                        return;
-                    }
                     (socket as any).userId = uid;
+                } else {
+                    socket.emit('error', 'Invalid token');
+                    return;
                 }
             } else {
                 socket.emit('error', 'Authentication required to create room');
                 return;
             }
 
-            const room = roomManager.createRoom(socket.id, playerName, sessionId, entryFee, customRoomId || undefined, { addHostAsPlayer: true, isPublic, hostUid: uid });
+            // PASO 1: Crear el room PRIMERO para obtener el ID real
+            const room = roomManager.createRoom(socket.id, playerName, undefined, entryFee, customRoomId || undefined, { addHostAsPlayer: true, isPublic, hostUid: uid });
+            const actualRoomId = room.id; // Este es el ID real del room
+
+            // PASO 2: Reservar sesión con el ID REAL del room
+            if (uid) {
+                sessionId = await reservePokerSession(uid, entryFee, actualRoomId) || undefined;
+                if (!sessionId) {
+                    // Rollback: eliminar el room creado
+                    roomManager.deleteRoom(actualRoomId);
+                    socket.emit('error', 'Failed to reserve credits');
+                    return;
+                }
+                // Actualizar el pokerSessionId del jugador en el room
+                if (room.players.length > 0) {
+                    room.players[0].pokerSessionId = sessionId;
+                }
+            }
 
             // Inject UID into player object for the host
             if (uid && room.players.length > 0) {
