@@ -288,15 +288,19 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
  * Para desarrollo local, puede importar directamente la función si está en el mismo proyecto.
  */
 /**
- * ✅ IMPLEMENTADO: Llamada HTTP real a Cloud Function joinTable
+ * ✅ CORREGIDO: Usa reservePokerSession directamente (sin llamada HTTP)
  * 
- * Esta función llama a la Cloud Function joinTableFunction vía HTTP,
- * asegurando que la lógica de creación de sesiones esté centralizada
- * en functions/src/functions/table.ts
+ * PROBLEMA RESUELTO: Las Cloud Functions callable requieren ID token de usuario,
+ * no custom token. La llamada HTTP fallaba con error 401 (Unauthenticated).
  * 
- * NOTA: Las Cloud Functions callable requieren autenticación de usuario (ID token).
- * Para llamar desde el servidor, usamos el custom token que luego se canjea.
- * En producción, considera usar un endpoint HTTP directo con autenticación de servicio.
+ * SOLUCIÓN: Usar reservePokerSession directamente, que tiene la misma lógica
+ * de negocio que joinTable pero ejecuta en el servidor con Admin SDK.
+ * 
+ * NOTA: reservePokerSession ya tiene:
+ * - Idempotencia (verifica sesiones existentes)
+ * - Transacciones atómicas
+ * - Validaciones de balance y estado
+ * - Misma lógica que joinTable pero adaptada para servidor
  */
 export async function callJoinTableFunction(uid: string, roomId: string, buyInAmount: number): Promise<string | null> {
     if (!admin.apps.length) {
@@ -304,65 +308,18 @@ export async function callJoinTableFunction(uid: string, roomId: string, buyInAm
         return null;
     }
 
-    // Obtener configuración de Firebase
-    const projectId = admin.app().options.projectId || 'poker-fa33a';
-    const region = process.env.FUNCTIONS_REGION || 'us-central1';
-    const functionUrl = process.env.FUNCTIONS_URL || `https://${region}-${projectId}.cloudfunctions.net/joinTableFunction`;
-
-    // Intentar llamada HTTP a Cloud Function
+    // Usar reservePokerSession directamente
+    // Esta función tiene la misma lógica que joinTable pero ejecuta en el servidor
+    console.log(`[CALL_JOIN_TABLE] 📞 Ejecutando reservePokerSession (misma lógica que joinTable, sin HTTP)`);
+    
     try {
-        console.log(`[CALL_JOIN_TABLE] 📞 Llamando a Cloud Function: ${functionUrl}`);
-
-        // Crear custom token para autenticación
-        // NOTA: Las callable functions esperan un ID token, pero podemos usar
-        // el custom token si la función está configurada para aceptarlo
-        const customToken = await admin.auth().createCustomToken(uid);
-        
-        const response = await fetch(functionUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${customToken}`
-            },
-            body: JSON.stringify({
-                data: {
-                    roomId: roomId,
-                    buyInAmount: buyInAmount
-                }
-            })
-        });
-
-        if (response.ok) {
-            const result = await response.json();
-            
-            // Las Cloud Functions callable retornan { result: { ... } }
-            if (result.result && result.result.sessionId) {
-                console.log(`[CALL_JOIN_TABLE] ✅ Sesión creada vía Cloud Function: ${result.result.sessionId}`);
-                return result.result.sessionId;
-            }
-            
-            // Formato alternativo
-            if (result.sessionId) {
-                console.log(`[CALL_JOIN_TABLE] ✅ Sesión creada (formato alternativo): ${result.sessionId}`);
-                return result.sessionId;
-            }
-
-            console.warn(`[CALL_JOIN_TABLE] ⚠️ Respuesta inesperada:`, result);
-        } else {
-            const errorText = await response.text();
-            console.warn(`[CALL_JOIN_TABLE] ⚠️ HTTP Error ${response.status}: ${errorText}`);
+        const sessionId = await reservePokerSession(uid, buyInAmount, roomId);
+        if (sessionId) {
+            console.log(`[CALL_JOIN_TABLE] ✅ Sesión creada: ${sessionId}`);
         }
-    } catch (httpError: any) {
-        console.warn(`[CALL_JOIN_TABLE] ⚠️ Error en llamada HTTP: ${httpError.message}`);
-    }
-
-    // FALLBACK: Si la llamada HTTP falla, usar reservePokerSession directamente
-    // Esto mantiene la funcionalidad mientras se configura correctamente la autenticación
-    console.log(`[CALL_JOIN_TABLE] 🔄 Usando fallback: reservePokerSession (mismo comportamiento, pero sin Cloud Function)`);
-    try {
-        return await reservePokerSession(uid, buyInAmount, roomId);
-    } catch (fallbackError: any) {
-        console.error('[CALL_JOIN_TABLE] ❌ Error en fallback:', fallbackError);
+        return sessionId;
+    } catch (error: any) {
+        console.error('[CALL_JOIN_TABLE] ❌ Error:', error);
         return null;
     }
 }
