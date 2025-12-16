@@ -220,21 +220,29 @@ class _GameScreenState extends State<GameScreen> {
               };
             } else if (data['winners'] != null) {
               // Múltiples ganadores (split pot)
+              final winnersList = (data['winners'] as List).map<Map<String, dynamic>>((w) => 
+                <String, dynamic>{
+                  'playerId': w['id'],
+                  'amount': w['amount'] ?? 0,
+                }
+              ).toList();
               updatedGameState['winners'] = {
-                'winners': (data['winners'] as List).map<Map<String, dynamic>>((w) => 
-                  <String, dynamic>{
-                    'playerId': w['id'],
-                    'amount': w['amount'] ?? 0,
-                  }
-                ).toList(),
+                'winners': winnersList,
               };
             }
             
             gameState = updatedGameState;
           }
           
+          // Asegurar que winnerData tenga toda la información necesaria
+          // Incluir gameState para que VictoryOverlay pueda verificar winners
+          final enhancedWinnerData = Map<String, dynamic>.from(data);
+          if (gameState != null) {
+            enhancedWinnerData['gameState'] = gameState;
+          }
+          
           _showVictoryScreen = true;
-          _winnerData = data;
+          _winnerData = enhancedWinnerData;
         });
         Future.delayed(const Duration(milliseconds: 5000), () {
           if (mounted) {

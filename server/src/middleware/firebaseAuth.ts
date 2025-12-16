@@ -74,8 +74,11 @@ export async function verifyFirebaseToken(token: string): Promise<string | null>
         }
 
         return uid;
-    } catch (error) {
-        console.error('Error verifying token:', error);
+    } catch (error: any) {
+        console.error('[VERIFY_TOKEN] ❌ Error verificando token:', error);
+        console.error('[VERIFY_TOKEN] ❌ Mensaje:', error.message);
+        console.error('[VERIFY_TOKEN] ❌ Código:', error.code);
+        // No lanzar error - solo retornar null para que el cliente pueda manejar
         return null;
     }
 }
@@ -93,9 +96,14 @@ export async function getUserBalance(uid: string): Promise<number> {
 }
 
 export async function reservePokerSession(uid: string, amount: number, roomId: string): Promise<string | null> {
-    if (!admin.apps.length) return null;
+    if (!admin.apps.length) {
+        console.error('[RESERVE_SESSION] ❌ Firebase Admin not initialized');
+        return null;
+    }
 
     const db = admin.firestore();
+
+    console.log(`[RESERVE_SESSION] 🎯 Iniciando reserva de sesión: usuario=${uid}, mesa=${roomId}, amount=${amount}`);
 
     try {
         // VALIDACIÓN CRÍTICA: Rechazar 'new_room' o roomId inválido
@@ -269,8 +277,10 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
         // No debería llegar aquí
         return result.sessionId;
 
-    } catch (error) {
-        console.error('Error reserving poker session:', error);
+    } catch (error: any) {
+        console.error(`[RESERVE_SESSION] ❌ Error reservando sesión:`, error);
+        console.error(`[RESERVE_SESSION] ❌ Mensaje: ${error.message}`);
+        console.error(`[RESERVE_SESSION] ❌ Stack: ${error.stack}`);
         return null;
     }
 }
@@ -304,22 +314,25 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
  */
 export async function callJoinTableFunction(uid: string, roomId: string, buyInAmount: number): Promise<string | null> {
     if (!admin.apps.length) {
-        console.error('[CALL_JOIN_TABLE] Firebase Admin not initialized');
+        console.error('[CALL_JOIN_TABLE] ❌ Firebase Admin not initialized');
         return null;
     }
 
     // Usar reservePokerSession directamente
     // Esta función tiene la misma lógica que joinTable pero ejecuta en el servidor
-    console.log(`[CALL_JOIN_TABLE] 📞 Ejecutando reservePokerSession (misma lógica que joinTable, sin HTTP)`);
+    console.log(`[CALL_JOIN_TABLE] 📞 Ejecutando reservePokerSession para usuario ${uid}, mesa ${roomId}, buyIn ${buyInAmount}`);
     
     try {
         const sessionId = await reservePokerSession(uid, buyInAmount, roomId);
         if (sessionId) {
-            console.log(`[CALL_JOIN_TABLE] ✅ Sesión creada: ${sessionId}`);
+            console.log(`[CALL_JOIN_TABLE] ✅ Sesión creada exitosamente: ${sessionId}`);
+        } else {
+            console.error(`[CALL_JOIN_TABLE] ❌ reservePokerSession retornó null (sin error lanzado)`);
         }
         return sessionId;
     } catch (error: any) {
-        console.error('[CALL_JOIN_TABLE] ❌ Error:', error);
+        console.error(`[CALL_JOIN_TABLE] ❌ Error en reservePokerSession:`, error);
+        console.error(`[CALL_JOIN_TABLE] ❌ Stack trace:`, error.stack);
         return null;
     }
 }

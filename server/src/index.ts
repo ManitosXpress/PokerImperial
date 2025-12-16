@@ -283,24 +283,36 @@ io.on('connection', (socket) => {
             }
 
             if (token) {
+                console.log(`[JOIN_ROOM] 🔐 Verificando token para usuario...`);
                 const verifiedUid = await verifyFirebaseToken(token);
                 if (verifiedUid) {
                     uid = verifiedUid;
+                    console.log(`[JOIN_ROOM] ✅ Usuario autenticado: ${uid}`);
                     const balance = await getUserBalance(uid);
+                    console.log(`[JOIN_ROOM] 💰 Balance del usuario: ${balance}, EntryFee requerido: ${entryFee}`);
                     if (balance < entryFee) {
+                        console.log(`[JOIN_ROOM] ❌ Balance insuficiente: ${balance} < ${entryFee}`);
                         socket.emit('insufficient_balance', { required: entryFee, current: balance });
                         return;
                     }
                     // ✅ CORREGIDO: Llamar a Cloud Function en lugar de crear sesión directamente
+                    console.log(`[JOIN_ROOM] 📞 Llamando a callJoinTableFunction para usuario ${uid}, mesa ${roomId}, buyIn ${entryFee}`);
                     const { callJoinTableFunction } = await import('./middleware/firebaseAuth');
                     sessionId = await callJoinTableFunction(uid, roomId, entryFee) || undefined;
                     if (!sessionId) {
+                        console.error(`[JOIN_ROOM] ❌ callJoinTableFunction retornó null para usuario ${uid}`);
                         socket.emit('error', 'Failed to reserve credits');
                         return;
                     }
+                    console.log(`[JOIN_ROOM] ✅ Sesión creada: ${sessionId}`);
                     (socket as any).userId = uid;
+                } else {
+                    console.error(`[JOIN_ROOM] ❌ Token inválido o verificación falló`);
+                    socket.emit('error', 'Invalid token');
+                    return;
                 }
             } else {
+                console.error(`[JOIN_ROOM] ❌ No se proporcionó token`);
                 socket.emit('error', 'Authentication required to join room');
                 return;
             }
@@ -347,10 +359,14 @@ io.on('connection', (socket) => {
                 socket.emit('room_joined', roomWithFlags);
                 console.log(`${playerName} joined room ${roomId}`);
             } else {
+                console.error(`[JOIN_ROOM] ❌ Room no encontrada: ${roomId}`);
                 socket.emit('error', 'Room not found');
             }
         } catch (e: any) {
-            socket.emit('error', e.message);
+            console.error(`[JOIN_ROOM] ❌ Excepción en join_room:`, e);
+            console.error(`[JOIN_ROOM] ❌ Mensaje: ${e.message}`);
+            console.error(`[JOIN_ROOM] ❌ Stack: ${e.stack}`);
+            socket.emit('error', e.message || 'Error joining room');
         }
     });
 

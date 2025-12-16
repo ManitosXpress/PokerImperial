@@ -129,48 +129,35 @@ class CreditsService {
   }
 
   /// Get in-game (reserved) balance stream
-  /// Solo cuenta sesiones realmente activas (status: 'active' Y sin endTime)
+  /// ✅ CORREGIDO: Lee directamente de users/{uid}.moneyInPlay (fuente de verdad)
+  /// Según README_CICLO_ECONOMICO.md, moneyInPlay es la fuente de verdad, no poker_sessions
   Stream<double> getInGameBalanceStream() {
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
       return Stream.value(0);
     }
 
+    // ✅ CORRECCIÓN: Leer directamente de users/{uid}.moneyInPlay
+    // Este campo se limpia automáticamente a 0 cuando se cierra la mesa o se hace cashout
     return _firestore
-        .collection('poker_sessions')
-        .where('userId', isEqualTo: userId)
-        .where('status', isEqualTo: 'active')
+        .collection('users')
+        .doc(userId)
         .snapshots()
-        .map((snapshot) {
-      double total = 0;
-      final now = DateTime.now();
+        .map((doc) {
+      if (!doc.exists) return 0.0;
       
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        
-        // CRÍTICO: Filtrar sesiones que ya tienen endTime (cerradas)
-        // Esto previene mostrar "+X en mesa" cuando la sesión ya se cerró
-        if (data['endTime'] != null) {
-          // Sesión cerrada, no contar
-          continue;
-        }
-        
-        // Verificar que no tenga más de 1 hora sin actividad (sesión huérfana)
-        final startTime = data['startTime'] as Timestamp?;
-        if (startTime != null) {
-          final startDate = startTime.toDate();
-          final hoursSinceStart = now.difference(startDate).inHours;
-          
-          // Si la sesión tiene más de 24 horas, probablemente está stuck
-          if (hoursSinceStart > 24) {
-            print('⚠️ Sesión huérfana detectada: ${doc.id} (${hoursSinceStart}h de antigüedad)');
-            continue;
-          }
-        }
-        
-        total += (data['buyInAmount'] ?? 0).toDouble();
+      final moneyInPlay = (doc.data()?['moneyInPlay'] ?? 0).toDouble();
+      
+      // Validación adicional: Si moneyInPlay > 0 pero currentTableId es null,
+      // significa que hay un estado corrupto (debería ser 0)
+      final currentTableId = doc.data()?['currentTableId'];
+      if (moneyInPlay > 0 && currentTableId == null) {
+        print('⚠️ Estado corrupto detectado: moneyInPlay=$moneyInPlay pero currentTableId es null');
+        // Retornar 0 para evitar mostrar dinero en mesa cuando no hay mesa activa
+        return 0.0;
       }
-      return total;
+      
+      return moneyInPlay;
     });
   }
 

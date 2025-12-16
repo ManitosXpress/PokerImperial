@@ -62,8 +62,38 @@ class _VictoryOverlayState extends State<VictoryOverlay> with SingleTickerProvid
   Widget build(BuildContext context) {
     final languageProvider = Provider.of<LanguageProvider>(context);
     final myId = Provider.of<SocketService>(context, listen: false).socketId;
-    final bool iWon = widget.winnerData['split'] == true || 
-                      widget.winnerData['winner']?['id'] == myId;
+    
+    // Determinar si el jugador actual ganó
+    // Verificar múltiples casos:
+    // 1. Si hay split pot (múltiples ganadores)
+    // 2. Si hay un solo ganador y es el jugador actual
+    // 3. Si hay múltiples ganadores en el array 'winners'
+    bool iWon = false;
+    
+    if (widget.winnerData['split'] == true) {
+      // Split pot - todos ganan
+      iWon = true;
+    } else if (widget.winnerData['winner'] != null) {
+      // Un solo ganador
+      final winnerId = widget.winnerData['winner']['id'];
+      final winnerUid = widget.winnerData['winner']['uid'];
+      iWon = winnerId == myId || winnerUid == myId;
+    } else if (widget.winnerData['winners'] != null) {
+      // Múltiples ganadores (array)
+      final winnersList = widget.winnerData['winners'] as List;
+      iWon = winnersList.any((w) => 
+        w['id'] == myId || w['uid'] == myId
+      );
+    }
+    
+    // Si no se encontró en winners, verificar en gameState.winners
+    if (!iWon && widget.winnerData['gameState'] != null) {
+      final gameState = widget.winnerData['gameState'] as Map<String, dynamic>;
+      if (gameState['winners'] != null && gameState['winners']['winners'] != null) {
+        final winnersList = gameState['winners']['winners'] as List;
+        iWon = winnersList.any((w) => w['playerId'] == myId);
+      }
+    }
 
     return Stack(
       children: [
