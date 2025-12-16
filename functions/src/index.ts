@@ -1,7 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { addCredits, deductCredits, withdrawCredits, adminWithdrawCredits } from "./functions/credits";
-import { settleGameRound } from "./functions/gameEconomy";
+import { settleGameRound, joinTable, processCashOut, universalTableSettlement } from "./functions/gameEconomy";
 import { createClub, joinClub, leaveClub, ownerCreateMember, sellerCreatePlayer } from './functions/club';
 import { createTournament } from './functions/tournament';
 import { getClubLeaderboard } from './functions/leaderboard';
@@ -9,7 +9,7 @@ import { ownerTransferCredit, sellerTransferCredit } from './functions/clubWalle
 import { createClubInvite, completeInvitationRegistration } from './functions/invitations';
 import { onUserCreate } from './functions/auth';
 import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers, adminCreateUser, cleanStuckMoneyInPlay, cleanupCorruptedSessions } from './functions/admin';
-import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, closeTableAndCashOut, universalTableSettlement, joinTable, processCashOut, getInGameBalance } from './functions/table';
+import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, getInGameBalance } from './functions/table';
 import { dailyEconomyCron } from './functions/cron';
 import { dailyEconomyCron as newDailyEconomyCron, triggerDailyStats } from './functions/scheduled_functions';
 import { getTopHolders, getTopWinners24h, get24hMetrics, getWeeklyTrends, getCurrentLiquidity, getTotalRake } from './functions/analytics';
@@ -76,7 +76,7 @@ export const createPublicTableFunction = createPublicTable;
 export const createClubTableFunctionExport = _createClubTableFunction; // Keep for backward compatibility
 export const createClubTableFunction = _createClubTableFunction;
 export const startGameFunction = _startGameFunction;
-export const closeTableAndCashOutFunction = functions.https.onCall(closeTableAndCashOut);
+
 export const universalTableSettlementFunction = functions.https.onCall(universalTableSettlement);
 export const joinTableFunction = functions.https.onCall(joinTable);
 export const processCashOutFunction = functions.https.onCall(processCashOut);
