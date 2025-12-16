@@ -2,23 +2,47 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { SettleRoundRequest } from "../types";
 
+// Lazy initialization de Firestore para evitar timeout en deploy
+const getDb = () => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
+    return admin.firestore();
+};
+
 /**
- * settleGameRound
+ * settleGameRound - Motor de Distribución del Rake
  * 
- * ALGORITMO ESTRICTO Y SECUENCIAL PARA LIQUIDACIÓN DE RONDAS
+ * REGLA INQUEBRANTABLE #3: DISTRIBUCIÓN DEL RAKE
+ * Durante el juego, el rake se calcula y distribuye, pero el dinero del usuario
+ * NO se transfiere a su billetera. Las fichas quedan en la mesa hasta el cashout final.
  * 
- * Garantiza integridad financiera mediante el siguiente flujo:
+ * Matemática: GrossProfit = FichasFinales - BuyIn
+ * Regla de Distribución (Si hay ganancia):
+ * - Privada: 100% Rake a Plataforma
+ * - Pública: 50% Plataforma / 30% Club Owner / 20% Seller
+ * 
+ * Persistencia: El Rake DEBE escribirse en system_stats (campo accumulated_rake) 
+ * y en las billeteras de Club/Seller si corresponde.
+ * 
+ * ALGORITMO ESTRICTO Y SECUENCIAL PARA LIQUIDACIÓN DE RONDAS:
  * 
  * Paso 1: Cálculo del Bote y Rake (EN MEMORIA)
- * Paso 2: Distribución del Rake (ESCRIBIR EN BD)
- * Paso 3: Asignación al Ganador (ACTUALIZAR STACK EN MESA)
- * Paso 4: Cashout / Liquidación (TRANSFERIR A BILLETERA)
+ * Paso 2: Distribución del Rake según tipo de mesa (ESCRIBIR EN BD)
+ * Paso 3: Actualizar Stack del Ganador en la Mesa (ÚNICA FUENTE DE VERDAD)
+ * Paso 4: Actualizar Sesión (solo auditoría)
  * Paso 5: Historial (Ledger)
+ * Paso 6: Actualizar Estadísticas Diarias
  * 
- * CRÍTICO: Primero se suma el bote al stack, luego se cobra el rake, y al final se transfiere a la billetera.
+ * CRÍTICO: 
+ * - NO se transfiere crédito a la billetera del usuario
+ * - NO se limpia moneyInPlay ni currentTableId
+ * - NO se resetean las fichas a 0 en la mesa
+ * - Las fichas en poker_tables son la ÚNICA fuente de verdad
+ * - El dinero se transferirá solo cuando el usuario haga processCashOut
  */
 export const settleGameRound = async (data: SettleRoundRequest, context: functions.https.CallableContext) => {
-    const db = admin.firestore();
+    const db = getDb();
 
     // 1. Validación
     if (!context.auth) {
@@ -103,6 +127,7 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
 
             // ============================================
             // PASO 2: DISTRIBUCIÓN DEL RAKE (ESCRIBIR EN BD)
+            // REGLA INQUEBRANTABLE: Distribución según tipo de mesa
             // ============================================
             let platformProfit = 0;
             let clubProfit = 0;
@@ -111,16 +136,16 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
             let targetSellerId: string | null = null;
 
             if (!isPublic) {
-                // Sala Privada: 100% del rake va a la plataforma
+                // Mesa Privada: 100% del rake va a la plataforma
                 platformProfit = rakeAmount;
-                console.log(`[SETTLE_ROUND] Paso 2 - Sala Privada: PlatformProfit = ${platformProfit}`);
+                console.log(`[SETTLE_ROUND] Paso 2 - Mesa Privada: Rake 100% a Plataforma = ${platformProfit}`);
             } else {
-                // Sala Pública: Distribución 50-30-20
+                // Mesa Pública: Distribución 50-30-20
                 platformProfit = Math.floor(rakeAmount * 0.50);
                 clubProfit = Math.floor(rakeAmount * 0.30);
                 sellerProfit = Math.floor(rakeAmount * 0.20);
                 
-                // Ajustar por redondeo
+                // Ajustar por redondeo (el resto va a la plataforma)
                 const remainder = rakeAmount - (platformProfit + clubProfit + sellerProfit);
                 platformProfit += remainder;
 
@@ -131,14 +156,16 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
                 if (!targetSellerId && targetClubId) {
                     clubProfit += sellerProfit;
                     sellerProfit = 0;
+                    console.log(`[SETTLE_ROUND] Paso 2 - Sin Seller: 20% transferido a Club`);
                 } else if (!targetSellerId && !targetClubId) {
                     // Si no hay club ni seller, todo va a la plataforma
                     platformProfit += clubProfit + sellerProfit;
                     clubProfit = 0;
                     sellerProfit = 0;
+                    console.log(`[SETTLE_ROUND] Paso 2 - Sin Club ni Seller: Todo a Plataforma`);
                 }
 
-                console.log(`[SETTLE_ROUND] Paso 2 - Sala Pública: PlatformProfit = ${platformProfit}, ClubProfit = ${clubProfit}, SellerProfit = ${sellerProfit}`);
+                console.log(`[SETTLE_ROUND] Paso 2 - Mesa Pública: Platform=${platformProfit}, Club=${clubProfit}, Seller=${sellerProfit}`);
             }
 
             // Actualizar billeteras de Admin, Club y Seller
@@ -248,39 +275,18 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
             console.log(`[SETTLE_ROUND] Paso 3 - Stack Final del Ganador: ${newWinnerChips} (chips actuales: ${currentWinnerChips}, premio neto sumado: ${winnerPrize})`);
 
             // ============================================
-            // PASO 4: CASHOUT / LIQUIDACIÓN (TRANSFERIR A BILLETERA)
+            // PASO 4: ACTUALIZAR SESIÓN (SOLO AUDITORÍA)
             // ============================================
-            // CRÍTICO: El ganador debe recibir TODO su stack final (chips actuales + premio neto)
-            // porque el buy-in ya fue descontado cuando entró a la mesa.
-            // 
-            // Ejemplo:
-            // - Buy-in: 1000 (ya descontado del crédito al entrar)
-            // - Chips actuales: 500 (después de apostar)
-            // - Pot ganado: 2000, Rake: 160, Premio neto: 1840
-            // - Stack final: 500 + 1840 = 2340
-            // - Debe recibir: 2340 en crédito (para compensar el buy-in ya descontado)
-            const creditToAdd = newWinnerChips; // Stack completo (chips actuales + premio neto)
-
-            transaction.update(winnerRef, {
-                credit: admin.firestore.FieldValue.increment(creditToAdd),
-                moneyInPlay: 0
-            });
-
-            // Resetear chips del ganador en la mesa a 0 (ya transferimos todo)
-            transaction.update(tableRef, {
-                [`players.${winnerPlayerIndex}.chips`]: 0
-            });
-
-            // Actualizar sesión de poker del ganador con el rake pagado
+            // CRÍTICO: Durante el juego, NO se transfiere dinero a la billetera.
+            // Las fichas quedan en la mesa y solo se actualiza la sesión para auditoría.
+            // El dinero se transferirá solo cuando el usuario haga processCashOut.
             if (winnerSessionRef) {
                 transaction.update(winnerSessionRef, {
-                    currentChips: newWinnerChips, // Actualizar chips actuales
+                    currentChips: newWinnerChips, // Actualizar chips actuales (solo auditoría, NO fuente de verdad)
                     totalRakePaid: admin.firestore.FieldValue.increment(rakeAmount) // Acumular rake pagado
                 });
-                console.log(`[SETTLE_ROUND] Sesión de poker actualizada: currentChips=${newWinnerChips}, totalRakePaid+=${rakeAmount}`);
+                console.log(`[SETTLE_ROUND] Paso 4 - Sesión actualizada (auditoría): currentChips=${newWinnerChips}, totalRakePaid+=${rakeAmount}`);
             }
-
-            console.log(`[SETTLE_ROUND] Paso 4 - Cashout: ${creditToAdd} (stack completo) transferido a billetera. Chips actuales: ${currentWinnerChips}, Premio neto: ${winnerPrize}, Total: ${newWinnerChips}`);
 
             // ============================================
             // PASO 5: HISTORIAL (LEDGER)
@@ -293,18 +299,18 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
                 tableId: tableId,
                 gameId: gameId,
                 amount: winnerPrize, // Lo que ganó neto en la mano (después del rake)
-                totalCashedOut: creditToAdd, // Stack completo transferido a billetera
                 currentChips: currentWinnerChips, // Chips que tenía antes de ganar
+                finalChips: newWinnerChips, // Chips finales después de ganar
                 potTotal: totalPot,
                 rakeAmount: rakeAmount,
                 platformProfit: platformProfit,
                 clubProfit: clubProfit,
                 sellerProfit: sellerProfit,
                 timestamp: timestamp,
-                description: `Ganador de ronda - Pot: ${totalPot}, Premio Neto: ${winnerPrize}, Rake: ${rakeAmount}, Stack Final: ${newWinnerChips}, Credit Añadido: ${creditToAdd}`
+                description: `Ganador de ronda - Pot: ${totalPot}, Premio Neto: ${winnerPrize}, Rake: ${rakeAmount}, Stack Final: ${newWinnerChips} (fichas quedan en mesa, no se transfiere a billetera)`
             });
 
-            console.log(`[SETTLE_ROUND] Paso 5 - Ledger creado: GAME_WIN, Premio Neto: ${winnerPrize}, Stack Final: ${newWinnerChips}, Credit Añadido: ${creditToAdd}`);
+            console.log(`[SETTLE_ROUND] Paso 5 - Ledger creado: GAME_WIN, Premio Neto: ${winnerPrize}, Stack Final: ${newWinnerChips} (fichas en mesa)`);
         });
 
         // NOTA: stats_daily ya se actualiza dentro de la transacción (Paso 2)

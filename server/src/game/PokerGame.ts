@@ -14,7 +14,7 @@ export class PokerGame {
     private players: Player[] = [];
     private activePlayers: Player[] = []; // Players currently in the hand
     private lastAggressorIndex: number = 0;
-    
+
     // AFK System
     private turnTimer: NodeJS.Timeout | null = null;
     private readonly TURN_TIMEOUT_SECONDS = 15;
@@ -26,6 +26,14 @@ export class PokerGame {
     // Rake System
     private isPublicRoom: boolean = true; // Default to public
 
+    // Side Pots System - For All-In scenarios with different stack sizes
+    private sidePots: Array<{
+        amount: number;
+        eligiblePlayerIds: Set<string>;
+        maxContribution: number; // Maximum contribution per player for this pot
+    }> = [];
+    private playerTotalContributions: Map<string, number> = new Map(); // Track total contributions per player in current hand
+
     // Callbacks
     public onGameStateChange?: (state: any) => void;
     public onSystemEvent?: (event: string, data: any) => void;
@@ -35,8 +43,8 @@ export class PokerGame {
     public startGame(players: Player[], isPublic: boolean = true) {
         if (players.length < 2) throw new Error('Not enough players');
         this.players = players;
-        this.isPublicRoom = isPublic; 
-        
+        this.isPublicRoom = isPublic;
+
         // Initialize status
         this.players.forEach(p => {
             if (!p.status) p.status = 'PLAYING';
@@ -52,7 +60,7 @@ export class PokerGame {
 
         if (eligiblePlayers.length < 2) {
             console.log('Not enough eligible players to start round. Waiting for rebuys or joins.');
-            
+
             // Check for Last Man Standing condition
             // If we have 1 eligible player and NO one waiting for rebuy, they win.
             const playersWaitingRebuy = this.players.filter(p => p.status === 'WAITING_FOR_REBUY');
@@ -67,7 +75,7 @@ export class PokerGame {
                 // But if there is a pot sitting there? No, startRound resets pot.
                 // However, if the game was "active" and suddenly everyone leaves but one, 
                 // removePlayer calls this.
-                
+
                 // We should let checkActivePlayers handle the immediate win trigger.
                 // But if we fall through here, ensure we don't clear pot if it wasn't distributed?
                 // startRound calls this.pot = 0;
@@ -84,12 +92,14 @@ export class PokerGame {
 
         this.initializeDeck();
         this.pot = 0;
+        this.sidePots = []; // Reset side pots for new hand
+        this.playerTotalContributions.clear(); // Reset contribution tracking
         this.communityCards = [];
         this.round = 'pre-flop';
         this.currentBet = this.bigBlindAmount;
 
         this.activePlayers = [...eligiblePlayers];
-        
+
         // Reset player states for new round (only for active players)
         this.activePlayers.forEach(p => {
             p.hand = [];
@@ -100,14 +110,14 @@ export class PokerGame {
             p.hasActed = false; // CRÍTICO: Reset hasActed al inicio de cada ronda
             // Note: We do NOT reset isSitOut here; it persists until user returns
         });
-        
+
         // Deal cards
         this.activePlayers.forEach(p => {
             p.hand = this.deal(2);
         });
 
         // Blinds logic (simplified for dynamic player count)
-        const dealerActiveIndex = 0; 
+        const dealerActiveIndex = 0;
         const sbIndex = (dealerActiveIndex + 1) % this.activePlayers.length;
         const bbIndex = (dealerActiveIndex + 2) % this.activePlayers.length;
 
@@ -120,7 +130,7 @@ export class PokerGame {
 
         // Start the turn flow
         this.startTurnTimer();
-        
+
         if (this.onGameStateChange) {
             this.onGameStateChange(this.getGameState());
         }
@@ -143,7 +153,7 @@ export class PokerGame {
 
         if (currentPlayer.isSitOut) {
             console.log(`⏩ Player ${currentPlayer.name} is SIT OUT. Auto-playing...`);
-            this.handleTurnTimeout(); 
+            this.handleTurnTimeout();
             return;
         }
 
@@ -183,7 +193,7 @@ export class PokerGame {
         if (player) {
             console.log(`💰 Adding ${amount} chips to ${player.name}`);
             player.chips += amount;
-            
+
             // If they were waiting for rebuy, clear status and timer
             if (player.status === 'WAITING_FOR_REBUY') {
                 player.status = 'PLAYING';
@@ -191,13 +201,13 @@ export class PokerGame {
                     clearTimeout(this.rebuyTimers.get(playerId)!);
                     this.rebuyTimers.delete(playerId);
                 }
-                
+
                 // Try to restart round if we were waiting
                 // Check if we have enough players now
                 const eligiblePlayers = this.players.filter(p => p.chips > 0 && p.status !== 'WAITING_FOR_REBUY');
                 if (eligiblePlayers.length >= 2 && this.round === 'pre-flop' && this.pot === 0 && this.activePlayers.length === 0) {
-                     // Game was idle, start it
-                     this.startRound();
+                    // Game was idle, start it
+                    this.startRound();
                 }
             }
 
@@ -206,12 +216,12 @@ export class PokerGame {
             }
         }
     }
-    
+
     public removePlayer(playerId: string) {
         // 1. Remove from lists
         this.players = this.players.filter(p => p.id !== playerId);
         this.activePlayers = this.activePlayers.filter(p => p.id !== playerId);
-        
+
         // 2. Clear Rebuy Timers
         if (this.rebuyTimers.has(playerId)) {
             clearTimeout(this.rebuyTimers.get(playerId)!);
@@ -220,7 +230,7 @@ export class PokerGame {
 
         // 3. CRITICAL: Trigger Walkover / Last Man Standing Check
         this.checkActivePlayers();
-        
+
         // Note: If player was active in current hand, checkActivePlayers will handle it.
         // If not, nothing happens, we just wait.
     }
@@ -235,8 +245,8 @@ export class PokerGame {
      */
     private checkActivePlayers() {
         // Verificar jugadores activos (no retirados, no esperando rebuy)
-        const activePlayers = this.players.filter(p => 
-            p.status !== 'WAITING_FOR_REBUY' && 
+        const activePlayers = this.players.filter(p =>
+            p.status !== 'WAITING_FOR_REBUY' &&
             p.status !== 'ELIMINATED' &&
             (p.chips > 0 || p.isBot) // Incluir bots o jugadores con fichas
         );
@@ -245,7 +255,7 @@ export class PokerGame {
         if (activePlayers.length === 1) {
             console.log('🏆 Last Man Standing Condition Met: Only 1 active player remaining.');
             const winner = activePlayers[0];
-            
+
             // Detener cualquier timer activo
             if (this.turnTimer) {
                 clearTimeout(this.turnTimer);
@@ -264,7 +274,7 @@ export class PokerGame {
 
             // Emit Victory Event con reason 'last_man_standing' para que RoomManager cierre la mesa
             if (this.onSystemEvent) {
-                this.onSystemEvent('game_finished', { 
+                this.onSystemEvent('game_finished', {
                     winnerId: winner.id,
                     winnerUid: winner.uid, // Incluir UID si está disponible
                     reason: 'last_man_standing', // Cambiado de 'walkover' a 'last_man_standing'
@@ -273,11 +283,11 @@ export class PokerGame {
                     totalRakePaid: winner.totalRakePaid || 0
                 });
             }
-            
+
             // Reset state
             this.activePlayers = [];
             this.round = 'pre-flop';
-            
+
             // Nota: closeTableAndCashOut será llamado por RoomManager al recibir el evento 'game_finished'
             return;
         }
@@ -326,7 +336,7 @@ export class PokerGame {
         }
 
         const player = this.activePlayers[this.currentTurnIndex];
-        
+
         if (!player || player.id !== playerId) {
             throw new Error('Not your turn');
         }
@@ -347,7 +357,7 @@ export class PokerGame {
                 player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
                 this.activePlayers = this.activePlayers.filter(p => !p.isFolded);
                 if (this.activePlayers.length === 1) {
-                    this.endHand(this.activePlayers[0]); 
+                    this.endHand(this.activePlayers[0]);
                     return;
                 }
                 break;
@@ -361,32 +371,32 @@ export class PokerGame {
                 // Regla estándar: raise mínimo = apuesta actual + bigBlind (o el tamaño del último raise, lo que sea mayor)
                 // Para simplificar, usamos: currentBet + bigBlind
                 const minRaise = this.currentBet + this.bigBlindAmount;
-                
+
                 // Validar que la apuesta sea suficiente
                 const totalBetNeeded = amount - player.currentBet;
                 if (totalBetNeeded > player.chips) {
                     throw new Error(`No tienes suficientes fichas. Necesitas ${totalBetNeeded}, tienes ${player.chips}`);
                 }
-                
+
                 // Si la apuesta es menor al mínimo raise Y el jugador tiene fichas para el raise mínimo, rechazar
                 if (amount < minRaise && player.chips >= (minRaise - player.currentBet)) {
                     throw new Error(`Apuesta mínima es ${minRaise}. Tienes ${player.chips} fichas disponibles.`);
                 }
-                
+
                 // Si el jugador intenta apostar más de lo que tiene, tratarlo como all-in
                 if (amount > player.currentBet + player.chips) {
                     amount = player.currentBet + player.chips;
                     player.isAllIn = true;
                     console.log(`⚠️ ${player.name} intentó apostar más de lo que tiene. Tratado como ALL-IN: ${amount}`);
                 }
-                
+
                 // Realizar la apuesta
                 const betAmount = amount - player.currentBet;
                 this.placeBet(player, betAmount);
-                
+
                 // CRÍTICO: Marcar que el jugador ya actuó
                 player.hasActed = true;
-                
+
                 // Si la apuesta es mayor que currentBet, actualizar y marcar como agresor
                 if (amount > this.currentBet) {
                     this.lastAggressorIndex = this.currentTurnIndex;
@@ -429,29 +439,29 @@ export class PokerGame {
      */
     private areAllPlayersAllIn(): boolean {
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
-        
+
         // Si solo queda un jugador, no es all-in, es victoria directa
         if (activeNonFolded.length <= 1) {
             return false;
         }
-        
+
         // Verificar que todos hayan igualado la apuesta
         const allBetsMatched = activeNonFolded.every(p => {
             return p.currentBet === this.currentBet || (p.chips === 0 && p.currentBet > 0);
         });
-        
+
         if (!allBetsMatched) {
             return false; // Aún hay jugadores que no han igualado, no saltar
         }
-        
+
         // Verificar que todos los jugadores con fichas hayan actuado
         const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
         const allWithChipsActed = playersWithChips.length === 0 || playersWithChips.every(p => p.hasActed === true);
-        
+
         if (!allWithChipsActed) {
             return false; // Aún hay jugadores que no han actuado, no saltar
         }
-        
+
         // Si llegamos aquí, todos igualaron y actuaron
         // Ahora verificar si todos están all-in (0 o 1 jugador con fichas)
         return playersWithChips.length <= 1;
@@ -463,7 +473,7 @@ export class PokerGame {
 
         // CORRECCIÓN CRÍTICA: Implementar lógica similar a PracticeGameController
         // Verificar si la ronda de apuestas está completa ANTES de buscar siguiente jugador
-        
+
         // 1. Verificar si solo queda un jugador (todos los demás se retiraron)
         if (activeNonFolded.length <= 1) {
             this.revealAllCardsAndShowdown();
@@ -491,7 +501,7 @@ export class PokerGame {
             let nextIndex = this.currentTurnIndex;
             let foundNext = false;
             let attempts = 0;
-            
+
             do {
                 nextIndex = (nextIndex + 1) % this.activePlayers.length;
                 attempts++;
@@ -505,9 +515,9 @@ export class PokerGame {
             // O si el jugador actual es el último agresor y todos igualaron, la ronda terminó
             if (foundNext && (nextIndex === this.lastAggressorIndex || this.currentTurnIndex === this.lastAggressorIndex)) {
                 // Caso especial: Pre-flop, Big Blind puede tener opción de actuar
-                if (this.round === 'pre-flop' && 
+                if (this.round === 'pre-flop' &&
                     this.activePlayers[nextIndex] &&
-                    this.activePlayers[nextIndex].currentBet === this.bigBlindAmount && 
+                    this.activePlayers[nextIndex].currentBet === this.bigBlindAmount &&
                     this.currentBet === this.bigBlindAmount &&
                     !this.activePlayers[nextIndex].hasActed) {
                     // Permitir que BB actúe (check/raise)
@@ -518,7 +528,7 @@ export class PokerGame {
                     this.startTurnTimer();
                     return;
                 }
-                
+
                 // Ronda completa, avanzar a la siguiente fase
                 this.nextRound();
                 return;
@@ -531,33 +541,33 @@ export class PokerGame {
         let foundNextPlayer = false;
         let attempts = 0;
         const maxAttempts = this.activePlayers.length;
-        
+
         do {
             nextIndex = (nextIndex + 1) % this.activePlayers.length;
             attempts++;
-            
+
             const player = this.activePlayers[nextIndex];
-            
+
             // Si el jugador está retirado, saltarlo
             if (player.isFolded) {
                 continue;
             }
-            
+
             // Si el jugador está all-in (sin fichas), saltarlo
             if (player.chips === 0 && player.currentBet > 0) {
                 continue;
             }
-            
+
             // CRÍTICO: Un jugador necesita actuar si:
             // - NO ha actuado todavía, O
             // - Su apuesta es menor que la apuesta actual Y tiene fichas para igualar/aumentar
             const needsToAct = !player.hasActed || (player.currentBet < this.currentBet && player.chips > 0);
-            
+
             if (needsToAct) {
                 foundNextPlayer = true;
                 break; // Este jugador necesita actuar
             }
-            
+
         } while (attempts < maxAttempts);
 
         // Si no encontramos ningún jugador que necesite actuar
@@ -576,7 +586,7 @@ export class PokerGame {
                     return;
                 }
             }
-            
+
             // Si llegamos aquí, hay un problema lógico - no debería pasar
             // Pero para evitar que el juego se congele, avanzar ronda
             console.warn('⚠️ No se encontró siguiente jugador. Avanzando ronda por seguridad.');
@@ -593,7 +603,7 @@ export class PokerGame {
 
         // Pasar turno al siguiente jugador
         this.currentTurnIndex = nextIndex;
-        
+
         if (this.onGameStateChange) {
             this.onGameStateChange(this.getGameState());
         }
@@ -689,7 +699,7 @@ export class PokerGame {
         } catch (e) {
             console.error('Error in revealAllCardsAndShowdown:', e);
             // Try to rescue game state by forcing evaluate
-            this.evaluateWinner(); 
+            this.evaluateWinner();
         }
     }
 
@@ -725,20 +735,20 @@ export class PokerGame {
                 this.evaluateWinner();
                 return;
         }
-        
+
         // BUG FIX: Después de repartir cartas, verificar si todos están all-in
         // Si todos están all-in (0 o 1 jugador con fichas), saltar al showdown
         // Esto solo se verifica DESPUÉS de repartir cartas y cuando todos ya actuaron en la ronda anterior
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
         const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
-        
+
         // Si todos están all-in (0 o 1 jugador con fichas), saltar al showdown
         if (activeNonFolded.length > 1 && playersWithChips.length <= 1) {
             console.log('🔥 Todos los jugadores están ALL-IN después de repartir cartas. Saltando al showdown...');
             this.autoAdvanceToShowdown();
             return;
         }
-        
+
         if (this.onGameStateChange) {
             this.onGameStateChange(this.getGameState());
         }
@@ -766,10 +776,10 @@ export class PokerGame {
         }
     }
 
-    private calculateRakeDistribution(pot: number): { 
-        totalRake: number, 
-        netPot: number, 
-        distribution: { platform: number, club: number, seller: number } 
+    private calculateRakeDistribution(pot: number): {
+        totalRake: number,
+        netPot: number,
+        distribution: { platform: number, club: number, seller: number }
     } {
         const RAKE_PERCENTAGE = 0.08;
         const totalRake = Math.floor(pot * RAKE_PERCENTAGE);
@@ -789,7 +799,7 @@ export class PokerGame {
             distribution.platform = Math.floor(totalRake * 0.50);
             distribution.club = Math.floor(totalRake * 0.30);
             distribution.seller = Math.floor(totalRake * 0.20);
-            
+
             const distributed = distribution.platform + distribution.club + distribution.seller;
             const remainder = totalRake - distributed;
             if (remainder > 0) distribution.platform += remainder;
@@ -800,29 +810,31 @@ export class PokerGame {
 
     private evaluateWinner() {
         try {
-            console.log('Evaluating winner...');
-            
+            console.log('Evaluating winner with side pots...');
+
             // Detener timer antes de evaluar ganador
             if (this.turnTimer) {
                 clearTimeout(this.turnTimer);
                 this.turnTimer = null;
             }
-            
+
             const activePlayers = this.activePlayers.filter(p => !p.isFolded);
 
+            // Caso especial: solo queda un jugador (todos se retiraron)
             if (activePlayers.length === 1) {
                 this.endHand(activePlayers[0]);
                 return;
             }
 
-            // Safe solve
+            // Calcular side pots antes de evaluar ganadores
+            this.calculateSidePots();
+
+            // Evaluar manos de todos los jugadores activos
             const playerHands = activePlayers.map(player => {
                 try {
-                    // Filter nulls or malformed cards? Deck should be safe.
-                    // But if hand is empty?
                     if (!player.hand || player.hand.length === 0) {
                         console.error(`Player ${player.name} has no hand! Folding them.`);
-                        return null; 
+                        return null;
                     }
                     return {
                         player: player,
@@ -835,106 +847,340 @@ export class PokerGame {
             }).filter(ph => ph !== null) as Array<{ player: Player, hand: any }>;
 
             if (playerHands.length === 0) {
-                console.error('No valid hands found. Returning pot to pot?');
-                // Emergency: just end hand, no winner? Or refund?
-                // Refund everyone active
+                console.error('No valid hands found. Refunding pot.');
                 const split = Math.floor(this.pot / activePlayers.length);
                 activePlayers.forEach(p => p.chips += split);
                 this.pot = 0;
-                // Next round
                 setTimeout(() => this.checkForBankruptPlayers(), 5000);
                 return;
             }
 
-            const hands = playerHands.map(ph => ph.hand);
-            const winningHands = Hand.winners(hands);
-            // Note: winningHands references the exact objects from hands array
-            const winners = playerHands.filter(ph => winningHands.includes(ph.hand));
+            // Rastrear premios por jugador y rake total
+            const playerWinnings = new Map<string, number>();
+            let totalRakeCollected = 0;
+            const potResults: Array<{ potName: string; amount: number; winnerId: string; winnerName: string }> = [];
 
-            const { totalRake, netPot, distribution } = this.calculateRakeDistribution(this.pot);
+            // Si no hay side pots (juego simple), crear uno con el pot total
+            if (this.sidePots.length === 0) {
+                this.sidePots = [{
+                    amount: this.pot,
+                    eligiblePlayerIds: new Set(activePlayers.map(p => p.id)),
+                    maxContribution: this.pot
+                }];
+            }
 
-            if (winners.length === 1) {
-                const winner = winners[0].player;
-                const winnerHand = winners[0].hand;
-                winner.totalRakePaid = (winner.totalRakePaid || 0) + totalRake;
-                
-                this.endHand(winner, netPot, winnerHand, playerHands, distribution);
-            } else {
-                const splitAmount = Math.floor(netPot / winners.length);
-                const rakePerWinner = Math.floor(totalRake / winners.length);
+            // Iterar sobre cada pot (main pot + side pots)
+            for (let potIndex = 0; potIndex < this.sidePots.length; potIndex++) {
+                const pot = this.sidePots[potIndex];
+                const potName = potIndex === 0 ? 'Main Pot' : `Side Pot ${potIndex}`;
 
-                winners.forEach(w => {
-                    w.player.chips += splitAmount;
-                    w.player.totalRakePaid = (w.player.totalRakePaid || 0) + rakePerWinner;
-                });
+                // Filtrar jugadores elegibles para este pot
+                const eligibleHands = playerHands.filter(ph => pot.eligiblePlayerIds.has(ph.player.id));
 
-                // Obtener estado del juego y actualizarlo para showdown
-                const gameState: any = this.getGameState();
-                gameState.stage = 'showdown';
-                gameState.status = 'finished';
-                
-                // Actualizar jugadores en gameState con handRank
-                const playerHandsMap = new Map<string, any>();
-                playerHands.forEach(ph => {
-                    playerHandsMap.set(ph.player.id, ph.hand);
-                });
-                
-                gameState.players = gameState.players.map((p: any) => {
-                    const hand = playerHandsMap.get(p.id);
-                    if (hand && !p.isFolded) {
-                        return {
-                            ...p,
-                            handRank: hand.descr || hand.name
-                        };
-                    }
-                    return p;
-                });
-
-                if (this.onGameStateChange) {
-                    this.onGameStateChange({
-                        type: 'hand_winner',
-                        winners: winners.map(w => ({
-                            id: w.player.id,
-                            name: w.player.name,
-                            amount: splitAmount,
-                            handDescription: w.hand.descr || w.hand.name
-                        })),
-                        split: true,
-                        rake: totalRake,
-                        rakeDistribution: distribution,
-                        players: this.players.map(p => ({
-                            id: p.id,
-                            name: p.name,
-                            isFolded: p.isFolded,
-                            hand: p.isFolded ? null : p.hand,
-                            handDescription: !p.isFolded && p.hand ?
-                                Hand.solve([...p.hand, ...this.communityCards]).descr ||
-                                Hand.solve([...p.hand, ...this.communityCards]).name
-                                : null
-                        })),
-                        gameState: gameState
-                    });
+                if (eligibleHands.length === 0) {
+                    console.warn(`${potName}: No eligible players, skipping.`);
+                    continue;
                 }
 
-                setTimeout(() => {
-                    this.checkForBankruptPlayers();
-                }, 5000);
+                // Encontrar ganador(es) de este pot
+                const hands = eligibleHands.map(ph => ph.hand);
+                const winningHands = Hand.winners(hands);
+                const potWinners = eligibleHands.filter(ph => winningHands.includes(ph.hand));
+
+                // Calcular rake para este pot
+                const { totalRake, netPot, distribution } = this.calculateRakeDistribution(pot.amount);
+                totalRakeCollected += totalRake;
+
+                // Distribuir el pot entre ganadores
+                if (potWinners.length === 1) {
+                    const winner = potWinners[0].player;
+                    const current = playerWinnings.get(winner.id) || 0;
+                    playerWinnings.set(winner.id, current + netPot);
+                    winner.totalRakePaid = (winner.totalRakePaid || 0) + totalRake;
+
+                    potResults.push({
+                        potName,
+                        amount: netPot,
+                        winnerId: winner.id,
+                        winnerName: winner.name
+                    });
+
+                    console.log(`🏆 ${potName} ($${pot.amount}): ${winner.name} gana $${netPot} (rake: $${totalRake})`);
+                } else {
+                    // Split pot entre múltiples ganadores
+                    const splitAmount = Math.floor(netPot / potWinners.length);
+                    const rakePerWinner = Math.floor(totalRake / potWinners.length);
+
+                    potWinners.forEach(w => {
+                        const current = playerWinnings.get(w.player.id) || 0;
+                        playerWinnings.set(w.player.id, current + splitAmount);
+                        w.player.totalRakePaid = (w.player.totalRakePaid || 0) + rakePerWinner;
+                    });
+
+                    const winnerNames = potWinners.map(w => w.player.name).join(', ');
+                    console.log(`🏆 ${potName} ($${pot.amount}): Split entre ${winnerNames} - cada uno gana $${splitAmount}`);
+                }
             }
+
+            // Asignar fichas a los ganadores
+            playerWinnings.forEach((amount, playerId) => {
+                const player = this.players.find(p => p.id === playerId);
+                if (player) {
+                    player.chips += amount;
+                    console.log(`💰 ${player.name} recibe total de $${amount}`);
+                }
+            });
+
+            // Encontrar el ganador principal (el que más ganó)
+            let mainWinner = activePlayers[0];
+            let maxWinnings = 0;
+            playerWinnings.forEach((amount, playerId) => {
+                if (amount > maxWinnings) {
+                    maxWinnings = amount;
+                    mainWinner = this.players.find(p => p.id === playerId) || mainWinner;
+                }
+            });
+
+            const mainWinnerHand = playerHands.find(ph => ph.player.id === mainWinner.id)?.hand;
+
+            // Construir respuesta con detalles de side pots
+            const gameState: any = this.getGameState();
+            gameState.stage = 'showdown';
+            gameState.status = 'finished';
+            gameState.sidePots = potResults;
+
+            // Actualizar jugadores con handRank
+            const playerHandsMap = new Map<string, any>();
+            playerHands.forEach(ph => {
+                playerHandsMap.set(ph.player.id, ph.hand);
+            });
+
+            gameState.players = gameState.players.map((p: any) => {
+                const hand = playerHandsMap.get(p.id);
+                const winnings = playerWinnings.get(p.id) || 0;
+                return {
+                    ...p,
+                    handRank: hand && !p.isFolded ? (hand.descr || hand.name) : null,
+                    winnings: winnings
+                };
+            });
+
+            if (this.onGameStateChange) {
+                this.onGameStateChange({
+                    type: 'hand_winner',
+                    winners: Array.from(playerWinnings.entries()).map(([playerId, amount]) => {
+                        const ph = playerHands.find(p => p.player.id === playerId);
+                        return {
+                            id: playerId,
+                            name: ph?.player.name || 'Unknown',
+                            amount: amount,
+                            handDescription: ph?.hand?.descr || ph?.hand?.name || 'Unknown'
+                        };
+                    }),
+                    split: playerWinnings.size > 1,
+                    rake: totalRakeCollected,
+                    sidePots: potResults,
+                    players: this.players.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        isFolded: p.isFolded,
+                        hand: p.isFolded ? null : p.hand,
+                        handDescription: !p.isFolded && p.hand ?
+                            Hand.solve([...p.hand, ...this.communityCards]).descr ||
+                            Hand.solve([...p.hand, ...this.communityCards]).name
+                            : null,
+                        winnings: playerWinnings.get(p.id) || 0
+                    })),
+                    gameState: gameState
+                });
+            }
+
+            // Reset pot
+            this.pot = 0;
+            this.sidePots = [];
+
+            setTimeout(() => {
+                this.checkForBankruptPlayers();
+            }, 5000);
+
         } catch (e) {
             console.error('CRITICAL ERROR in evaluateWinner:', e);
-            // Try to recover: refund pot?
-            // Just push to next round to avoid freeze
             setTimeout(() => this.checkForBankruptPlayers(), 5000);
         }
     }
 
-    private placeBet(player: Player, amount: number) {
+    /**
+     * calculateEffectiveStack - Calcula el stack efectivo para la apuesta actual
+     * 
+     * En poker, un jugador no puede ganar más de lo que puede cubrir.
+     * El effective stack es el mínimo entre:
+     * - Lo que el jugador tiene
+     * - Lo que el oponente más corto puede igualar
+     * 
+     * @param playerId - ID del jugador que está apostando
+     * @returns El stack máximo efectivo que el jugador puede apostar/igualar
+     */
+    private calculateEffectiveStack(playerId: string): number {
+        const player = this.activePlayers.find(p => p.id === playerId);
+        if (!player) return 0;
+
+        // Obtener todos los oponentes activos (no retirados, no el jugador actual)
+        const activeOpponents = this.activePlayers.filter(p =>
+            p.id !== playerId &&
+            !p.isFolded &&
+            (p.chips > 0 || p.currentBet > 0) // Incluir jugadores all-in con apuesta
+        );
+
+        if (activeOpponents.length === 0) {
+            return player.chips + player.currentBet;
+        }
+
+        // El effective stack es el mínimo de:
+        // 1. Lo que el jugador tiene (chips + currentBet)
+        // 2. Lo que cada oponente puede cubrir (chips + currentBet)
+        const playerTotal = player.chips + player.currentBet;
+        const opponentMaxAmounts = activeOpponents.map(p => p.chips + p.currentBet);
+        const minOpponentAmount = Math.min(...opponentMaxAmounts);
+
+        // El effective stack es el mínimo entre ambos
+        return Math.min(playerTotal, minOpponentAmount);
+    }
+
+    /**
+     * placeBet - Coloca una apuesta para un jugador
+     * 
+     * REGLA CRÍTICA: Aplica el cap de effective stack en TODAS las apuestas.
+     * El exceso se devuelve inmediatamente al jugador en heads-up,
+     * o crea side pots en juegos de 3+ jugadores.
+     * 
+     * @param player - Jugador que apuesta
+     * @param amount - Cantidad a apostar
+     * @returns La cantidad efectiva apostada (puede ser menor a amount por effective stack)
+     */
+    private placeBet(player: Player, amount: number): number {
+        // Cap 1: No puede apostar más de lo que tiene
         if (player.chips < amount) {
             amount = player.chips;
         }
+
+        // Cap 2: Aplicar effective stack cap
+        const effectiveStack = this.calculateEffectiveStack(player.id);
+        const maxAdditionalBet = effectiveStack - player.currentBet;
+
+        if (amount > maxAdditionalBet && maxAdditionalBet > 0) {
+            const excess = amount - maxAdditionalBet;
+            console.log(`⚡ ${player.name}: Apuesta de ${amount} excede effective stack. Reducida a ${maxAdditionalBet}. Exceso de ${excess} devuelto.`);
+            amount = maxAdditionalBet;
+        }
+
+        // Aplicar la apuesta
         player.chips -= amount;
         player.currentBet += amount;
         this.pot += amount;
+
+        // Rastrear contribución total del jugador en esta mano
+        const currentTotal = this.playerTotalContributions.get(player.id) || 0;
+        this.playerTotalContributions.set(player.id, currentTotal + amount);
+
+        // Marcar all-in si el jugador se quedó sin fichas
+        if (player.chips === 0 && amount > 0) {
+            player.isAllIn = true;
+            console.log(`🔥 ${player.name} está ALL-IN con contribución total de ${player.currentBet}`);
+        }
+
+        return amount;
+    }
+
+    /**
+     * calculateSidePots - Calcula los side pots basándose en las contribuciones de los jugadores
+     * 
+     * Se llama antes de evaluar el ganador para distribuir correctamente el bote.
+     * Cada side pot incluye:
+     * - amount: El monto total del pot
+     * - eligiblePlayerIds: Los jugadores que pueden ganar este pot
+     * - maxContribution: La contribución máxima por jugador para este pot
+     */
+    private calculateSidePots(): void {
+        // Obtener jugadores activos (no retirados) con sus contribuciones totales
+        const activeContributions = this.activePlayers
+            .filter(p => !p.isFolded)
+            .map(p => ({
+                id: p.id,
+                contribution: this.playerTotalContributions.get(p.id) || 0
+            }))
+            .filter(p => p.contribution > 0)
+            .sort((a, b) => a.contribution - b.contribution); // Ordenar por contribución
+
+        if (activeContributions.length === 0) {
+            this.sidePots = [];
+            return;
+        }
+
+        this.sidePots = [];
+        let previousLevel = 0;
+
+        for (let i = 0; i < activeContributions.length; i++) {
+            const currentLevel = activeContributions[i].contribution;
+
+            if (currentLevel > previousLevel) {
+                // Jugadores elegibles para este nivel de pot son todos los que contribuyeron >= previousLevel
+                const eligiblePlayers = activeContributions
+                    .filter(p => p.contribution >= currentLevel)
+                    .map(p => p.id);
+
+                // Cantidad por jugador para este nivel
+                const contributionPerPlayer = currentLevel - previousLevel;
+
+                // Total de jugadores que contribuyeron a este nivel
+                const contributors = activeContributions.filter(p => p.contribution >= currentLevel).length;
+
+                // También incluir los jugadores que contribuyeron menos pero hasta su límite
+                const partialContributors = activeContributions.filter(
+                    p => p.contribution > previousLevel && p.contribution < currentLevel
+                );
+
+                let potAmount = 0;
+
+                // Sumar contribuciones completas
+                potAmount += contributionPerPlayer * contributors;
+
+                // Sumar contribuciones parciales
+                for (const partial of partialContributors) {
+                    potAmount += partial.contribution - previousLevel;
+                }
+
+                if (potAmount > 0) {
+                    this.sidePots.push({
+                        amount: potAmount,
+                        eligiblePlayerIds: new Set(eligiblePlayers),
+                        maxContribution: currentLevel
+                    });
+                }
+
+                previousLevel = currentLevel;
+            }
+        }
+
+        // Simplificar: si solo hay un pot, convertirlo en main pot
+        if (this.sidePots.length === 1) {
+            console.log(`💰 Main Pot: $${this.sidePots[0].amount} (${this.sidePots[0].eligiblePlayerIds.size} jugadores elegibles)`);
+        } else if (this.sidePots.length > 1) {
+            console.log(`💰 Side Pots creados:`);
+            this.sidePots.forEach((pot, idx) => {
+                const potName = idx === 0 ? 'Main Pot' : `Side Pot ${idx}`;
+                console.log(`   ${potName}: $${pot.amount} (${pot.eligiblePlayerIds.size} jugadores elegibles)`);
+            });
+        }
+    }
+
+    /**
+     * getSidePots - Retorna los side pots actuales para mostrar en UI
+     */
+    public getSidePots(): Array<{ amount: number; playerCount: number }> {
+        return this.sidePots.map(pot => ({
+            amount: pot.amount,
+            playerCount: pot.eligiblePlayerIds.size
+        }));
     }
 
     private initializeDeck() {
@@ -980,28 +1226,28 @@ export class PokerGame {
             rakeAmount = result.totalRake;
             finalAmount = result.netPot;
             distribution = result.distribution;
-            
+
             winner.totalRakePaid = (winner.totalRakePaid || 0) + rakeAmount;
         } else {
-             rakeAmount = this.pot - finalAmount;
+            rakeAmount = this.pot - finalAmount;
         }
 
         winner.chips += finalAmount;
 
         // Obtener estado del juego (currentTurn será undefined porque currentTurnIndex = -1)
         const gameState: any = this.getGameState();
-        
+
         // Establecer el estado a showdown para que el cliente muestre todas las cartas
         gameState.stage = 'showdown';
         gameState.status = 'finished';
-        
+
         // Actualizar jugadores en gameState con handRank
         if (playerHands && playerHands.length > 0) {
             const playerHandsMap = new Map<string, any>();
             playerHands.forEach(ph => {
                 playerHandsMap.set(ph.player.id, ph.hand);
             });
-            
+
             gameState.players = gameState.players.map((p: any) => {
                 const hand = playerHandsMap.get(p.id);
                 if (hand && !p.isFolded) {
@@ -1045,7 +1291,7 @@ export class PokerGame {
             this.checkForBankruptPlayers();
         }, 5000);
     }
-    
+
     private checkForBankruptPlayers() {
         let hasBankruptPlayers = false;
 
@@ -1054,15 +1300,15 @@ export class PokerGame {
                 if (p.isBot) {
                     // Bots auto rebuy or leave? 
                     // For now, let's just give them chips to keep game going if it's practice
-                    p.chips = 1000; 
+                    p.chips = 1000;
                 } else {
                     console.log(`💸 Player ${p.name} is bankrupt. Waiting for Rebuy.`);
                     p.status = 'WAITING_FOR_REBUY';
                     hasBankruptPlayers = true;
-                    
+
                     // Trigger Rebuy Timer
                     this.startRebuyTimer(p);
-                    
+
                     if (this.onSystemEvent) {
                         this.onSystemEvent('player_needs_rebuy', { playerId: p.id, timeout: this.REBUY_TIMEOUT_SECONDS });
                     }
