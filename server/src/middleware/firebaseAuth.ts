@@ -299,6 +299,32 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
                 return;
             }
 
+            const roomId = sessionData?.roomId;
+
+            // ════════════════════════════════════════════════════════════════════════
+            // CRÍTICO: LEER FICHAS DESDE FIRESTORE (ÚNICA FUENTE DE VERDAD)
+            // No confiar en finalChips del servidor que puede estar desactualizado
+            // ════════════════════════════════════════════════════════════════════════
+            let actualFinalChips = finalChips; // Fallback al parámetro
+
+            if (roomId) {
+                const tableRef = db.collection('poker_tables').doc(roomId);
+                const tableDoc = await transaction.get(tableRef);
+
+                if (tableDoc.exists) {
+                    const tableData = tableDoc.data();
+                    const players = Array.isArray(tableData?.players) ? tableData.players : [];
+                    const playerInTable = players.find((p: any) => p.id === uid || p.uid === uid);
+
+                    if (playerInTable) {
+                        actualFinalChips = Number(playerInTable.chips) || 0;
+                        console.log(`[CASHOUT] ✅ Fichas leídas de Firestore: ${actualFinalChips} (servidor reportó: ${finalChips})`);
+                    } else {
+                        console.warn(`[CASHOUT] ⚠️ Jugador ${uid} no encontrado en mesa ${roomId}, usando valor del servidor: ${finalChips}`);
+                    }
+                }
+            }
+
             // Obtener datos del usuario (incluyendo displayName)
             const userDoc = await transaction.get(userRef);
             const userData = userDoc.data();
@@ -308,55 +334,48 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
             const buyInAmount = Number(sessionData?.buyInAmount) || 0;
 
             // Calcular monto neto (fichas finales - exit fee)
-            const netWinnings = Math.max(0, finalChips - exitFee);
+            const netWinnings = Math.max(0, actualFinalChips - exitFee);
 
             // Calcular ganancia/pérdida vs buy-in
             const netProfit = netWinnings - buyInAmount;
 
-            // Determinar tipo de transacción
-            const ledgerType = netWinnings > buyInAmount ? 'GAME_WIN' : 'GAME_LOSS';
-
             console.log(`[CASHOUT] Usuario: ${uid} (${displayName}), Sesión: ${sessionId}`);
-            console.log(`[CASHOUT] Fichas finales: ${finalChips}`);
+            console.log(`[CASHOUT] Fichas finales (Firestore): ${actualFinalChips}`);
             console.log(`[CASHOUT] Buy-in original: ${buyInAmount}`);
             console.log(`[CASHOUT] Exit fee: ${exitFee}`);
             console.log(`[CASHOUT] Rake pagado: ${totalRake}`);
             console.log(`[CASHOUT] Monto neto a transferir: ${netWinnings}`);
             console.log(`[CASHOUT] Ganancia/Pérdida: ${netProfit > 0 ? '+' : ''}${netProfit}`);
-            console.log(`[CASHOUT] Tipo: ${ledgerType}`);
 
             // Actualizar sesión
             transaction.update(sessionRef, {
-                currentChips: finalChips,
+                currentChips: actualFinalChips,
                 totalRakePaid: totalRake,
                 exitFee: exitFee,
-                netResult: netWinnings, // Guardar resultado neto
+                netResult: netWinnings,
                 endTime: admin.firestore.FieldValue.serverTimestamp(),
                 status: 'completed'
             });
 
             // CRÍTICO: LIMPIEZA DE ESTADO VISUAL OBLIGATORIA
-            // Esto DEBE ejecutarse SIEMPRE, sin importar si tiene fichas o no
-            // Separar la lógica: el cálculo de crédito depende de fichas, pero la limpieza es incondicional
             const userUpdate: any = {
-                moneyInPlay: 0,  // Establecer explícitamente a 0 (no delete)
-                currentTableId: null,  // Establecer explícitamente a null (no delete)
+                moneyInPlay: 0,
+                currentTableId: null,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             };
 
-            // Actualizar crédito del usuario SOLO si tiene fichas para devolver
+            // Actualizar crédito del usuario
             if (netWinnings > 0) {
                 userUpdate.credit = admin.firestore.FieldValue.increment(netWinnings);
                 console.log(`[CASHOUT] Crédito actualizado: +${netWinnings} al saldo del usuario`);
             }
 
-            // Ejecutar update con limpieza incondicional
             transaction.update(userRef, userUpdate);
             console.log(`[CASHOUT] Limpieza visual aplicada: moneyInPlay=0, currentTableId=null`);
 
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-            // CRÍTICO: Registrar rake en plataforma (system_stats/economy)
+            // Registrar rake en plataforma (si hay)
             if (totalRake > 0) {
                 const statsRef = db.collection('system_stats').doc('economy');
                 transaction.set(statsRef, {
@@ -364,83 +383,68 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
                     lastUpdated: timestamp
                 }, { merge: true });
                 console.log(`[CASHOUT] Rake registrado en plataforma: +${totalRake}`);
-
-                // Crear registro RAKE_COLLECTED en financial_ledger para la plataforma
-                const rakeLedgerRef = db.collection('financial_ledger').doc();
-                transaction.set(rakeLedgerRef, {
-                    type: 'RAKE_COLLECTED',
-                    userId: uid,
-                    userName: displayName, // CRÍTICO: Guardar displayName
-                    tableId: sessionData?.roomId || null,
-                    amount: totalRake,
-                    timestamp: timestamp,
-                    description: `Rake recolectado de sesión ${sessionId} - Usuario: ${displayName} (${uid})`,
-                    sessionId: sessionId,
-                    metadata: {
-                        finalChips: finalChips,
-                        buyInAmount: buyInAmount,
-                        netWinnings: netWinnings
-                    }
-                });
-                console.log(`[CASHOUT] Registro RAKE_COLLECTED creado: ${rakeLedgerRef.id}`);
             }
 
-            // Escribir en financial_ledger (OBLIGATORIO - nunca debe estar vacío)
-            // CRÍTICO: Para perdedores (finalChips === 0), usar -buyInAmount en lugar de 0
-            const ledgerAmount = finalChips === 0 && netWinnings === 0
-                ? -buyInAmount  // Perdedor: registrar pérdida total del buy-in
-                : netWinnings;   // Ganador o empate: registrar monto recibido
-
+            // ════════════════════════════════════════════════════════════════════════
+            // LEDGER UNIFICADO: SESSION_END (en lugar de GAME_WIN/GAME_LOSS)
+            // ════════════════════════════════════════════════════════════════════════
             const ledgerRef = db.collection('financial_ledger').doc();
             transaction.set(ledgerRef, {
-                type: ledgerType,
+                type: 'SESSION_END', // Tipo unificado
                 userId: uid,
-                userName: displayName, // CRÍTICO: Guardar displayName para evitar "Unknown"
-                tableId: sessionData?.roomId || null,
-                amount: ledgerAmount,  // Usar ledgerAmount corregido (negativo para perdedores)
-                netAmount: netWinnings,  // Lo que realmente recibió (puede ser 0)
-                netProfit: netProfit,
-                grossAmount: finalChips, // Fichas antes del exit fee
+                userName: displayName,
+                tableId: roomId || null,
+                amount: netWinnings,      // Lo que recibe en su wallet
+                profit: netProfit,        // Ganancia neta (puede ser negativo)
+                grossAmount: actualFinalChips,
+                buyInAmount: buyInAmount,
                 rakePaid: totalRake,
                 exitFee: exitFee,
-                buyInAmount: buyInAmount,
                 timestamp: timestamp,
-                description: `Cashout de sesión ${sessionId}. ${ledgerType === 'GAME_WIN' ? 'Ganancia' : 'Pérdida'} Neta: ${netProfit > 0 ? '+' : ''}${netProfit} (Recibido: ${netWinnings}, Buy-in: ${buyInAmount}, Rake: ${totalRake}${exitFee > 0 ? `, Exit Fee: ${exitFee}` : ''})`
+                description: `Session ended. Final chips: ${actualFinalChips}, Buy-in: ${buyInAmount}, Net: ${netProfit > 0 ? '+' : ''}${netProfit}`
             });
-            console.log(`[CASHOUT] Registro creado en financial_ledger: ${ledgerRef.id}`);
+            console.log(`[CASHOUT] Ledger SESSION_END creado`);
 
-            // Registrar en transaction_logs (sub-colección) para compatibilidad
+            // Registrar en transaction_logs para UI de wallet
             if (netWinnings > 0) {
                 const transactionRef = userRef.collection('transactions').doc();
                 transaction.set(transactionRef, {
                     type: 'poker_cashout',
                     amount: netWinnings,
-                    reason: `Poker Room Cash-out - ${ledgerType}`,
+                    reason: `Poker Cashout${netProfit >= 0 ? ' - Winner' : ' - Loss'}`,
                     sessionId: sessionId,
                     metadata: {
-                        finalChips: finalChips,
+                        finalChips: actualFinalChips,
                         buyInAmount: buyInAmount,
+                        netProfit: netProfit,
                         rakePaid: totalRake,
                         exitFee: exitFee
                     },
                     timestamp: timestamp
                 });
-            }
 
-            // Registrar exit fee si aplica
-            if (exitFee > 0) {
-                const feeRef = userRef.collection('transactions').doc();
-                transaction.set(feeRef, {
-                    type: 'poker_exit_fee',
-                    amount: -exitFee,
-                    reason: 'Early Exit Fee',
-                    sessionId: sessionId,
-                    timestamp: timestamp
+                // Transaction log principal
+                const logRef = db.collection('transaction_logs').doc();
+                transaction.set(logRef, {
+                    userId: uid,
+                    amount: netWinnings,
+                    type: 'credit',
+                    reason: `Poker Cashout - ${roomId}`,
+                    timestamp: timestamp,
+                    beforeBalance: userData?.credit || 0,
+                    afterBalance: (userData?.credit || 0) + netWinnings,
+                    metadata: {
+                        sessionId: sessionId,
+                        tableId: roomId,
+                        finalChips: actualFinalChips,
+                        buyInAmount: buyInAmount,
+                        profit: netProfit
+                    }
                 });
             }
         });
 
-        console.log(`✅ Ended poker session ${sessionId} for user ${uid}. Returned ${Math.max(0, finalChips - exitFee)} credits (Fee: ${exitFee}).`);
+        console.log(`✅ Ended poker session ${sessionId} for user ${uid}. Chips from Firestore returned.`);
         return true;
     } catch (error) {
         console.error('❌ Error ending poker session:', error);
