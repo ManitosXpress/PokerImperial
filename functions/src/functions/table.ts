@@ -330,22 +330,22 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
             const userData = userDoc.data();
             const currentCredit = Number(userData?.credit) || 0;
             const currentTableId = userData?.currentTableId || null;
+            const moneyInPlay = Number(userData?.moneyInPlay) || 0;
 
             // ───────────────────────────────────────────────────────────────────
             // 4.2. VERIFICACIÓN ATÓMICA DE SESIÓN (Race Condition Protection)
             // ───────────────────────────────────────────────────────────────────
-            const sessionCheckQuery = await db.collection('poker_sessions')
-                .where('userId', '==', uid)
-                .where('roomId', '==', roomId)
-                .where('status', '==', 'active')
-                .limit(1)
-                .get();
-
-            if (!sessionCheckQuery.empty) {
-                // Race condition: otra llamada creó la sesión durante la transacción
-                const existingId = sessionCheckQuery.docs[0].id;
-                console.log(`[JOIN_TABLE] ⚠️ RACE CONDITION detectada: Sesión ${existingId} creada en paralelo. Retornando existente.`);
-                return { type: 'existing', sessionId: existingId };
+            // NOTA: No podemos hacer queries dentro de transacciones de Firestore.
+            // Usamos currentTableId como indicador atómico de sesión activa.
+            if (currentTableId === roomId) {
+                // Usuario ya está en esta mesa - sesión ya existe
+                // El pre-check debería haberlo detectado, pero por seguridad verificamos aquí
+                console.log(`[JOIN_TABLE] ⚠️ Usuario ${uid} ya está en mesa ${roomId}. Sesión existente detectada.`);
+                // Lanzar error para que se busque la sesión fuera de la transacción
+                throw new functions.https.HttpsError(
+                    'already-exists',
+                    `User already in table ${roomId}. Session exists.`
+                );
             }
 
             // ───────────────────────────────────────────────────────────────────
@@ -356,6 +356,18 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
                     'failed-precondition',
                     `You are already playing at table ${currentTableId}. Please cash out first.`
                 );
+            }
+
+            // ───────────────────────────────────────────────────────────────────
+            // 4.3.1. VALIDACIÓN: ESTADO CORRUPTO (moneyInPlay sin currentTableId)
+            // ───────────────────────────────────────────────────────────────────
+            if (moneyInPlay > 0 && currentTableId === null) {
+                console.warn(`[JOIN_TABLE] ⚠️ Estado corrupto detectado: moneyInPlay=${moneyInPlay} sin currentTableId. Limpiando...`);
+                // Limpiar estado corrupto antes de continuar
+                transaction.update(userRef, {
+                    moneyInPlay: 0,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
             }
 
             // ───────────────────────────────────────────────────────────────────
@@ -465,6 +477,41 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
         };
 
     } catch (error: any) {
+        // Manejar error 'already-exists' - buscar sesión existente
+        if (error instanceof functions.https.HttpsError && error.code === 'already-exists') {
+            console.log(`[JOIN_TABLE] 🔍 Buscando sesión existente para ${uid} en mesa ${roomId}...`);
+            try {
+                const existingSessionQuery = await db.collection('poker_sessions')
+                    .where('userId', '==', uid)
+                    .where('roomId', '==', roomId)
+                    .where('status', '==', 'active')
+                    .limit(1)
+                    .get();
+
+                if (!existingSessionQuery.empty) {
+                    const existingSessionId = existingSessionQuery.docs[0].id;
+                    const existingSessionData = existingSessionQuery.docs[0].data();
+                    console.log(`[JOIN_TABLE] ✅ Sesión existente encontrada: ${existingSessionId}`);
+
+                    // Actualizar lastActive
+                    await db.collection('poker_sessions').doc(existingSessionId).update({
+                        lastActive: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    return {
+                        success: true,
+                        sessionId: existingSessionId,
+                        isExisting: true,
+                        buyInAmount: existingSessionData.buyInAmount,
+                        message: 'Session already exists. Returning existing session ID.'
+                    };
+                }
+            } catch (searchError) {
+                console.error(`[JOIN_TABLE] ❌ Error buscando sesión existente:`, searchError);
+            }
+        }
+
+        // Si no se encontró sesión existente o es otro tipo de error, propagar
         console.error(`[JOIN_TABLE] ❌ Error:`, error);
 
         if (error instanceof functions.https.HttpsError) {

@@ -30,7 +30,7 @@ Asegurar que el código funcione **EXACTAMENTE** como dice `README_CICLO_ECONOMI
 
 **Solución:** 
 - Reemplazar TODAS las instancias de `GAME_LOSS` por `SESSION_CLOSE` o `SESSION_END` en el contexto de cierre de sesión
-- Mantener `GAME_WIN` solo si es necesario para manos individuales (pero según el README, el cierre debe ser `SESSION_END`)
+
 
 ### 2. **Sesiones Duplicadas**
 

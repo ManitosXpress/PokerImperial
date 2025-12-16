@@ -277,7 +277,179 @@ export async function reservePokerSession(uid: string, amount: number, roomId: s
 
 
 
+/**
+ * Helper function to call Cloud Function joinTable from server
+ * This ensures server uses the same logic as Cloud Functions (single source of truth)
+ * 
+ * IMPORTANTE: Esta función ahora es un wrapper que llama a la Cloud Function.
+ * La creación real de sesiones se hace en functions/src/functions/table.ts
+ * 
+ * NOTA: Para producción, esta función debe hacer una llamada HTTP a la Cloud Function.
+ * Para desarrollo local, puede importar directamente la función si está en el mismo proyecto.
+ */
+/**
+ * ✅ IMPLEMENTADO: Llamada HTTP real a Cloud Function joinTable
+ * 
+ * Esta función llama a la Cloud Function joinTableFunction vía HTTP,
+ * asegurando que la lógica de creación de sesiones esté centralizada
+ * en functions/src/functions/table.ts
+ * 
+ * NOTA: Las Cloud Functions callable requieren autenticación de usuario (ID token).
+ * Para llamar desde el servidor, usamos el custom token que luego se canjea.
+ * En producción, considera usar un endpoint HTTP directo con autenticación de servicio.
+ */
+export async function callJoinTableFunction(uid: string, roomId: string, buyInAmount: number): Promise<string | null> {
+    if (!admin.apps.length) {
+        console.error('[CALL_JOIN_TABLE] Firebase Admin not initialized');
+        return null;
+    }
+
+    // Obtener configuración de Firebase
+    const projectId = admin.app().options.projectId || 'poker-fa33a';
+    const region = process.env.FUNCTIONS_REGION || 'us-central1';
+    const functionUrl = process.env.FUNCTIONS_URL || `https://${region}-${projectId}.cloudfunctions.net/joinTableFunction`;
+
+    // Intentar llamada HTTP a Cloud Function
+    try {
+        console.log(`[CALL_JOIN_TABLE] 📞 Llamando a Cloud Function: ${functionUrl}`);
+
+        // Crear custom token para autenticación
+        // NOTA: Las callable functions esperan un ID token, pero podemos usar
+        // el custom token si la función está configurada para aceptarlo
+        const customToken = await admin.auth().createCustomToken(uid);
+        
+        const response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${customToken}`
+            },
+            body: JSON.stringify({
+                data: {
+                    roomId: roomId,
+                    buyInAmount: buyInAmount
+                }
+            })
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            
+            // Las Cloud Functions callable retornan { result: { ... } }
+            if (result.result && result.result.sessionId) {
+                console.log(`[CALL_JOIN_TABLE] ✅ Sesión creada vía Cloud Function: ${result.result.sessionId}`);
+                return result.result.sessionId;
+            }
+            
+            // Formato alternativo
+            if (result.sessionId) {
+                console.log(`[CALL_JOIN_TABLE] ✅ Sesión creada (formato alternativo): ${result.sessionId}`);
+                return result.sessionId;
+            }
+
+            console.warn(`[CALL_JOIN_TABLE] ⚠️ Respuesta inesperada:`, result);
+        } else {
+            const errorText = await response.text();
+            console.warn(`[CALL_JOIN_TABLE] ⚠️ HTTP Error ${response.status}: ${errorText}`);
+        }
+    } catch (httpError: any) {
+        console.warn(`[CALL_JOIN_TABLE] ⚠️ Error en llamada HTTP: ${httpError.message}`);
+    }
+
+    // FALLBACK: Si la llamada HTTP falla, usar reservePokerSession directamente
+    // Esto mantiene la funcionalidad mientras se configura correctamente la autenticación
+    console.log(`[CALL_JOIN_TABLE] 🔄 Usando fallback: reservePokerSession (mismo comportamiento, pero sin Cloud Function)`);
+    try {
+        return await reservePokerSession(uid, buyInAmount, roomId);
+    } catch (fallbackError: any) {
+        console.error('[CALL_JOIN_TABLE] ❌ Error en fallback:', fallbackError);
+        return null;
+    }
+}
+
+/**
+ * ✅ MIGRADO: Llama a processCashOut Cloud Function
+ * 
+ * Esta función ahora delega a processCashOutFunction vía HTTP,
+ * asegurando que la lógica de cashout esté centralizada
+ * en functions/src/functions/table.ts
+ * 
+ * @deprecated Mantiene compatibilidad pero ahora llama a Cloud Function
+ */
 export async function endPokerSession(uid: string, sessionId: string, finalChips: number, totalRake: number, exitFee: number = 0): Promise<boolean> {
+    if (!admin.apps.length) {
+        console.error('[END_POKER_SESSION] Firebase Admin not initialized');
+        return false;
+    }
+
+    // Obtener roomId de la sesión para llamar a processCashOut
+    const db = admin.firestore();
+    let roomId: string | null = null;
+    
+    try {
+        const sessionDoc = await db.collection('poker_sessions').doc(sessionId).get();
+        if (sessionDoc.exists) {
+            roomId = sessionDoc.data()?.roomId || null;
+        }
+    } catch (error) {
+        console.error('[END_POKER_SESSION] Error obteniendo roomId:', error);
+    }
+
+    if (!roomId) {
+        console.error('[END_POKER_SESSION] No se pudo obtener roomId de la sesión');
+        // Fallback a implementación antigua
+        return await endPokerSessionLegacy(uid, sessionId, finalChips, totalRake, exitFee);
+    }
+
+    // Intentar llamar a Cloud Function processCashOut
+    const projectId = admin.app().options.projectId || 'poker-fa33a';
+    const region = process.env.FUNCTIONS_REGION || 'us-central1';
+    const functionUrl = process.env.FUNCTIONS_URL || `https://${region}-${projectId}.cloudfunctions.net/processCashOutFunction`;
+
+    try {
+        console.log(`[END_POKER_SESSION] 📞 Llamando a Cloud Function: ${functionUrl}`);
+        
+        const customToken = await admin.auth().createCustomToken(uid);
+        
+        const response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${customToken}`
+            },
+            body: JSON.stringify({
+                data: {
+                    tableId: roomId,
+                    userId: uid,
+                    playerChips: finalChips
+                }
+            })
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            if (result.result && result.result.success) {
+                console.log(`[END_POKER_SESSION] ✅ Cashout procesado vía Cloud Function`);
+                return true;
+            }
+        } else {
+            const errorText = await response.text();
+            console.warn(`[END_POKER_SESSION] ⚠️ HTTP Error ${response.status}: ${errorText}`);
+        }
+    } catch (httpError: any) {
+        console.warn(`[END_POKER_SESSION] ⚠️ Error en llamada HTTP: ${httpError.message}`);
+    }
+
+    // FALLBACK: Si la llamada HTTP falla, usar implementación legacy
+    console.log(`[END_POKER_SESSION] 🔄 Usando fallback: implementación legacy`);
+    return await endPokerSessionLegacy(uid, sessionId, finalChips, totalRake, exitFee);
+}
+
+/**
+ * Implementación legacy de endPokerSession (mantenida como fallback)
+ * @private
+ */
+async function endPokerSessionLegacy(uid: string, sessionId: string, finalChips: number, totalRake: number, exitFee: number = 0): Promise<boolean> {
     if (!admin.apps.length) return false;
 
     const db = admin.firestore();

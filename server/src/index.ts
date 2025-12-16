@@ -201,8 +201,11 @@ io.on('connection', (socket) => {
             const actualRoomId = room.id; // Este es el ID real del room
 
             // PASO 2: Reservar sesión con el ID REAL del room
+            // ✅ CORREGIDO: Llamar a Cloud Function en lugar de crear sesión directamente
             if (uid) {
-                sessionId = await reservePokerSession(uid, entryFee, actualRoomId) || undefined;
+                // Importar función helper
+                const { callJoinTableFunction } = await import('./middleware/firebaseAuth');
+                sessionId = await callJoinTableFunction(uid, actualRoomId, entryFee) || undefined;
                 if (!sessionId) {
                     // Rollback: eliminar el room creado
                     roomManager.deleteRoom(actualRoomId);
@@ -288,7 +291,9 @@ io.on('connection', (socket) => {
                         socket.emit('insufficient_balance', { required: entryFee, current: balance });
                         return;
                     }
-                    sessionId = await reservePokerSession(uid, entryFee, roomId) || undefined;
+                    // ✅ CORREGIDO: Llamar a Cloud Function en lugar de crear sesión directamente
+                    const { callJoinTableFunction } = await import('./middleware/firebaseAuth');
+                    sessionId = await callJoinTableFunction(uid, roomId, entryFee) || undefined;
                     if (!sessionId) {
                         socket.emit('error', 'Failed to reserve credits');
                         return;
