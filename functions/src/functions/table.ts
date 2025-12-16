@@ -211,23 +211,33 @@ interface JoinTableRequest {
 }
 
 /**
- * JOIN TABLE - Función Blindada con Reglas Inquebrantables
+ * ═══════════════════════════════════════════════════════════════════════════
+ * JOIN TABLE - REESCRITURA COMPLETA CON FIRESTORE TRANSACTIONS
+ * ═══════════════════════════════════════════════════════════════════════════
  * 
- * REGLA INQUEBRANTABLE #1: IDEMPOTENCIA EN ENTRADA
- * Un usuario NUNCA puede tener más de 1 sesión activa por mesa.
+ * REGLA DE ORO #1: FUENTE DE VERDAD ÚNICA
+ * - Dinero en juego: poker_tables/{tableId}/players/{uid}/chips
+ * - Dinero en billetera: users/{uid}/credit
+ * - Estado: users/{uid}/currentTableId (null = no está en ninguna mesa)
  * 
- * VALIDACIONES CRÍTICAS:
- * 1. Rechaza roomId === 'new_room' o roomId vacío
- * 2. Verifica sesión existente ANTES de crear (fuera de transacción)
- * 3. Verificación doble DENTRO de transacción (protección race conditions)
- * 4. Si existe sesión activa: retorna esa. Si no existe: crea nueva.
+ * REGLA DE ORO #2: IDEMPOTENCIA TOTAL
+ * - Un usuario SOLO puede tener UNA sesión activa por mesa
+ * - Múltiples llamadas con mismos parámetros retornan la MISMA sesión
+ * - NUNCA se descuenta dinero dos veces
  * 
- * @param data - JoinTableRequest con roomId y opcional buyInAmount
+ * BLINDAJE CONTRA RACE CONDITIONS:
+ * 1. Pre-check: Query rápida fuera de transacción (optimización)
+ * 2. Atomic check: Verificación DENTRO de transacción (garantía)
+ * 3. Si existe sesión durante transacción: retornar esa (no crear nueva)
+ * 
+ * @param data - { roomId, buyInAmount? }
  * @param context - Contexto de autenticación Firebase
- * @returns ID de sesión (existente o nueva)
+ * @returns { sessionId, isExisting, buyInAmount }
  */
 export const joinTable = async (data: JoinTableRequest, context: functions.https.CallableContext) => {
-    // 1. Validación de Autenticación
+    // ════════════════════════════════════════════════════════════════════════
+    // PASO 1: VALIDACIONES BÁSICAS
+    // ════════════════════════════════════════════════════════════════════════
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
     }
@@ -236,16 +246,18 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
     const db = getDb();
     const { roomId, buyInAmount } = data;
 
-    // 2. VALIDACIÓN CRÍTICA: Rechazar 'new_room' o roomId inválido
+    // Rechazar IDs de mesa inválidos
     if (!roomId || roomId === 'new_room' || roomId.trim() === '') {
         console.error(`[JOIN_TABLE] ❌ BLOCKED: Invalid Room ID: "${roomId}"`);
         throw new functions.https.HttpsError('invalid-argument', 'Invalid Room ID. Cannot join with placeholder ID.');
     }
 
-    console.log(`[JOIN_TABLE] Usuario ${uid} intentando unirse a mesa ${roomId}`);
+    console.log(`[JOIN_TABLE] 🎯 Usuario ${uid} intentando unirse a mesa ${roomId}`);
 
     try {
-        // 3. Verificar que la mesa existe
+        // ════════════════════════════════════════════════════════════════════════
+        // PASO 2: VERIFICAR EXISTENCIA DE LA MESA
+        // ════════════════════════════════════════════════════════════════════════
         const tableRef = db.collection('poker_tables').doc(roomId);
         const tableDoc = await tableRef.get();
 
@@ -255,10 +267,24 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
 
         const tableData = tableDoc.data();
         const minBuyIn = Number(tableData?.minBuyIn) || 1000;
-        const finalBuyIn = buyInAmount && buyInAmount >= minBuyIn ? buyInAmount : minBuyIn;
+        const maxBuyIn = Number(tableData?.maxBuyIn) || 10000;
+        const maxPlayers = Number(tableData?.maxPlayers) || 9;
 
-        // 4. REGLA INQUEBRANTABLE: IDEMPOTENCIA - Verificar sesión existente ANTES de la transacción
-        // Buscar CUALQUIER sesión activa del usuario en ESTA mesa
+        // Determinar buy-in final
+        let finalBuyIn = minBuyIn;
+        if (buyInAmount) {
+            if (buyInAmount < minBuyIn) {
+                throw new functions.https.HttpsError('invalid-argument', `Buy-in must be at least ${minBuyIn}`);
+            }
+            if (buyInAmount > maxBuyIn) {
+                throw new functions.https.HttpsError('invalid-argument', `Buy-in cannot exceed ${maxBuyIn}`);
+            }
+            finalBuyIn = buyInAmount;
+        }
+
+        // ════════════════════════════════════════════════════════════════════════
+        // PASO 3: PRE-CHECK DE IDEMPOTENCIA (Optimización - Fast Path)
+        // ════════════════════════════════════════════════════════════════════════
         const existingSessionQuery = await db.collection('poker_sessions')
             .where('userId', '==', uid)
             .where('roomId', '==', roomId)
@@ -266,13 +292,12 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
             .limit(1)
             .get();
 
-        // Si existe sesión activa, retornar esa (NUNCA crear duplicado)
         if (!existingSessionQuery.empty) {
             const existingSessionId = existingSessionQuery.docs[0].id;
             const existingSessionData = existingSessionQuery.docs[0].data();
-            console.log(`[JOIN_TABLE] ✅ IDEMPOTENCIA: Usuario ${uid} ya tiene sesión activa ${existingSessionId} en mesa ${roomId}. Retornando existente.`);
+            console.log(`[JOIN_TABLE] ✅ IDEMPOTENCIA (Pre-check): Sesión ${existingSessionId} ya existe. Retornando.`);
 
-            // Actualizar lastActive para mantener la sesión viva
+            // Actualizar lastActive
             await db.collection('poker_sessions').doc(existingSessionId).update({
                 lastActive: admin.firestore.FieldValue.serverTimestamp()
             });
@@ -286,9 +311,15 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
             };
         }
 
-        // 5. TRANSACCIÓN ATÓMICA: Crear sesión con verificación doble
+        // ════════════════════════════════════════════════════════════════════════
+        // PASO 4: TRANSACCIÓN ATÓMICA - CREAR SESIÓN CON BLINDAJE TOTAL
+        // ════════════════════════════════════════════════════════════════════════
         const result = await db.runTransaction(async (transaction) => {
-            // 5.1. Verificar usuario
+            console.log(`[JOIN_TABLE] 🔒 Iniciando transacción para ${uid}`);
+
+            // ───────────────────────────────────────────────────────────────────
+            // 4.1. LEER USUARIO
+            // ───────────────────────────────────────────────────────────────────
             const userRef = db.collection('users').doc(uid);
             const userDoc = await transaction.get(userRef);
 
@@ -297,57 +328,81 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
             }
 
             const userData = userDoc.data();
-            const currentBalance = Number(userData?.credit) || 0;
+            const currentCredit = Number(userData?.credit) || 0;
+            const currentTableId = userData?.currentTableId || null;
 
-            // 5.2. VERIFICACIÓN DOBLE: Buscar sesiones activas del usuario en CUALQUIER mesa
-            // Esto previene que el usuario tenga múltiples sesiones activas simultáneas
-            const allActiveSessionsQuery = await db.collection('poker_sessions')
+            // ───────────────────────────────────────────────────────────────────
+            // 4.2. VERIFICACIÓN ATÓMICA DE SESIÓN (Race Condition Protection)
+            // ───────────────────────────────────────────────────────────────────
+            const sessionCheckQuery = await db.collection('poker_sessions')
                 .where('userId', '==', uid)
+                .where('roomId', '==', roomId)
                 .where('status', '==', 'active')
+                .limit(1)
                 .get();
 
-            // Si encuentra sesión activa en ESTA mesa, retornar existente
-            for (const doc of allActiveSessionsQuery.docs) {
-                const sessionData = doc.data();
-                if (sessionData.roomId === roomId) {
-                    const existingId = doc.id;
-                    console.log(`[JOIN_TABLE] ⚠️ RACE CONDITION DETECTADA: Sesión ${existingId} creada durante transacción. Retornando existente.`);
-                    return { type: 'existing', sessionId: existingId };
-                }
+            if (!sessionCheckQuery.empty) {
+                // Race condition: otra llamada creó la sesión durante la transacción
+                const existingId = sessionCheckQuery.docs[0].id;
+                console.log(`[JOIN_TABLE] ⚠️ RACE CONDITION detectada: Sesión ${existingId} creada en paralelo. Retornando existente.`);
+                return { type: 'existing', sessionId: existingId };
             }
 
-            // 5.3. Verificar balance
-            if (currentBalance < finalBuyIn) {
-                throw new functions.https.HttpsError('failed-precondition', `Insufficient balance. Required: ${finalBuyIn}, Current: ${currentBalance}`);
+            // ───────────────────────────────────────────────────────────────────
+            // 4.3. VALIDACIÓN: USUARIO SOLO PUEDE ESTAR EN UNA MESA
+            // ───────────────────────────────────────────────────────────────────
+            if (currentTableId !== null && currentTableId !== roomId) {
+                throw new functions.https.HttpsError(
+                    'failed-precondition',
+                    `You are already playing at table ${currentTableId}. Please cash out first.`
+                );
             }
 
-            // 5.4. Limpiar estados stuck del usuario (si tiene moneyInPlay en otra mesa)
-            const currentTableId = userData?.currentTableId;
-            const moneyInPlay = Number(userData?.moneyInPlay) || 0;
-
-            if (moneyInPlay > 0 && currentTableId && currentTableId !== roomId) {
-                console.warn(`[JOIN_TABLE] ⚠️ Limpiando estado stuck: moneyInPlay=${moneyInPlay}, currentTableId=${currentTableId}`);
-                transaction.update(userRef, {
-                    moneyInPlay: 0,
-                    currentTableId: null,
-                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                });
+            // ───────────────────────────────────────────────────────────────────
+            // 4.4. VALIDACIÓN: FONDOS SUFICIENTES
+            // ───────────────────────────────────────────────────────────────────
+            if (currentCredit < finalBuyIn) {
+                throw new functions.https.HttpsError(
+                    'failed-precondition',
+                    `Insufficient balance. Required: ${finalBuyIn}, Available: ${currentCredit}`
+                );
             }
 
-            // 5.5. Crear nueva sesión
-            const sessionRef = db.collection('poker_sessions').doc();
-            const newSessionId = sessionRef.id;
+            // ───────────────────────────────────────────────────────────────────
+            // 4.5. LEER MESA (verificar que aún hay espacio)
+            // ───────────────────────────────────────────────────────────────────
+            const tableSnapshot = await transaction.get(tableRef);
+            if (!tableSnapshot.exists) {
+                throw new functions.https.HttpsError('not-found', 'Table was deleted.');
+            }
+
+            const currentTableData = tableSnapshot.data();
+            const currentPlayerCount = Array.isArray(currentTableData?.players) ? currentTableData.players.length : 0;
+
+            if (currentPlayerCount >= maxPlayers) {
+                throw new functions.https.HttpsError('resource-exhausted', 'Table is full.');
+            }
+
+            // ───────────────────────────────────────────────────────────────────
+            // 4.6. ACTUALIZACIÓN ATÓMICA DEL ESTADO DEL USUARIO
+            // ───────────────────────────────────────────────────────────────────
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-            // Actualizar usuario: descontar buy-in, marcar estado
             transaction.update(userRef, {
-                credit: currentBalance - finalBuyIn,
-                moneyInPlay: finalBuyIn,
+                credit: currentCredit - finalBuyIn,
+                moneyInPlay: finalBuyIn, // SET (no increment)
                 currentTableId: roomId,
                 lastUpdated: timestamp
             });
 
-            // Crear documento de sesión
+            console.log(`[JOIN_TABLE] 💰 Usuario actualizado: credit=${currentCredit - finalBuyIn}, moneyInPlay=${finalBuyIn}, currentTableId=${roomId}`);
+
+            // ───────────────────────────────────────────────────────────────────
+            // 4.7. CREAR SESIÓN DE POKER
+            // ───────────────────────────────────────────────────────────────────
+            const sessionRef = db.collection('poker_sessions').doc();
+            const newSessionId = sessionRef.id;
+
             transaction.set(sessionRef, {
                 userId: uid,
                 roomId: roomId,
@@ -356,43 +411,56 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
                 startTime: timestamp,
                 lastActive: timestamp,
                 status: 'active',
-                totalRakePaid: 0
+                totalRakePaid: 0,
+                createdAt: timestamp
             });
 
-            // Registrar transacción
-            const transactionLogRef = db.collection('transaction_logs').doc();
-            transaction.set(transactionLogRef, {
+            console.log(`[JOIN_TABLE] 📝 Sesión creada: ${newSessionId}`);
+
+            // ───────────────────────────────────────────────────────────────────
+            // 4.8. REGISTRAR EN HISTORIAL DE TRANSACCIONES
+            // ───────────────────────────────────────────────────────────────────
+            const txLogRef = db.collection('transaction_logs').doc();
+            transaction.set(txLogRef, {
                 userId: uid,
                 amount: -finalBuyIn,
                 type: 'debit',
-                reason: `Poker Room Buy-in: ${roomId}`,
+                reason: `Poker Buy-In - Table ${roomId}`,
                 timestamp: timestamp,
-                beforeBalance: currentBalance,
-                afterBalance: currentBalance - finalBuyIn,
+                beforeBalance: currentCredit,
+                afterBalance: currentCredit - finalBuyIn,
                 metadata: {
                     sessionId: newSessionId,
                     roomId: roomId,
-                    buyInAmount: finalBuyIn
+                    buyInAmount: finalBuyIn,
+                    transactionType: 'poker_buyin'
                 }
             });
 
-            console.log(`[JOIN_TABLE] ✅ Nueva sesión ${newSessionId} creada para usuario ${uid} en mesa ${roomId}`);
-            return { type: 'new', sessionId: newSessionId };
+            console.log(`[JOIN_TABLE] ✅ Transacción completada exitosamente`);
+
+            return { type: 'new', sessionId: newSessionId, buyInAmount: finalBuyIn };
         });
 
+        // ════════════════════════════════════════════════════════════════════════
+        // PASO 5: RETORNAR RESULTADO
+        // ════════════════════════════════════════════════════════════════════════
         if (result.type === 'existing') {
             return {
                 success: true,
                 sessionId: result.sessionId,
                 isExisting: true,
-                message: 'Session created during transaction. Returning existing session ID.'
+                message: 'Session already exists (race condition handled).'
             };
         }
+
+        console.log(`[JOIN_TABLE] 🎉 Usuario ${uid} unido exitosamente a mesa ${roomId} con sesión ${result.sessionId}`);
 
         return {
             success: true,
             sessionId: result.sessionId,
             isExisting: false,
+            buyInAmount: result.buyInAmount,
             message: 'Session created successfully.'
         };
 
@@ -424,46 +492,40 @@ interface ProcessCashOutRequest {
 }
 
 /**
- * PROCESS CASHOUT - Regla Inquebrantable #2: Fuente de Verdad en Salida
+ * ═══════════════════════════════════════════════════════════════════════════
+ * PROCESS CASHOUT - REESCRITURA COMPLETA CON FIRESTORE TRANSACTIONS
+ * ═══════════════════════════════════════════════════════════════════════════
  * 
- * REGLA INQUEBRANTABLE #2: FUENTE DE VERDAD EN SALIDA
- * El dinero del usuario son las fichas que tiene en poker_tables.
- * La sesión (poker_sessions) es solo para auditoría de tiempo.
+ * REGLA DE ORO #1: FUENTE DE VERDAD EN SALIDA
+ * - La verdad absoluta son las fichas en poker_tables/{tableId}/players/{uid}/chips
+ * - poker_sessions es SOLO para auditoría (buyInAmount y timestamps)
+ * - NUNCA usar poker_sessions.currentChips como fuente de verdad
+ * 
+ * REGLA DE ORO #2: MANEJO DE SESIONES DUPLICADAS
+ * - Si hay >1 sesión activa: marcar extras como ERROR_DUPLICATE
+ * - Usar la sesión MÁS RECIENTE como primaria
+ * - Cerrar TODAS las sesiones en una sola transacción
  * 
  * ALGORITMO DEFINITIVO:
  * 
- * Paso 1: Localizar la Sesión Real (OBLIGATORIO)
- * - Query: poker_sessions.where('userId', '==', uid).where('roomId', '==', tableId).where('status', '==', 'active').limit(1)
- * - SI NO ENCUENTRA SESIÓN: Lanza error. PROHIBIDO CREAR UNA NUEVA SESIÓN.
+ * Paso 1: Encontrar TODAS las sesiones activas (usuario + mesa)
+ * Paso 2: Obtener GrossAmount de poker_tables (ÚNICA fuente de verdad)
+ * Paso 3: Calcular NetResult = GrossAmount - BuyIn
+ * Paso 4: Devolver TODO el GrossAmount a user.credit
+ * Paso 5: Limpiar estado (moneyInPlay=0, currentTableId=null)
+ * Paso 6: Cerrar TODAS las sesiones
+ * Paso 7: Ledger tipo SESSION_END con Amount=GrossAmount, Profit=NetResult
  * 
- * Paso 2: Obtener la Verdad (Fichas en Mesa - ÚNICA FUENTE DE VERDAD)
- * - Lee el documento poker_tables/{tableId}
- * - Extrae RealChips = tableData.players[uid].chips
- * - Si el jugador ya fue borrado, usar playerChips proporcionado como parámetro
- * - NUNCA usar currentChips de la sesión como fuente de verdad
+ * CRÍTICO: Esta función NO maneja rake. El rake se aplica en settleGameRound.
  * 
- * Paso 3: Cálculo Financiero Real
- * - BuyInOriginal = Leer del documento de la sesión activa encontrada
- * - GrossProfit = RealChips - BuyInOriginal
- * - Rake = (Si GrossProfit > 0) ? (GrossProfit * 0.08) : 0
- * - Distribución del Rake según tipo de mesa:
- *   * Privada: 100% Plataforma
- *   * Pública: 50% Plataforma / 30% Club Owner / 20% Seller
- * - Payout = RealChips - Rake
- * 
- * Paso 4: Cierre y Transacción Atómica
- * - Actualizar Sesión Existente: status: 'completed', currentChips: RealChips, netResult, exitFee: Rake
- * - Transferir Dinero: userRef.update({ credit: FieldValue.increment(Payout) })
- * - Distribuir Rake: system_stats (plataforma), clubs (club owner), users (seller)
- * - LIMPIEZA OBLIGATORIA: moneyInPlay: 0, currentTableId: null
- * - Ledger: UN SOLO registro con el resultado final
- * 
- * @param data - ProcessCashOutRequest con tableId, opcional userId y playerChips (si el jugador ya fue borrado)
- * @param context - Contexto de autenticación Firebase
- * @returns Resumen de liquidación
+ * @param data - { tableId, userId?, playerChips? }
+ * @param context - Contexto de autenticación
+ * @returns Resumen del cashout
  */
 export const processCashOut = async (data: ProcessCashOutRequest, context: functions.https.CallableContext) => {
-    // 1. Validación de Autenticación
+    // ════════════════════════════════════════════════════════════════════════
+    // PASO 1: VALIDACIONES BÁSICAS
+    // ════════════════════════════════════════════════════════════════════════
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
     }
@@ -471,39 +533,32 @@ export const processCashOut = async (data: ProcessCashOutRequest, context: funct
     const uid = context.auth.uid;
     const targetUserId = data.userId || uid;
     const db = getDb();
-    const { tableId, playerChips: providedChips } = data; // playerChips opcional si el jugador ya fue borrado
+    const { tableId, playerChips: providedChips } = data;
 
     if (!tableId) {
         throw new functions.https.HttpsError('invalid-argument', 'Missing tableId.');
     }
 
-    // Validar permisos: solo el propio usuario o admin puede hacer cashout
+    // Validar permisos: solo el propio usuario puede hacer cashout
     if (targetUserId !== uid) {
         throw new functions.https.HttpsError('permission-denied', 'You can only cash out your own session.');
     }
 
-    const timestamp = admin.firestore.FieldValue.serverTimestamp();
-    const RAKE_PERCENTAGE = 0.08; // 8%
+    console.log(`[PROCESS_CASHOUT] 🔍 Iniciando cashout para usuario ${targetUserId} en mesa ${tableId}`);
 
     try {
-        console.log(`[PROCESS_CASHOUT] 🔍 Iniciando cashout para usuario ${targetUserId} en mesa ${tableId}`);
-
-        // ============================================
-        // PASO 1: LOCALIZAR LA SESIÓN REAL (OBLIGATORIO)
-        // ============================================
-        console.log(`[PROCESS_CASHOUT] Paso 1: Buscando sesión activa para usuario ${targetUserId} en mesa ${tableId}...`);
-
-        const activeSessionQuery = await db.collection('poker_sessions')
+        // ════════════════════════════════════════════════════════════════════════
+        // PASO 2: BUSCAR TODAS LAS SESIONES ACTIVAS (puede haber duplicados)
+        // ════════════════════════════════════════════════════════════════════════
+        const activeSessionsQuery = await db.collection('poker_sessions')
             .where('userId', '==', targetUserId)
             .where('roomId', '==', tableId)
             .where('status', '==', 'active')
-            .limit(1)
             .get();
 
-        // CRÍTICO: Si NO encuentra sesión, retornar silenciosamente. PROHIBIDO CREAR UNA NUEVA SESIÓN.
-        // Esto evita la creación de sesiones fantasma por llamadas duplicadas.
-        if (activeSessionQuery.empty) {
-            console.warn(`[PROCESS_CASHOUT] ⚠️ No se encontró sesión activa para usuario ${targetUserId} en mesa ${tableId}. Abortando silenciosamente.`);
+        // Si NO hay sesión, retornar silenciosamente (ya fue procesado)
+        if (activeSessionsQuery.empty) {
+            console.warn(`[PROCESS_CASHOUT] ⚠️ No se encontró sesión activa. Cashout ya procesado o sesión no existe.`);
             return {
                 success: true,
                 alreadyProcessed: true,
@@ -511,18 +566,26 @@ export const processCashOut = async (data: ProcessCashOutRequest, context: funct
             };
         }
 
-        const activeSessionDoc = activeSessionQuery.docs[0];
-        const activeSessionRef = activeSessionDoc.ref;
-        const activeSessionData = activeSessionDoc.data();
-        const activeSessionId = activeSessionDoc.id;
+        // Ordenar sesiones por startTime (más reciente = primaria)
+        const allSessions = activeSessionsQuery.docs
+            .map(doc => ({ id: doc.id, ref: doc.ref, data: doc.data() }))
+            .sort((a, b) => {
+                const aTime = a.data.startTime?.toMillis() || 0;
+                const bTime = b.data.startTime?.toMillis() || 0;
+                return bTime - aTime; // Descendente (más reciente primero)
+            });
 
-        console.log(`[PROCESS_CASHOUT] ✅ Sesión activa encontrada: ${activeSessionId}`);
+        const primarySession = allSessions[0];
+        const duplicateSessions = allSessions.slice(1);
 
-        // ============================================
-        // PASO 2: OBTENER LA VERDAD (FICHAS EN MESA)
-        // ============================================
-        console.log(`[PROCESS_CASHOUT] Paso 2: Obteniendo fichas reales del jugador en la mesa...`);
+        console.log(`[PROCESS_CASHOUT] ✅ Encontrada sesión primaria: ${primarySession.id}`);
+        if (duplicateSessions.length > 0) {
+            console.warn(`[PROCESS_CASHOUT] ⚠️ DUPLICADOS DETECTADOS: ${duplicateSessions.length} sesiones extras serán marcadas como ERROR_DUPLICATE`);
+        }
 
+        // ════════════════════════════════════════════════════════════════════════
+        // PASO 3: OBTENER FICHAS REALES DE LA MESA (FUENTE DE VERDAD)
+        // ════════════════════════════════════════════════════════════════════════
         const tableRef = db.collection('poker_tables').doc(tableId);
         const tableDoc = await tableRef.get();
 
@@ -531,200 +594,107 @@ export const processCashOut = async (data: ProcessCashOutRequest, context: funct
         }
 
         const tableData = tableDoc.data();
-        const players = Array.isArray(tableData?.players) ? [...tableData.players] : [];
-        const isPublic = tableData?.isPublic === true;
-
-        // Buscar el jugador en la mesa
+        const players = Array.isArray(tableData?.players) ? tableData.players : [];
         const player = players.find((p: any) => p.id === targetUserId);
 
-        // REGLA INQUEBRANTABLE: Fichas de la mesa son la ÚNICA fuente de verdad
-        let realChips: number;
+        // Determinar GrossAmount (fichas totales del jugador)
+        let grossAmount: number;
         if (providedChips !== undefined && providedChips !== null) {
-            // Si se proporcionaron las fichas (jugador ya borrado), usarlas
-            realChips = Number(providedChips) || 0;
-            console.log(`[PROCESS_CASHOUT] Usando fichas proporcionadas: ${realChips} (jugador ya fue borrado de la mesa)`);
+            // Caso: jugador ya fue borrado de la mesa, usar chips proporcionados
+            grossAmount = Number(providedChips);
+            console.log(`[PROCESS_CASHOUT] Usando fichas proporcionadas: ${grossAmount} (jugador borrado de mesa)`);
         } else if (player) {
-            // Leer fichas de la mesa (ÚNICA FUENTE DE VERDAD)
-            realChips = Number(player.chips) || 0;
-            console.log(`[PROCESS_CASHOUT] ✅ Fichas leídas de la mesa (Fuente de Verdad): ${realChips}`);
+            // Caso normal: leer de poker_tables (ÚNICA FUENTE DE VERDAD)
+            grossAmount = Number(player.chips) || 0;
+            console.log(`[PROCESS_CASHOUT] ✅ Fichas de mesa (Fuente de Verdad): ${grossAmount}`);
         } else {
-            // CRÍTICO: Si el jugador no está en la mesa y no se proporcionaron fichas, error
-            console.error(`[PROCESS_CASHOUT] ❌ ERROR: Jugador ${targetUserId} no encontrado en la mesa y no se proporcionaron fichas.`);
+            // Error: jugador no está en mesa y no proporcionaron chips
             throw new functions.https.HttpsError(
                 'failed-precondition',
-                `Player ${targetUserId} not found in table ${tableId} and no chips provided. Cannot determine final stack.`
+                `Player ${targetUserId} not found in table and no chips provided. Cannot determine cashout amount.`
             );
         }
 
-        // ============================================
-        // PASO 3: CÁLCULO FINANCIERO REAL
-        // ============================================
-        console.log(`[PROCESS_CASHOUT] Paso 3: Calculando resultado financiero...`);
+        // ════════════════════════════════════════════════════════════════════════
+        // PASO 4: OBTENER BUY-IN ORIGINAL DE LA SESIÓN PRIMARIA
+        // ════════════════════════════════════════════════════════════════════════
+        const buyInOriginal = Number(primarySession.data.buyInAmount) || 0;
+        const netResult = grossAmount - buyInOriginal; // Puede ser positivo (ganancia) o negativo (pérdida)
 
-        const buyInOriginal = Number(activeSessionData.buyInAmount) || 0;
-        const grossProfit = realChips - buyInOriginal; // Ganancia bruta
-        const rakeAmount = grossProfit > 0 ? Math.floor(grossProfit * RAKE_PERCENTAGE) : 0;
-        const payout = realChips - rakeAmount;
+        console.log(`[PROCESS_CASHOUT] 💰 Cálculo: GrossAmount=${grossAmount}, BuyIn=${buyInOriginal}, NetResult=${netResult}`);
 
-        console.log(`[PROCESS_CASHOUT] Cálculo: RealChips=${realChips}, BuyInOriginal=${buyInOriginal}, GrossProfit=${grossProfit}, Rake=${rakeAmount}, Payout=${payout}`);
-
-        // Leer datos del usuario (para distribución del rake)
-        const userRef = db.collection('users').doc(targetUserId);
-        const userDoc = await userRef.get();
-        if (!userDoc.exists) {
-            throw new functions.https.HttpsError('not-found', 'User not found.');
-        }
-
-        const userData = userDoc.data();
-        const displayName = userData?.displayName || 'Unknown';
-        const userClubId = userData?.clubId;
-        const userSellerId = userData?.sellerId;
-
-        // ============================================
-        // PASO 4: CIERRE Y TRANSACCIÓN
-        // ============================================
-        console.log(`[PROCESS_CASHOUT] Paso 4: Ejecutando transacción atómica...`);
+        // ════════════════════════════════════════════════════════════════════════
+        // PASO 5: TRANSACCIÓN ATÓMICA - CASHOUT Y CIERRE
+        // ════════════════════════════════════════════════════════════════════════
+        const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
         const result = await db.runTransaction(async (transaction) => {
-            // Verificar que la sesión sigue activa (protección contra race conditions)
-            const sessionCheck = await transaction.get(activeSessionRef);
-            if (!sessionCheck.exists) {
-                throw new Error('Session was deleted during transaction');
+            console.log(`[PROCESS_CASHOUT] 🔒 Iniciando transacción atómica`);
+
+            // ───────────────────────────────────────────────────────────────────
+            // 5.1. VERIFICAR QUE LA SESIÓN PRIMARIA SIGUE ACTIVA
+            // ───────────────────────────────────────────────────────────────────
+            const sessionCheck = await transaction.get(primarySession.ref);
+            if (!sessionCheck.exists || sessionCheck.data()?.status !== 'active') {
+                throw new Error(`Session ${primarySession.id} is no longer active. Cashout already processed.`);
             }
 
-            const sessionDataCheck = sessionCheck.data();
-            if (sessionDataCheck?.status !== 'active') {
-                throw new Error(`Session ${activeSessionId} is not active (status: ${sessionDataCheck?.status}). Already processed.`);
+            // ───────────────────────────────────────────────────────────────────
+            // 5.2. LEER USUARIO
+            // ───────────────────────────────────────────────────────────────────
+            const userRef = db.collection('users').doc(targetUserId);
+            const userDoc = await transaction.get(userRef);
+
+            if (!userDoc.exists) {
+                throw new functions.https.HttpsError('not-found', 'User not found.');
             }
 
-            // Actualizar Sesión Existente (NUNCA crear nueva)
-            transaction.update(activeSessionRef, {
+            const userData = userDoc.data();
+            const displayName = userData?.displayName || 'Unknown';
+
+            // ───────────────────────────────────────────────────────────────────
+            // 5.3. DEVOLVER TODO EL DINERO A LA BILLETERA
+            // ───────────────────────────────────────────────────────────────────
+            transaction.update(userRef, {
+                credit: admin.firestore.FieldValue.increment(grossAmount),
+                moneyInPlay: 0, // OBLIGATORIO: siempre limpiar
+                currentTableId: null, // OBLIGATORIO: siempre limpiar
+                lastUpdated: timestamp
+            });
+
+            console.log(`[PROCESS_CASHOUT] 💵 Crédito devuelto: +${grossAmount}`);
+            console.log(`[PROCESS_CASHOUT] ✅ Estado limpiado: moneyInPlay=0, currentTableId=null`);
+
+            // ───────────────────────────────────────────────────────────────────
+            // 5.4. CERRAR SESIÓN PRIMARIA
+            // ───────────────────────────────────────────────────────────────────
+            transaction.update(primarySession.ref, {
                 status: 'completed',
-                currentChips: realChips,
-                totalRakePaid: rakeAmount,
-                netResult: grossProfit, // GrossProfit (puede ser negativo)
-                exitFee: rakeAmount, // Rake como exit fee
+                currentChips: grossAmount,
+                netResult: netResult,
+                exitFee: 0, // El rake no se cobra en cashout
                 endTime: timestamp,
                 closedReason: 'cashout_completed'
             });
 
-            console.log(`[PROCESS_CASHOUT] Sesión ${activeSessionId} actualizada a 'completed'`);
+            console.log(`[PROCESS_CASHOUT] 📝 Sesión primaria ${primarySession.id} cerrada`);
 
-            // REGLA INQUEBRANTABLE: LIMPIEZA DE ESTADO OBLIGATORIA
-            // Transferir Dinero: Devolver el total de fichas menos rake a la billetera
-            transaction.update(userRef, {
-                credit: admin.firestore.FieldValue.increment(payout),
-                moneyInPlay: 0, // OBLIGATORIO: Siempre limpiar
-                currentTableId: null, // OBLIGATORIO: Siempre limpiar
-                lastUpdated: timestamp
-            });
-
-            console.log(`[PROCESS_CASHOUT] Crédito devuelto al usuario: +${payout}`);
-            console.log(`[PROCESS_CASHOUT] ✅ Limpieza de estado aplicada: moneyInPlay=0, currentTableId=null`);
-
-            // DISTRIBUCIÓN DEL RAKE según tipo de mesa
-            if (rakeAmount > 0) {
-                let platformShare = 0;
-                let clubShare = 0;
-                let sellerShare = 0;
-
-                if (!isPublic) {
-                    // Mesa Privada: 100% del rake va a la plataforma
-                    platformShare = rakeAmount;
-                    console.log(`[PROCESS_CASHOUT] Mesa Privada: Rake 100% a Plataforma = ${platformShare}`);
-                } else {
-                    // Mesa Pública: Distribución 50-30-20
-                    platformShare = Math.floor(rakeAmount * 0.50);
-                    clubShare = Math.floor(rakeAmount * 0.30);
-                    sellerShare = Math.floor(rakeAmount * 0.20);
-
-                    // Ajustar por redondeo
-                    const remainder = rakeAmount - (platformShare + clubShare + sellerShare);
-                    platformShare += remainder;
-
-                    console.log(`[PROCESS_CASHOUT] Mesa Pública: Platform=${platformShare}, Club=${clubShare}, Seller=${sellerShare}`);
-
-                    // Distribuir a Club Owner (si existe)
-                    if (clubShare > 0 && userClubId) {
-                        const clubRef = db.collection('clubs').doc(userClubId);
-                        const clubDoc = await transaction.get(clubRef);
-                        if (clubDoc.exists) {
-                            transaction.update(clubRef, {
-                                walletBalance: admin.firestore.FieldValue.increment(clubShare)
-                            });
-                            console.log(`[PROCESS_CASHOUT] Rake distribuido a Club ${userClubId}: +${clubShare}`);
-                        } else {
-                            // Si el club no existe, el rake va a la plataforma
-                            platformShare += clubShare;
-                            clubShare = 0;
-                            console.log(`[PROCESS_CASHOUT] Club no encontrado, rake transferido a plataforma`);
-                        }
-                    } else if (clubShare > 0) {
-                        // Si no hay club, el rake va a la plataforma
-                        platformShare += clubShare;
-                        clubShare = 0;
-                    }
-
-                    // Distribuir a Seller (si existe)
-                    if (sellerShare > 0 && userSellerId) {
-                        const sellerRef = db.collection('users').doc(userSellerId);
-                        const sellerDoc = await transaction.get(sellerRef);
-                        if (sellerDoc.exists) {
-                            transaction.update(sellerRef, {
-                                credit: admin.firestore.FieldValue.increment(sellerShare)
-                            });
-                            console.log(`[PROCESS_CASHOUT] Rake distribuido a Seller ${userSellerId}: +${sellerShare}`);
-                        } else {
-                            // Si el seller no existe, el rake va al club o plataforma
-                            if (userClubId) {
-                                const clubRef = db.collection('clubs').doc(userClubId);
-                                const clubDoc = await transaction.get(clubRef);
-                                if (clubDoc.exists) {
-                                    transaction.update(clubRef, {
-                                        walletBalance: admin.firestore.FieldValue.increment(sellerShare)
-                                    });
-                                    clubShare += sellerShare;
-                                    console.log(`[PROCESS_CASHOUT] Seller no encontrado, rake transferido a club`);
-                                } else {
-                                    platformShare += sellerShare;
-                                }
-                            } else {
-                                platformShare += sellerShare;
-                            }
-                            sellerShare = 0;
-                        }
-                    } else if (sellerShare > 0) {
-                        // Si no hay seller, el rake va al club o plataforma
-                        if (userClubId) {
-                            const clubRef = db.collection('clubs').doc(userClubId);
-                            const clubDoc = await transaction.get(clubRef);
-                            if (clubDoc.exists) {
-                                transaction.update(clubRef, {
-                                    walletBalance: admin.firestore.FieldValue.increment(sellerShare)
-                                });
-                                clubShare += sellerShare;
-                            } else {
-                                platformShare += sellerShare;
-                            }
-                        } else {
-                            platformShare += sellerShare;
-                        }
-                        sellerShare = 0;
-                    }
-                }
-
-                // Guardar rake de plataforma en system_stats
-                if (platformShare > 0) {
-                    const statsRef = db.collection('system_stats').doc('economy');
-                    transaction.set(statsRef, {
-                        accumulated_rake: admin.firestore.FieldValue.increment(platformShare),
-                        lastUpdated: timestamp
-                    }, { merge: true });
-                    console.log(`[PROCESS_CASHOUT] Rake de plataforma guardado en system_stats: +${platformShare}`);
-                }
+            // ───────────────────────────────────────────────────────────────────
+            // 5.5. CERRAR SESIONES DUPLICADAS (si existen)
+            // ───────────────────────────────────────────────────────────────────
+            for (const dupSession of duplicateSessions) {
+                transaction.update(dupSession.ref, {
+                    status: 'ERROR_DUPLICATE',
+                    endTime: timestamp,
+                    closedReason: 'duplicate_cleanup',
+                    currentChips: 0
+                });
+                console.log(`[PROCESS_CASHOUT] 🗑️ Sesión duplicada ${dupSession.id} marcada como ERROR_DUPLICATE`);
             }
 
-            // Actualizar jugador en la mesa: chips a 0 (si todavía está en la mesa)
+            // ───────────────────────────────────────────────────────────────────
+            // 5.6. ACTUALIZAR MESA: Chips del jugador a 0 (si aún está)
+            // ───────────────────────────────────────────────────────────────────
             if (player) {
                 const playerIndex = players.findIndex((p: any) => p.id === targetUserId);
                 if (playerIndex !== -1) {
@@ -732,61 +702,71 @@ export const processCashOut = async (data: ProcessCashOutRequest, context: funct
                         [`players.${playerIndex}.chips`]: 0,
                         [`players.${playerIndex}.inGame`]: false
                     });
-                    console.log(`[PROCESS_CASHOUT] Jugador actualizado en la mesa: chips=0`);
+                    console.log(`[PROCESS_CASHOUT] 🎲 Mesa actualizada: jugador chips=0`);
                 }
             }
 
-            // Ledger: UN SOLO registro
+            // ───────────────────────────────────────────────────────────────────
+            // 5.7. LEDGER: Tipo SESSION_END (no GAME_WIN/LOSS)
+            // ───────────────────────────────────────────────────────────────────
             const ledgerRef = db.collection('financial_ledger').doc();
             transaction.set(ledgerRef, {
-                type: 'SESSION_END', // Unificado para cierre de sesión (antes era GAME_WIN/GAME_LOSS)
+                type: 'SESSION_END', // IMPORTANTE: Tipo unificado para cashout
                 userId: targetUserId,
                 userName: displayName,
                 tableId: tableId,
-                amount: grossProfit, // GrossProfit (puede ser positivo o negativo)
-                netAmount: payout, // Lo que realmente recibió (después del rake)
-                netProfit: grossProfit, // Ganancia/pérdida neta
-                grossAmount: realChips, // Fichas finales (fuente de verdad)
-                rakePaid: rakeAmount,
+                amount: grossAmount, // Lo que devolvió a la billetera
+                profit: netResult, // Ganancia/pérdida neta vs buy-in
+                grossAmount: grossAmount, // Fichas finales
                 buyInAmount: buyInOriginal,
+                rakePaid: 0, // El rake no se cobra en cashout (se cobra en cada mano)
                 timestamp: timestamp,
-                description: `Cashout Final - Chips: ${realChips}, BuyIn: ${buyInOriginal}, GrossProfit: ${grossProfit}, Rake: ${rakeAmount}, Payout: ${payout}`,
-                sessionId: activeSessionId
+                description: `Session End - Chips: ${grossAmount}, BuyIn: ${buyInOriginal}, ${netResult >= 0 ? 'Profit' : 'Loss'}: ${Math.abs(netResult)}`,
+                sessionId: primarySession.id,
+                duplicateSessionsCleaned: duplicateSessions.length
             });
 
-            // Registrar en transaction_logs
+            console.log(`[PROCESS_CASHOUT] 📊 Ledger creado: SESSION_END, Amount=${grossAmount}, Profit=${netResult}`);
+
+            // ───────────────────────────────────────────────────────────────────
+            // 5.8. TRANSACTION LOG (para wallet UI)
+            // ───────────────────────────────────────────────────────────────────
             const txLogRef = db.collection('transaction_logs').doc();
             transaction.set(txLogRef, {
                 userId: targetUserId,
-                amount: payout,
+                amount: grossAmount,
                 type: 'credit',
-                reason: `Cashout Mesa ${tableId}: ${grossProfit >= 0 ? '+' : ''}${grossProfit} (Chips: ${realChips}, Rake: -${rakeAmount})`,
+                reason: netResult >= 0
+                    ? `Cashout Mesa ${tableId}: Ganancia +${netResult}`
+                    : `Cashout Mesa ${tableId}: Pérdida ${netResult}`,
                 timestamp: timestamp,
-                beforeBalance: 0,
+                beforeBalance: 0, // No calculamos aquí
                 afterBalance: 0,
                 metadata: {
                     tableId: tableId,
                     sessionType: 'poker_cashout',
-                    grossStack: realChips,
+                    grossStack: grossAmount,
                     buyInAmount: buyInOriginal,
-                    rakePaid: rakeAmount,
-                    netProfit: grossProfit,
-                    sessionId: activeSessionId
+                    rakePaid: 0,
+                    netProfit: netResult,
+                    sessionId: primarySession.id
                 }
             });
 
-            console.log(`[PROCESS_CASHOUT] ✅ Transacción completada: GrossProfit=${grossProfit}, Rake=${rakeAmount}, Payout=${payout}`);
+            console.log(`[PROCESS_CASHOUT] ✅ Transacción completada exitosamente`);
 
             return {
                 success: true,
-                sessionId: activeSessionId,
-                playerChips: realChips,
+                sessionId: primarySession.id,
+                playerChips: grossAmount,
                 buyInAmount: buyInOriginal,
-                grossProfit,
-                rakeAmount,
-                finalPayout: payout
+                netResult: netResult,
+                finalPayout: grossAmount,
+                duplicatesCleaned: duplicateSessions.length
             };
         });
+
+        console.log(`[PROCESS_CASHOUT] 🎉 Cashout exitoso: Payout=${result.finalPayout}, Profit/Loss=${result.netResult}`);
 
         return result;
 

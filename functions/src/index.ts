@@ -14,6 +14,7 @@ import { dailyEconomyCron } from './functions/cron';
 import { dailyEconomyCron as newDailyEconomyCron, triggerDailyStats } from './functions/scheduled_functions';
 import { getTopHolders, getTopWinners24h, get24hMetrics, getWeeklyTrends, getCurrentLiquidity, getTotalRake } from './functions/analytics';
 import { cleanupDuplicateSessions, checkUserSessions } from './functions/cleanupDuplicateSessions';
+import { sanitizeMoneyInPlay } from './functions/sanitize_money_in_play';
 
 // Initialize Firebase Admin SDK (lazy initialization)
 if (!admin.apps.length) {
@@ -63,6 +64,9 @@ export { repairStuckSessions, clearAllFirestoreData, cleanWelcomeBonusUsers, cle
 
 // Session Cleanup Functions (Admin)
 export { cleanupDuplicateSessions, checkUserSessions };
+
+// Sanitation Scripts (Admin)
+export const sanitizeMoneyInPlayFunction = sanitizeMoneyInPlay;
 
 // External Integrations
 export * from './functions/external';
