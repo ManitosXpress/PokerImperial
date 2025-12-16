@@ -129,35 +129,51 @@ class CreditsService {
   }
 
   /// Get in-game (reserved) balance stream
-  /// ✅ CORREGIDO: Lee directamente de users/{uid}.moneyInPlay (fuente de verdad)
-  /// Según README_CICLO_ECONOMICO.md, moneyInPlay es la fuente de verdad, no poker_sessions
+  /// ✅ CORREGIDO: Usa Cloud Function del backend para calcular desde poker_sessions
+  /// El backend calcula dinámicamente desde poker_sessions (fuente de verdad)
+  /// Esto mantiene la lógica del negocio en el backend
+  /// 
+  /// Para streams en tiempo real, escuchamos cambios en poker_sessions (solo lectura)
+  /// y cuando detectamos cambios, llamamos a la Cloud Function del backend
   Stream<double> getInGameBalanceStream() {
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
       return Stream.value(0);
     }
 
-    // ✅ CORRECCIÓN: Leer directamente de users/{uid}.moneyInPlay
-    // Este campo se limpia automáticamente a 0 cuando se cierra la mesa o se hace cashout
+    // ✅ CORRECCIÓN: El frontend solo escucha cambios (solo lectura)
+    // Cuando hay cambios, llama a la Cloud Function del backend para obtener el cálculo autoritativo
+    // Esto mantiene la lógica del negocio en el backend
     return _firestore
-        .collection('users')
-        .doc(userId)
+        .collection('poker_sessions')
+        .where('userId', isEqualTo: userId)
+        .where('status', isEqualTo: 'active')
         .snapshots()
-        .map((doc) {
-      if (!doc.exists) return 0.0;
-      
-      final moneyInPlay = (doc.data()?['moneyInPlay'] ?? 0).toDouble();
-      
-      // Validación adicional: Si moneyInPlay > 0 pero currentTableId es null,
-      // significa que hay un estado corrupto (debería ser 0)
-      final currentTableId = doc.data()?['currentTableId'];
-      if (moneyInPlay > 0 && currentTableId == null) {
-        print('⚠️ Estado corrupto detectado: moneyInPlay=$moneyInPlay pero currentTableId es null');
-        // Retornar 0 para evitar mostrar dinero en mesa cuando no hay mesa activa
-        return 0.0;
+        .asyncMap((snapshot) async {
+      // Llamar a la Cloud Function del backend para obtener el cálculo autoritativo
+      try {
+        final callable = _functions.httpsCallable('getInGameBalanceFunction');
+        final result = await callable.call<Map<String, dynamic>>();
+        final moneyInPlay = (result.data['moneyInPlay'] ?? 0).toDouble();
+        final sessionCount = result.data['sessionCount'] ?? 0;
+        
+        print('[IN_GAME_BALANCE] ✅ MoneyInPlay desde backend: $moneyInPlay (${sessionCount} sesión/es)');
+        return moneyInPlay;
+      } catch (e) {
+        print('[IN_GAME_BALANCE] ❌ Error llamando a getInGameBalanceFunction: $e');
+        // Fallback: calcular localmente si falla la Cloud Function (solo para resiliencia)
+        if (snapshot.docs.isEmpty) {
+          print('[IN_GAME_BALANCE] ⚠️ Fallback: No hay sesiones activas');
+          return 0.0;
+        }
+        double total = 0.0;
+        for (final doc in snapshot.docs) {
+          final buyInAmount = (doc.data()['buyInAmount'] ?? 0).toDouble();
+          total += buyInAmount;
+        }
+        print('[IN_GAME_BALANCE] ⚠️ Fallback: Calculado localmente: $total');
+        return total;
       }
-      
-      return moneyInPlay;
     });
   }
 

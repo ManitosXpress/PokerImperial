@@ -1593,3 +1593,82 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
         throw new functions.https.HttpsError('internal', `Failed to perform universal settlement: ${error.message || 'Unknown error'}`);
     }
 };
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * GET IN-GAME BALANCE (Money In Play)
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * Calcula el dinero en juego del usuario desde poker_sessions (fuente de verdad)
+ * Suma el buyInAmount de todas las sesiones activas del usuario
+ * 
+ * @param data - Vacío (el UID se obtiene del contexto de autenticación)
+ * @param context - Contexto de autenticación
+ * @returns { moneyInPlay: number } - Dinero total en juego
+ */
+export const getInGameBalance = async (data: any, context: functions.https.CallableContext) => {
+    // ════════════════════════════════════════════════════════════════════════
+    // 1. VALIDACIÓN DE AUTENTICACIÓN
+    // ════════════════════════════════════════════════════════════════════════
+    if (!context.auth) {
+        throw new functions.https.HttpsError(
+            'unauthenticated',
+            'The function must be called while authenticated.'
+        );
+    }
+
+    const uid = context.auth.uid;
+    const db = getDb();
+
+    try {
+        console.log(`[GET_IN_GAME_BALANCE] 🔍 Calculando moneyInPlay para usuario ${uid}...`);
+
+        // ════════════════════════════════════════════════════════════════════════
+        // 2. BUSCAR SESIONES ACTIVAS DEL USUARIO
+        // ════════════════════════════════════════════════════════════════════════
+        const activeSessionsQuery = await db.collection('poker_sessions')
+            .where('userId', '==', uid)
+            .where('status', '==', 'active')
+            .get();
+
+        if (activeSessionsQuery.empty) {
+            console.log(`[GET_IN_GAME_BALANCE] ✅ Usuario ${uid} no tiene sesiones activas. Retornando 0.`);
+            return { moneyInPlay: 0 };
+        }
+
+        // ════════════════════════════════════════════════════════════════════════
+        // 3. SUMAR BUY-IN DE TODAS LAS SESIONES ACTIVAS
+        // ════════════════════════════════════════════════════════════════════════
+        let totalMoneyInPlay = 0;
+        const sessionDetails: Array<{ sessionId: string; buyInAmount: number; roomId: string }> = [];
+
+        for (const doc of activeSessionsQuery.docs) {
+            const sessionData = doc.data();
+            const buyInAmount = Number(sessionData.buyInAmount) || 0;
+            const roomId = sessionData.roomId || 'unknown';
+            
+            totalMoneyInPlay += buyInAmount;
+            sessionDetails.push({
+                sessionId: doc.id,
+                buyInAmount,
+                roomId
+            });
+
+            console.log(`[GET_IN_GAME_BALANCE] 📊 Sesión ${doc.id}: buyInAmount=${buyInAmount}, roomId=${roomId}`);
+        }
+
+        console.log(`[GET_IN_GAME_BALANCE] ✅ Total moneyInPlay calculado: ${totalMoneyInPlay} (${sessionDetails.length} sesión/es activa/s)`);
+
+        return {
+            moneyInPlay: totalMoneyInPlay,
+            sessionCount: sessionDetails.length,
+            sessions: sessionDetails // Opcional: para debugging
+        };
+    } catch (error: any) {
+        console.error(`[GET_IN_GAME_BALANCE] ❌ Error calculando moneyInPlay para usuario ${uid}:`, error);
+        throw new functions.https.HttpsError(
+            'internal',
+            `Failed to calculate in-game balance: ${error.message || 'Unknown error'}`
+        );
+    }
+};

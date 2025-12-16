@@ -9,7 +9,7 @@ import { ownerTransferCredit, sellerTransferCredit } from './functions/clubWalle
 import { createClubInvite, completeInvitationRegistration } from './functions/invitations';
 import { onUserCreate } from './functions/auth';
 import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers, adminCreateUser, cleanStuckMoneyInPlay, cleanupCorruptedSessions } from './functions/admin';
-import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, closeTableAndCashOut, universalTableSettlement, joinTable, processCashOut } from './functions/table';
+import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, closeTableAndCashOut, universalTableSettlement, joinTable, processCashOut, getInGameBalance } from './functions/table';
 import { dailyEconomyCron } from './functions/cron';
 import { dailyEconomyCron as newDailyEconomyCron, triggerDailyStats } from './functions/scheduled_functions';
 import { getTopHolders, getTopWinners24h, get24hMetrics, getWeeklyTrends, getCurrentLiquidity, getTotalRake } from './functions/analytics';
@@ -80,6 +80,7 @@ export const closeTableAndCashOutFunction = functions.https.onCall(closeTableAnd
 export const universalTableSettlementFunction = functions.https.onCall(universalTableSettlement);
 export const joinTableFunction = functions.https.onCall(joinTable);
 export const processCashOutFunction = functions.https.onCall(processCashOut);
+export const getInGameBalanceFunction = functions.https.onCall(getInGameBalance);
 export const dailyEconomyCronFunction = dailyEconomyCron;
 
 // New Economic Intelligence Functions

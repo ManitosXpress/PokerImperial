@@ -32,11 +32,14 @@ class WalletProvider extends ChangeNotifier {
 
     _creditsService.getInGameBalanceStream().listen(
       (balance) {
+        print('[WALLET_PROVIDER] 💰 In-game balance actualizado: $balance (anterior: $_inGameBalance)');
         _inGameBalance = balance;
         notifyListeners();
       },
       onError: (error) {
-        print('Error getting in-game balance: $error');
+        print('[WALLET_PROVIDER] ❌ Error getting in-game balance: $error');
+        _inGameBalance = 0; // En caso de error, asumir 0
+        notifyListeners();
       },
     );
   }
