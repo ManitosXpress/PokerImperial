@@ -316,6 +316,7 @@ export class PokerGame {
             minBet: minRaise,
             players: this.players.map(p => ({
                 id: p.id,
+                uid: p.uid, // CRÍTICO: Exponer UID para que el frontend identifique al usuario
                 name: p.name,
                 chips: p.chips,
                 currentBet: p.currentBet,
@@ -1265,6 +1266,7 @@ export class PokerGame {
                 type: 'hand_winner',
                 winner: {
                     id: winner.id,
+                    uid: winner.uid, // CRÍTICO: Exponer UID del ganador
                     name: winner.name,
                     amount: finalAmount,
                     handDescription: winnerHand ? (winnerHand.descr || winnerHand.name) : null
@@ -1273,6 +1275,7 @@ export class PokerGame {
                 rakeDistribution: distribution,
                 players: this.players.map(p => ({
                     id: p.id,
+                    uid: p.uid, // CRÍTICO: Exponer UID
                     name: p.name,
                     isFolded: p.isFolded,
                     hand: p.isFolded ? null : p.hand,
