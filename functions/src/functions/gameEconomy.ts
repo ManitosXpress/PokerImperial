@@ -1,6 +1,30 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import * as crypto from "crypto";
 import { SettleRoundRequest } from "../types";
+
+// 🔐 Cargar variables de entorno desde .env SOLO EN DESARROLLO LOCAL
+// En producción, usar functions.config() o environment variables de Firebase
+if (process.env.FUNCTIONS_EMULATOR === 'true' || !process.env.K_SERVICE) {
+    // Estamos en desarrollo local
+    try {
+        require('dotenv').config();
+        console.log('[ENV] Loaded .env for local development');
+    } catch (e) {
+        console.warn('[ENV] dotenv not available, using environment variables');
+    }
+}
+
+// 🔐 GAME SECRET para verificación de firmas HMAC-SHA256
+// CRÍTICO: Debe coincidir con el secret en el Game Server
+// Prioridad: 1. Environment variable, 2. Firebase config, 3. Default (solo para dev)
+const GAME_SECRET = process.env.GAME_SECRET ||
+    functions.config().game?.secret ||
+    'default-secret-change-in-production-2024';
+
+if (!process.env.GAME_SECRET && !functions.config().game?.secret) {
+    console.warn('⚠️ [SECURITY] Using default GAME_SECRET - NOT SECURE FOR PRODUCTION!');
+}
 
 // Lazy initialization de Firestore
 const getDb = () => {
@@ -188,18 +212,86 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
  * ═══════════════════════════════════════════════════════════════════════════
  * 2. SETTLE GAME ROUND - EL MOTOR FINANCIERO (POT RAKE)
  * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * ARQUITECTURA: Game Server = Fuente de Verdad para Stacks, Firebase = Contabilidad de Rake
+ * 
+ * IMPORTANTE: Esta función NO modifica users/{uid}/moneyInPlay.
+ * 
+ * El campo moneyInPlay representa el Buy-In inicial bloqueado y solo se modifica en:
+ * - joinTable: Se establece al monto del buy-in
+ * - processCashOut: Se resetea a 0 cuando el jugador sale de la mesa
+ * 
+ * Durante el juego, las fichas fluctúan en poker_tables/{tableId}/players[i]/chips,
+ * pero moneyInPlay permanece constante hasta el cash-out.
  */
+
+/**
+ * 🔐 Verifica la firma HMAC-SHA256 del payload
+ * Usa comparación segura (timingSafeEqual) para prevenir ataques de timing
+ */
+function verifySignature(authPayload: string, receivedSignature: string): boolean {
+    try {
+        const hmac = crypto.createHmac('sha256', GAME_SECRET);
+        hmac.update(authPayload);
+        const computedSignature = hmac.digest('hex');
+
+        // Comparación segura contra timing attacks
+        return crypto.timingSafeEqual(
+            Buffer.from(computedSignature, 'hex'),
+            Buffer.from(receivedSignature, 'hex')
+        );
+    } catch (error) {
+        console.error('Signature verification error:', error);
+        return false;
+    }
+}
+
 export const settleGameRound = async (data: SettleRoundRequest, context: functions.https.CallableContext) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
 
     const db = getDb();
-    const { potTotal, winnerUid, gameId, tableId } = data;
+    const { potTotal, winnerUid, gameId, tableId, finalPlayerStacks, authPayload, signature } = data;
 
-    if (!potTotal || !winnerUid || !tableId) {
+    // 🔐 VERIFICACIÓN DE FIRMA CRIPTOGRÁFICA (Opcional pero recomendado)
+    if (authPayload && signature) {
+        console.log(`[SECURITY] Verifying signature for game ${gameId}...`);
+
+        if (!verifySignature(authPayload, signature)) {
+            console.error(`🚫 [SECURITY] Signature verification FAILED for game ${gameId}`);
+            throw new functions.https.HttpsError(
+                'permission-denied',
+                'Data integrity check failed - signature mismatch'
+            );
+        }
+
+        // Verificar que el payload contenga los datos correctos
+        try {
+            const payload = JSON.parse(authPayload);
+            if (payload.winnerUid !== winnerUid || payload.potTotal !== potTotal) {
+                throw new functions.https.HttpsError(
+                    'invalid-argument',
+                    'Payload mismatch - data does not match signature'
+                );
+            }
+        } catch (parseError) {
+            console.error('Failed to parse authPayload:', parseError);
+            throw new functions.https.HttpsError(
+                'invalid-argument',
+                'Invalid authPayload format'
+            );
+        }
+
+        console.log(`✅ [SECURITY] Signature verified successfully for game ${gameId}`);
+    } else {
+        console.warn(`⚠️ [SECURITY] No signature provided for game ${gameId} - operating in legacy mode`);
+    }
+
+    if (!potTotal || !winnerUid || !tableId || !finalPlayerStacks) {
         throw new functions.https.HttpsError('invalid-argument', 'Missing parameters.');
     }
 
     console.log(`[ECONOMY] Settling round ${gameId} in ${tableId}. Pot: ${potTotal}, Winner: ${winnerUid}`);
+    console.log(`[ECONOMY] Final Player Stacks from Server:`, finalPlayerStacks);
 
     // CÁLCULO DE RAKE (8%)
     const RAKE_PERCENTAGE = 0.08;
@@ -217,16 +309,26 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
             const isPublic = tableData?.isPublic === true;
             const players = Array.isArray(tableData?.players) ? [...tableData.players] : [];
 
-            // 2. Actualizar Chips del Ganador (MESA = FUENTE DE VERDAD)
-            const winnerIndex = players.findIndex((p: any) => p.id === winnerUid);
-            if (winnerIndex === -1) throw new functions.https.HttpsError('not-found', 'Winner not in table.');
+            // 2. ACTUALIZAR STACKS DIRECTAMENTE DESDE EL SERVIDOR
+            // ✅ CORRECCIÓN CRÍTICA: Escribir valores exactos del servidor en lugar de calcular con datos desactualizados
+            // El Game Server ya calculó los stacks finales en memoria (fuente de verdad)
+            // Firebase solo persiste esos valores y procesa el rake
 
-            const currentWinnerChips = Number(players[winnerIndex].chips) || 0;
-            const newWinnerChips = currentWinnerChips + winnerPrize;
+            for (const [uid, finalChips] of Object.entries(finalPlayerStacks)) {
+                const playerIndex = players.findIndex((p: any) => p.uid === uid);
 
-            transaction.update(tableRef, {
-                [`players.${winnerIndex}.chips`]: newWinnerChips
-            });
+                if (playerIndex === -1) {
+                    console.warn(`[ECONOMY] Player ${uid} not found in table. Skipping.`);
+                    continue;
+                }
+
+                // Escribir directamente el stack final calculado por el servidor
+                transaction.update(tableRef, {
+                    [`players.${playerIndex}.chips`]: finalChips
+                });
+
+                console.log(`[ECONOMY] ✅ Synced ${uid}: ${finalChips} chips`);
+            }
 
             // 3. Distribución del Rake (Inmediata)
             let platformShare = 0;

@@ -44,6 +44,12 @@ export interface SettleRoundRequest {
     playersInvolved: PlayerInvolved[];
     gameId: string; // For audit logs
     tableId: string; // ID de la mesa para actualizar el stack del jugador
+    // NUEVO: Mapa de UID → Fichas finales (calculado por el servidor en memoria)
+    // Esto asegura que Firebase escriba los valores exactos sin calcular con datos desactualizados
+    finalPlayerStacks: { [uid: string]: number };
+    // 🔐 NUEVOS CAMPOS DE SEGURIDAD CRIPTOGRÁFICA
+    authPayload?: string;  // JSON stringify del payload firmado
+    signature?: string;     // Firma HMAC-SHA256 del authPayload
 }
 
 export interface LedgerEntry {
