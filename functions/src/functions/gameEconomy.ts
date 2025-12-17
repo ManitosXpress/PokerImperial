@@ -5,6 +5,9 @@ import { SettleRoundRequest } from "../types";
 
 // 🔐 Cargar variables de entorno desde .env SOLO EN DESARROLLO LOCAL
 // En producción, usar functions.config() o environment variables de Firebase
+// NOTA: Comentado para evitar timeouts durante deployment
+// Para desarrollo local, configurar variables de entorno manualmente o usar .env con otra estrategia
+/*
 if (process.env.FUNCTIONS_EMULATOR === 'true' || !process.env.K_SERVICE) {
     // Estamos en desarrollo local
     try {
@@ -14,6 +17,7 @@ if (process.env.FUNCTIONS_EMULATOR === 'true' || !process.env.K_SERVICE) {
         console.warn('[ENV] dotenv not available, using environment variables');
     }
 }
+*/
 
 // 🔐 GAME SECRET para verificación de firmas HMAC-SHA256
 // CRÍTICO: Debe coincidir con el secret en el Game Server
@@ -314,7 +318,21 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
             // El Game Server ya calculó los stacks finales en memoria (fuente de verdad)
             // Firebase solo persiste esos valores y procesa el rake
 
-            for (const [uid, finalChips] of Object.entries(finalPlayerStacks)) {
+            // 🔐 SEGURIDAD: Usar stacks del payload firmado si está disponible
+            let stacksToUse = finalPlayerStacks;
+            if (authPayload) {
+                try {
+                    const trustedPayload = JSON.parse(authPayload);
+                    if (trustedPayload.finalPlayerStacks) {
+                        stacksToUse = trustedPayload.finalPlayerStacks;
+                        console.log('[SECURITY] Using trusted stacks from signed payload');
+                    }
+                } catch (e) {
+                    console.error('[SECURITY] Error parsing payload for stacks, falling back to insecure param', e);
+                }
+            }
+
+            for (const [uid, finalChips] of Object.entries(stacksToUse)) {
                 const playerIndex = players.findIndex((p: any) => p.uid === uid);
 
                 if (playerIndex === -1) {
@@ -359,6 +377,8 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
                 transaction.set(db.collection('system_stats').doc('economy'), {
                     accumulated_rake: admin.firestore.FieldValue.increment(platformShare),
                     dailyGGR: admin.firestore.FieldValue.increment(platformShare),
+                    total_volume: admin.firestore.FieldValue.increment(potTotal),
+                    hands_played: admin.firestore.FieldValue.increment(1),
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
             }
@@ -372,7 +392,9 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
                 } else {
                     // Fallback a plataforma
                     transaction.set(db.collection('system_stats').doc('economy'), {
-                        accumulated_rake: admin.firestore.FieldValue.increment(clubShare)
+                        accumulated_rake: admin.firestore.FieldValue.increment(clubShare),
+                        total_volume: admin.firestore.FieldValue.increment(potTotal),
+                        hands_played: admin.firestore.FieldValue.increment(1)
                     }, { merge: true });
                 }
             }
@@ -386,7 +408,9 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
                 } else {
                     // Fallback a plataforma (simplificado)
                     transaction.set(db.collection('system_stats').doc('economy'), {
-                        accumulated_rake: admin.firestore.FieldValue.increment(sellerShare)
+                        accumulated_rake: admin.firestore.FieldValue.increment(sellerShare),
+                        total_volume: admin.firestore.FieldValue.increment(potTotal),
+                        hands_played: admin.firestore.FieldValue.increment(1)
                     }, { merge: true });
                 }
             }

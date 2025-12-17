@@ -115,7 +115,7 @@ export class RoomManager {
         const totalPlayers = room.players.length;
 
         if (totalPlayers >= 2 && readyCount === totalPlayers) {
-            if (this.countdownTimers.has(roomId)) return; 
+            if (this.countdownTimers.has(roomId)) return;
 
             if (this.emitCallback) {
                 this.emitCallback(roomId, 'countdown_start', { seconds: 3 });
@@ -126,19 +126,19 @@ export class RoomManager {
                 try {
                     if (room.players.length > 0) {
                         this.startGame(roomId, room.players[0].id, (data) => {
-                             if (this.emitCallback) {
-                                 if (data.type === 'hand_winner') {
-                                     this.emitCallback!(roomId, 'hand_winner', data);
-                                 } else {
-                                     this.emitCallback!(roomId, 'game_update', data);
-                                 }
-                             }
+                            if (this.emitCallback) {
+                                if (data.type === 'hand_winner') {
+                                    this.emitCallback!(roomId, 'hand_winner', data);
+                                } else {
+                                    this.emitCallback!(roomId, 'game_update', data);
+                                }
+                            }
                         });
                     }
                 } catch (e) {
                     console.error(`Failed to auto-start game for room ${roomId}:`, e);
                 }
-            }, 3000); 
+            }, 3000);
 
             this.countdownTimers.set(roomId, timer);
         } else {
@@ -211,7 +211,7 @@ export class RoomManager {
             currentTurn: players.length > 0 ? players[0].id : '',
             dealerId: players.length > 0 ? players[0].id : '',
             isPublic: isPublic,
-            hostId: hostUid || hostId 
+            hostId: hostUid || hostId
         };
 
         this.rooms.set(roomId, newRoom);
@@ -262,7 +262,7 @@ export class RoomManager {
             if (index !== -1) {
                 const player = room.players[index];
                 room.players.splice(index, 1);
-                
+
                 // Also remove from game instance if exists
                 const game = this.games.get(roomId);
                 if (game) {
@@ -274,7 +274,7 @@ export class RoomManager {
                     console.log(`🗑️ Room ${roomId} is now empty - cleaning up immediately`);
                     this.deleteRoom(roomId);
                 }
-                
+
                 return { roomId, player };
             }
         }
@@ -294,13 +294,13 @@ export class RoomManager {
         // Attach System Events Callback
         game.onSystemEvent = async (event, data) => {
             console.log(`🔧 System Event in Room ${roomId}: ${event}`, data);
-            
+
             // BUG FIX: Manejar correctamente el evento game_finished para Last Man Standing
             if (event === 'game_finished') {
                 if (data.reason === 'last_man_standing' || data.reason === 'walkover') {
                     // Close table and cash out
                     console.log(`🏆 Last Man Standing/Walkover: ${data.winnerId}. Cerrando mesa y liquidando fichas...`);
-                    
+
                     // Emitir evento de victoria al cliente antes de cerrar
                     if (this.emitCallback) {
                         this.emitCallback(roomId, 'hand_winner', {
@@ -315,30 +315,30 @@ export class RoomManager {
                             gameState: game.getGameState()
                         });
                     }
-                    
+
                     // Pequeño delay para que el cliente muestre la pantalla de victoria
                     setTimeout(async () => {
                         await this.closeTableAndCashOut(roomId);
                     }, 3000); // 3 segundos para mostrar la victoria
                 }
             }
-            
+
             if (event === 'player_needs_rebuy') {
                 if (this.emitCallback) {
                     this.emitCallback(roomId, 'player_needs_rebuy', data);
                 }
             }
-            
+
             if (event === 'kick_player') {
                 const { playerId } = data;
                 console.log(`👢 Kicking player ${playerId} due to timeout`);
-                
+
                 // Get player info for cashout/session end
                 const player = room.players.find(p => p.id === playerId);
                 if (player) {
                     // Remover jugador del juego
                     this.removePlayer(playerId);
-                    
+
                     // Notificar al cliente
                     if (this.emitCallback) {
                         this.emitCallback(roomId, 'force_disconnect', { playerId });
@@ -347,7 +347,7 @@ export class RoomManager {
             }
         };
 
-        game.startGame(room.players, room.isPublic);
+        game.startGame(room.players, room.isPublic, roomId);
         room.gameState = 'playing';
 
         if (this.emitCallback) {
@@ -356,7 +356,7 @@ export class RoomManager {
 
         return game.getGameState();
     }
-    
+
     // --- CLOSE TABLE AND CASH OUT ---
     // CRÍTICO: Esta función SOLO notifica. La liquidación real se hace en la Cloud Function.
     // La Cloud Function closeTableAndCashOut() es la única fuente de verdad para liquidaciones.
@@ -369,11 +369,11 @@ export class RoomManager {
         }
 
         console.log(`🔒 Notificando cierre de mesa ${roomId}. La liquidación será procesada por la Cloud Function.`);
-        
+
         // Notify clients que la mesa se cerrará
         // La Cloud Function closeTableAndCashOut() se encargará de la liquidación real
         if (this.emitCallback) {
-            this.emitCallback(roomId, 'room_closed', { 
+            this.emitCallback(roomId, 'room_closed', {
                 reason: 'Game Finished - Last Man Standing',
                 message: 'La partida ha terminado. Las fichas se están convirtiendo a créditos...'
             });
@@ -407,16 +407,16 @@ export class RoomManager {
     public deleteRoom(roomId: string) {
         const room = this.rooms.get(roomId);
         const game = this.games.get(roomId);
-        
+
         // Limpiar timers del juego si existen
         if (game && (game as any).turnTimer) {
             clearTimeout((game as any).turnTimer);
         }
-        
+
         // Eliminar de los Maps
         this.rooms.delete(roomId);
         this.games.delete(roomId);
-        
+
         console.log(`🗑️ Room ${roomId} deleted. Active rooms: ${this.rooms.size}`);
     }
 

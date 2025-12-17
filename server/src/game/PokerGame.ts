@@ -1,5 +1,8 @@
 import { Player, Room } from '../types';
+import * as crypto from 'crypto';
 const Hand = require('pokersolver').Hand;
+
+const GAME_SECRET = process.env.GAME_SECRET || 'default-secret-change-in-production-2024';
 
 export class PokerGame {
     private deck: string[] = [];
@@ -25,6 +28,7 @@ export class PokerGame {
 
     // Rake System
     private isPublicRoom: boolean = true; // Default to public
+    public roomId: string = ''; // ID de la sala para firma criptográfica
 
     // Side Pots System - For All-In scenarios with different stack sizes
     private sidePots: Array<{
@@ -40,10 +44,11 @@ export class PokerGame {
 
     constructor() { }
 
-    public startGame(players: Player[], isPublic: boolean = true) {
+    public startGame(players: Player[], isPublic: boolean = true, roomId: string = '') {
         if (players.length < 2) throw new Error('Not enough players');
         this.players = players;
         this.isPublicRoom = isPublic;
+        this.roomId = roomId;
 
         // Initialize status
         this.players.forEach(p => {
@@ -966,6 +971,26 @@ export class PokerGame {
                 };
             });
 
+            // 🔐 GENERAR FIRMA CRIPTOGRÁFICA
+            const finalPlayerStacks: { [uid: string]: number } = {};
+            this.players.forEach(p => {
+                if (p.uid) finalPlayerStacks[p.uid] = p.chips;
+            });
+
+            const authPayload = {
+                tableId: this.roomId,
+                gameId: `hand_${Date.now()}`,
+                winnerUid: mainWinner.uid, // Ganador principal para referencia
+                potTotal: this.sidePots.reduce((acc, pot) => acc + pot.amount, 0) + this.pot, // Total real incluyendo side pots
+                finalPlayerStacks: finalPlayerStacks,
+                timestamp: Date.now()
+            };
+
+            const payloadString = JSON.stringify(authPayload);
+            const signature = crypto.createHmac('sha256', GAME_SECRET)
+                .update(payloadString)
+                .digest('hex');
+
             if (this.onGameStateChange) {
                 this.onGameStateChange({
                     type: 'hand_winner',
@@ -992,7 +1017,10 @@ export class PokerGame {
                             : null,
                         winnings: playerWinnings.get(p.id) || 0
                     })),
-                    gameState: gameState
+                    gameState: gameState,
+                    // 🔐 CAMPOS DE SEGURIDAD
+                    authPayload: payloadString,
+                    securitySignature: signature
                 });
             }
 
@@ -1261,6 +1289,26 @@ export class PokerGame {
             });
         }
 
+        // 🔐 GENERAR FIRMA CRIPTOGRÁFICA
+        const finalPlayerStacks: { [uid: string]: number } = {};
+        this.players.forEach(p => {
+            if (p.uid) finalPlayerStacks[p.uid] = p.chips;
+        });
+
+        const authPayload = {
+            tableId: this.roomId,
+            gameId: `hand_${Date.now()}`,
+            winnerUid: winner.uid,
+            potTotal: (finalAmount || 0) + rakeAmount, // Reconstruir pot total
+            finalPlayerStacks: finalPlayerStacks,
+            timestamp: Date.now()
+        };
+
+        const payloadString = JSON.stringify(authPayload);
+        const signature = crypto.createHmac('sha256', GAME_SECRET)
+            .update(payloadString)
+            .digest('hex');
+
         if (this.onGameStateChange) {
             this.onGameStateChange({
                 type: 'hand_winner',
@@ -1284,7 +1332,10 @@ export class PokerGame {
                         Hand.solve([...p.hand, ...this.communityCards]).name
                         : null
                 })),
-                gameState: gameState
+                gameState: gameState,
+                // 🔐 CAMPOS DE SEGURIDAD
+                authPayload: payloadString,
+                securitySignature: signature
             });
         }
 
