@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,6 +7,7 @@ import '../providers/language_provider.dart';
 import 'game/cash_tables_view.dart';
 import 'tournament/tournament_list_screen.dart';
 import '../widgets/create_table_dialog.dart';
+import '../widgets/imperial_tab_bar.dart';
 
 class GameZoneScreen extends StatefulWidget {
   const GameZoneScreen({super.key});
@@ -23,6 +25,9 @@ class _GameZoneScreenState extends State<GameZoneScreen> with SingleTickerProvid
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      setState(() {}); // Rebuild to update FAB
+    });
     _loadUserRole();
   }
 
@@ -50,52 +55,90 @@ class _GameZoneScreenState extends State<GameZoneScreen> with SingleTickerProvid
 
     return Scaffold(
       backgroundColor: const Color(0xFF0a0e27),
-      appBar: AppBar(
-        title: Text(
-          isSpanish ? 'Zona de Juego' : 'Game Zone',
-          style: const TextStyle(
-            color: Color(0xFFFFD700),
-            fontWeight: FontWeight.bold,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFF0a0e27),
+              Colors.black,
+            ],
           ),
         ),
-        backgroundColor: Colors.black,
-        elevation: 0,
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: const Color(0xFFFFD700),
-          labelColor: const Color(0xFFFFD700),
-          unselectedLabelColor: Colors.white60,
-          tabs: [
-            Tab(
-              icon: const Icon(Icons.table_chart),
-              text: isSpanish ? 'Mesas Públicas' : 'Public Tables',
-            ),
-            Tab(
-              icon: const Icon(Icons.emoji_events),
-              text: isSpanish ? 'Torneos' : 'Tournaments',
-            ),
-          ],
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Imperial Header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'IMPERIAL LOBBY',
+                      style: TextStyle(
+                        color: Color(0xFFFFD700),
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                        shadows: [
+                          Shadow(
+                            color: Color(0xFFFFD700),
+                            blurRadius: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Imperial TabBar
+              ImperialTabBar(
+                controller: _tabController,
+                tabs: [
+                  ImperialTab(
+                    icon: Icons.casino,
+                    label: isSpanish ? 'Cash Games' : 'Cash Games',
+                    activeColor: const Color(0xFF00FF88),
+                  ),
+                  ImperialTab(
+                    icon: Icons.emoji_events,
+                    label: isSpanish ? 'Torneos' : 'Tournaments',
+                    activeColor: const Color(0xFFFFD700),
+                  ),
+                ],
+              ),
+              
+              // Tab Content
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    CashTablesView(userRole: _userRole),
+                    const TournamentListScreen(),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          CashTablesView(userRole: _userRole),
-          const TournamentListScreen(),
-        ],
       ),
       floatingActionButton: _isLoadingRole || _userRole != 'club'
           ? null
           : FloatingActionButton.extended(
               onPressed: () {
                 if (_tabController.index == 0) {
-                  // Create Cash Table
                   showDialog(
                     context: context,
                     builder: (context) => const CreateTableDialog(),
                   );
                 } else {
-                  // Create Tournament
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(isSpanish

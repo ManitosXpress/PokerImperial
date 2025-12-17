@@ -88,17 +88,7 @@ class _TournamentListScreenState extends State<TournamentListScreen> {
                 },
               ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const CreateTournamentScreen()),
-          );
-        },
-        label: const Text('Host Tournament'),
-        icon: const Icon(Icons.add),
-        backgroundColor: const Color(0xFFE94560),
-      ),
+
     );
   }
 }

@@ -61,3 +61,30 @@ export interface LedgerEntry {
     timestamp: any;
     metadata?: any;
 }
+
+export interface Tournament {
+    id: string;
+    name: string;
+    buyIn: number;
+    type: string; // Deprecated, mantener por compatibilidad
+    scope: 'GLOBAL' | 'CLUB'; // NUEVO: Alcance del torneo
+    speed: 'TURBO' | 'REGULAR' | 'DEEP_STACK'; // NUEVO: Velocidad
+    prizePool: number;
+    estimatedPlayers: number; // NUEVO: Para calcular prize pool
+    createdBy: string;
+    clubId?: string; // Obligatorio si scope === 'CLUB'
+    status: 'registering' | 'active' | 'completed';
+    createdAt: any;
+    startTime: any;
+    players: string[];
+    // Configuración de Mesa Final
+    finalTableMusic?: string; // NUEVO: Música especial para mesa final
+    finalTableTheme?: string; // NUEVO: Tema visual para mesa final
+}
+
+export interface ClubStats {
+    tournamentsHosted: number;
+    biggestPot: number;
+    topPlayerUid?: string; // Jugador con más victorias
+    topPlayerWins?: number;
+}

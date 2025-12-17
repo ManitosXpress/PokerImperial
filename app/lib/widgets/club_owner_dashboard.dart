@@ -8,6 +8,7 @@ import 'credentials_dialog.dart';
 import '../widgets/poker_loading_indicator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../screens/club/transaction_history_screen.dart';
+import '../screens/tournament/create_tournament_screen.dart';
 
 const String ADMIN_CONTACT_URL = 'https://t.me/AgenteBingobot';
 
@@ -295,8 +296,11 @@ class _ClubOwnerDashboardState extends State<ClubOwnerDashboard> {
   }
 
   void _showCreateTournamentDialog(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Funcionalidad de Torneos próximamente')),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CreateTournamentScreen(clubId: widget.clubId),
+      ),
     );
   }
 }

@@ -4,6 +4,7 @@ import { addCredits, deductCredits, withdrawCredits, adminWithdrawCredits } from
 import { settleGameRound, joinTable, processCashOut, universalTableSettlement } from "./functions/gameEconomy";
 import { createClub, joinClub, leaveClub, ownerCreateMember, sellerCreatePlayer } from './functions/club';
 import { createTournament } from './functions/tournament';
+import { onTournamentFinish } from './functions/tournamentTriggers';
 import { getClubLeaderboard } from './functions/leaderboard';
 import { ownerTransferCredit, sellerTransferCredit } from './functions/clubWallet';
 import { createClubInvite, completeInvitationRegistration } from './functions/invitations';
@@ -38,6 +39,7 @@ export const sellerCreatePlayerFunction = functions.https.onCall(sellerCreatePla
 
 // Tournament Functions
 export const createTournamentFunction = functions.https.onCall(createTournament);
+export const onTournamentFinishFunction = onTournamentFinish;
 
 // Leaderboard Functions
 export const getClubLeaderboardFunction = functions.https.onCall(getClubLeaderboard);

@@ -4,6 +4,8 @@ import '../../providers/club_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../tournament/create_tournament_screen.dart';
 import '../../widgets/poker_loading_indicator.dart';
+import '../../widgets/tournament/tournament_list_item.dart';
+import '../../widgets/tournament/club_hall_of_fame.dart';
 
 class ClubTournamentsScreen extends StatefulWidget {
   final String clubId;
@@ -51,15 +53,23 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Club Tournaments'),
+        title: const Text(
+          'TORNEOS DEL CLUB',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.5,
+          ),
+        ),
         backgroundColor: const Color(0xFF1A1A2E),
+        elevation: 0,
+        centerTitle: true,
       ),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
+            colors: [Color(0xFF1A1A2E), Color(0xFF16213E), Color(0xFF0F0F1E)],
           ),
         ),
         child: _buildContent(),
@@ -74,82 +84,50 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
         _isLoading
             ? const Center(
                 child: PokerLoadingIndicator(
-                  statusText: 'Loading Tournaments...',
+                  statusText: 'Cargando Torneos...',
                   color: Color(0xFFFFD700),
                 ),
               )
-            : _tournaments.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.emoji_events_outlined,
-                            size: 64, color: Colors.white24),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'No tournaments yet',
-                          style: TextStyle(color: Colors.white54, fontSize: 18),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _tournaments.length,
-                    itemBuilder: (context, index) {
-                      final tournament = _tournaments[index];
-                      return Card(
-                        color: Colors.white.withOpacity(0.05),
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          leading: const Icon(Icons.emoji_events, color: Colors.amber),
-                          title: Text(
-                            tournament['name'],
-                            style: const TextStyle(
-                                color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text(
-                            'Buy-in: ${tournament['buyIn']} | Prize: ${tournament['prizePool']}',
-                            style: const TextStyle(color: Colors.white70),
-                          ),
-                          trailing: ElevatedButton(
-                            onPressed: () {
-                              final buyIn = (tournament['buyIn'] as num).toDouble();
-                              final balance = Provider.of<WalletProvider>(context, listen: false).balance;
-
-                              if (balance < buyIn) {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: const Text('Saldo Insuficiente', style: TextStyle(color: Colors.red)),
-                                    content: const Text(
-                                      'No tienes créditos suficientes para entrar al torneo.\n\n'
-                                      'Por favor, comunícate con tu líder de club para cargar más crédito.',
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: const Text('Entendido'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              } else {
-                                // Proceed with join logic (to be implemented)
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Joining tournament... (Logic pending)')),
-                                );
-                              }
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
+            : Column(
+                children: [
+                  // Hall of Fame
+                  ClubHallOfFame(clubId: widget.clubId),
+                  // Tournaments List
+                  Expanded(
+                    child: _tournaments.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: const [
+                                Icon(Icons.emoji_events_outlined,
+                                    size: 64, color: Colors.white24),
+                                SizedBox(height: 16),
+                                Text(
+                                  'No hay torneos todavía',
+                                  style: TextStyle(color: Colors.white54, fontSize: 18),
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  '¡Crea el primer torneo del club!',
+                                  style: TextStyle(color: Colors.white38, fontSize: 14),
+                                ),
+                              ],
                             ),
-                            child: const Text('Join'),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            itemCount: _tournaments.length,
+                            itemBuilder: (context, index) {
+                              final tournament = _tournaments[index];
+                              return TournamentListItem(
+                                tournament: tournament,
+                                onJoin: () => _handleJoinTournament(tournament),
+                              );
+                            },
                           ),
-                        ),
-                      );
-                    },
                   ),
+                ],
+              ),
         // If embedded, show FAB in bottom right of the tab view
         if (widget.isEmbedded && widget.isOwner)
           Positioned(
@@ -159,6 +137,73 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
           ),
       ],
     );
+  }
+
+  void _handleJoinTournament(Map<String, dynamic> tournament) {
+    final buyIn = (tournament['buyIn'] as num).toDouble();
+    final balance = Provider.of<WalletProvider>(context, listen: false).balance;
+
+    if (balance < buyIn) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A2E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xFFE94560), width: 2),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFE94560), size: 32),
+              SizedBox(width: 12),
+              Text(
+                'Saldo Insuficiente',
+                style: TextStyle(color: Color(0xFFE94560)),
+              ),
+            ],
+          ),
+          content: const Text(
+            'No tienes créditos suficientes para entrar al torneo.\n\n'
+            'Por favor, comunícate con tu líder de club para cargar más crédito.',
+            style: TextStyle(color: Colors.white70, fontSize: 16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              style: TextButton.styleFrom(
+                backgroundColor: const Color(0xFFE94560),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text(
+                'Entendido',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      // Proceed with join logic (to be implemented)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.info_outline, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Uniéndose al torneo... (Lógica pendiente)'),
+            ],
+          ),
+          backgroundColor: const Color(0xFF00C851),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    }
   }
 
   Widget? _buildFloatingActionButton() {
@@ -174,9 +219,17 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
         );
         _loadTournaments();
       },
-      label: const Text('Crear Torneo'),
-      icon: const Icon(Icons.add),
+      label: const Text(
+        'CREAR TORNEO',
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.2,
+        ),
+      ),
+      icon: const Icon(Icons.add_circle_outline, size: 24),
       backgroundColor: const Color(0xFFE94560),
+      elevation: 8,
+      extendedPadding: const EdgeInsets.symmetric(horizontal: 24),
     );
   }
 }

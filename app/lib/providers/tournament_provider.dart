@@ -50,4 +50,42 @@ class TournamentProvider with ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// NUEVO: createTournamentPremium - Soporta scope, speed y configuración Pro
+  Future<void> createTournamentPremium({
+    required String name,
+    required int buyIn,
+    required String scope,
+    required String speed,
+    String? clubId,
+    int? estimatedPlayers,
+    String? finalTableMusic,
+    String? finalTableTheme,
+  }) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final result = await _functions.httpsCallable('createTournamentFunction').call({
+        'name': name,
+        'buyIn': buyIn,
+        'scope': scope,
+        'speed': speed,
+        'clubId': clubId,
+        'estimatedPlayers': estimatedPlayers ?? 10,
+        'finalTableMusic': finalTableMusic,
+        'finalTableTheme': finalTableTheme,
+      });
+
+      if (result.data['success'] == true) {
+        await fetchTournaments(); // Refresh list
+      }
+    } catch (e) {
+      print('Error creating tournament: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 }
