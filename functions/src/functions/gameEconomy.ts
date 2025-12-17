@@ -48,6 +48,12 @@ interface JoinTableRequest {
 
 interface ProcessCashOutRequest {
     tableId: string;
+    uid: string;
+    finalChips: number;
+    reason: 'EXIT' | 'DISCONNECT' | 'BANKRUPTCY' | 'TABLE_CLOSED';
+    authPayload?: string;  // JSON signed payload from server
+    signature?: string;    // HMAC-SHA256 signature
+    // Legacy support
     userId?: string;
     playerChips?: number;
 }
@@ -454,61 +460,107 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
  * ═══════════════════════════════════════════════════════════════════════════
  * 3. PROCESS CASH OUT - SALIDA LIMPIA (SIN RAKE)
  * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * IMPORTANTE: Ahora soporta cashouts iniciados por el servidor con firma HMAC.
+ * El servidor puede forzar el cierre de sesión sin depender del cliente.
  */
-export const processCashOut = async (data: ProcessCashOutRequest, context: functions.https.CallableContext) => {
-    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
-
-    const uid = context.auth.uid;
-    const targetUserId = data.userId || uid;
+export const processCashOut = async (data: ProcessCashOutRequest, context?: functions.https.CallableContext) => {
     const db = getDb();
-    const { tableId } = data;
+    const { tableId, authPayload, signature } = data;
 
     if (!tableId) throw new functions.https.HttpsError('invalid-argument', 'Missing tableId.');
-    if (targetUserId !== uid) throw new functions.https.HttpsError('permission-denied', 'Cannot cash out other users.');
 
-    console.log(`[ECONOMY] Processing CashOut for ${targetUserId} from ${tableId}`);
+    // Determinar el UID del jugador
+    let targetUserId: string;
+    let chipsToTransfer: number;
+    let cashoutReason: string;
+
+    // 🔐 VERIFICACIÓN DE FIRMA (Server-Initiated Cashout)
+    if (authPayload && signature) {
+        console.log(`[CASHOUT] 🔐 Server-initiated cashout with signature verification`);
+
+        if (!verifySignature(authPayload, signature)) {
+            console.error(`[CASHOUT] ❌ Invalid signature! Possible fraud attempt.`);
+            throw new functions.https.HttpsError('permission-denied', 'Invalid signature');
+        }
+
+        // Parsear el payload firmado (fuente de verdad)
+        try {
+            const trustedPayload = JSON.parse(authPayload);
+            targetUserId = trustedPayload.uid;
+            chipsToTransfer = Number(trustedPayload.finalChips) || 0;
+            cashoutReason = trustedPayload.reason || 'server_initiated';
+
+            console.log(`[CASHOUT] ✅ Signature verified. Processing ${cashoutReason} for ${targetUserId}: ${chipsToTransfer} chips`);
+        } catch (e) {
+            console.error(`[CASHOUT] ❌ Error parsing authPayload:`, e);
+            throw new functions.https.HttpsError('invalid-argument', 'Invalid authPayload format');
+        }
+    } else {
+        // Client-initiated cashout (legacy)
+        if (!context || !context.auth) {
+            throw new functions.https.HttpsError('unauthenticated', 'Authentication required for client cashout.');
+        }
+
+        const uid = context.auth.uid;
+        targetUserId = data.userId || data.uid || uid;
+        cashoutReason = data.reason || 'manual_cashout';
+
+        if (targetUserId !== uid) {
+            throw new functions.https.HttpsError('permission-denied', 'Cannot cash out other users.');
+        }
+
+        console.log(`[CASHOUT] 📱 Client-initiated cashout for ${targetUserId}`);
+    }
 
     try {
-        await db.runTransaction(async (transaction) => {
-            // 1. Leer Mesa (FUENTE DE VERDAD)
-            const tableRef = db.collection('poker_tables').doc(tableId);
-            const tableDoc = await transaction.get(tableRef);
-            if (!tableDoc.exists) throw new functions.https.HttpsError('not-found', 'Table not found.');
-
-            const tableData = tableDoc.data();
-            const players = Array.isArray(tableData?.players) ? tableData.players : [];
-            const player = players.find((p: any) => p.id === targetUserId);
-
-            // Determinar monto a devolver
-            let chipsToTransfer = 0;
-            if (player) {
-                chipsToTransfer = Number(player.chips) || 0;
-            } else if (data.playerChips !== undefined) {
-                // Caso especial: jugador ya removido visualmente pero no financieramente
-                chipsToTransfer = Number(data.playerChips);
-            } else {
-                throw new functions.https.HttpsError('failed-precondition', 'Player not found in table and no chips provided.');
-            }
-
-            // 2. Leer Usuario
-            const userRef = db.collection('users').doc(targetUserId);
-
-            // 3. Buscar Sesión (para auditoría)
+        const result = await db.runTransaction(async (transaction) => {
+            // 1. IDEMPOTENCY CHECK - Verificar si ya fue procesado
             const sessionQuery = await db.collection('poker_sessions')
                 .where('userId', '==', targetUserId)
                 .where('roomId', '==', tableId)
-                .where('status', '==', 'active')
-                .get(); // Query fuera de tx si es posible, pero necesitamos consistencia. 
-            // Firestore permite queries en tx si están indexadas.
-            // Asumimos que processCashOut es llamado infrecuentemente.
-            // Para simplificar y evitar limitaciones de query en tx, 
-            // podríamos hacer la query fuera y validar dentro con un get().
-            // Pero aquí haremos la actualización directa de las sesiones encontradas.
+                .limit(1)
+                .get();
 
-            // 4. EJECUCIÓN
+            if (!sessionQuery.empty) {
+                const sessionDoc = sessionQuery.docs[0];
+                const sessionData = sessionDoc.data();
+
+                if (sessionData.status === 'completed') {
+                    console.log(`[CASHOUT] ⚠️ Session already completed. Skipping duplicate cashout.`);
+                    return { success: true, skipped: true, reason: 'already_completed' };
+                }
+            }
+
+            // 2. Determinar monto si no viene del payload firmado
+            if (!authPayload) {
+                const tableRef = db.collection('poker_tables').doc(tableId);
+                const tableDoc = await transaction.get(tableRef);
+
+                if (tableDoc.exists) {
+                    const tableData = tableDoc.data();
+                    const players = Array.isArray(tableData?.players) ? tableData.players : [];
+                    const player = players.find((p: any) => p.id === targetUserId || p.uid === targetUserId);
+
+                    if (player) {
+                        chipsToTransfer = Number(player.chips) || 0;
+                    } else if (data.playerChips !== undefined || data.finalChips !== undefined) {
+                        chipsToTransfer = Number(data.playerChips || data.finalChips) || 0;
+                    } else {
+                        console.warn(`[CASHOUT] ⚠️ Player ${targetUserId} not found in table ${tableId}`);
+                        chipsToTransfer = 0;
+                    }
+                } else {
+                    console.warn(`[CASHOUT] ⚠️ Table ${tableId} not found, using fallback chips`);
+                    chipsToTransfer = Number(data.playerChips || data.finalChips) || 0;
+                }
+            }
+
+            // 3. TRANSFERENCIA FINANCIERA
+            const userRef = db.collection('users').doc(targetUserId);
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-            // A. Transferir Saldo (SIN RAKE)
+            // ✅ CRÍTICO: Resetear moneyInPlay a 0 y currentTableId a null
             transaction.update(userRef, {
                 credit: admin.firestore.FieldValue.increment(chipsToTransfer),
                 moneyInPlay: 0,
@@ -516,48 +568,58 @@ export const processCashOut = async (data: ProcessCashOutRequest, context: funct
                 lastUpdated: timestamp
             });
 
-            // B. Cerrar Sesiones
+            // 4. CERRAR SESIONES
             if (!sessionQuery.empty) {
                 sessionQuery.docs.forEach(doc => {
                     transaction.update(doc.ref, {
                         status: 'completed',
                         currentChips: chipsToTransfer,
                         endTime: timestamp,
-                        closedReason: 'cashout'
+                        closedReason: cashoutReason
                     });
                 });
             }
 
-            // C. Actualizar Mesa (Quitar jugador o poner chips a 0)
-            if (player) {
-                const playerIndex = players.findIndex((p: any) => p.id === targetUserId);
-                transaction.update(tableRef, {
-                    [`players.${playerIndex}.chips`]: 0,
-                    [`players.${playerIndex}.inGame`]: false
-                });
+            // 5. ACTUALIZAR MESA (marcar jugador como fuera)
+            const tableRef = db.collection('poker_tables').doc(tableId);
+            const tableDoc = await transaction.get(tableRef);
+
+            if (tableDoc.exists) {
+                const tableData = tableDoc.data();
+                const players = Array.isArray(tableData?.players) ? tableData.players : [];
+                const playerIndex = players.findIndex((p: any) => p.id === targetUserId || p.uid === targetUserId);
+
+                if (playerIndex !== -1) {
+                    transaction.update(tableRef, {
+                        [`players.${playerIndex}.chips`]: 0,
+                        [`players.${playerIndex}.inGame`]: false
+                    });
+                }
             }
 
-            // D. Logs
+            // 6. LOGS DE TRANSACCIÓN
             const txLogRef = db.collection('transaction_logs').doc();
             transaction.set(txLogRef, {
                 userId: targetUserId,
                 amount: chipsToTransfer,
                 type: 'credit',
-                reason: `Poker Cashout - Table ${tableId}`,
+                reason: `Poker Cashout - ${cashoutReason}`,
                 timestamp: timestamp,
-                metadata: { tableId, chips: chipsToTransfer }
+                metadata: { tableId, chips: chipsToTransfer, reason: cashoutReason }
             });
 
-            console.log(`[ECONOMY] Player ${targetUserId} cashed out ${chipsToTransfer}`);
+            console.log(`[CASHOUT] ✅ Successfully cashed out ${targetUserId}: ${chipsToTransfer} chips (${cashoutReason})`);
+
+            return { success: true, amount: chipsToTransfer, skipped: false };
         });
 
-        return { success: true, amount: 0 }; // Amount is dynamic, but client might not need it returned here if they listen to user doc
-
+        return result;
     } catch (error: any) {
-        console.error(`[ECONOMY] CashOut Error:`, error);
+        console.error(`[CASHOUT] ❌ Error:`, error);
         throw error instanceof functions.https.HttpsError ? error : new functions.https.HttpsError('internal', error.message);
     }
 };
+
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════

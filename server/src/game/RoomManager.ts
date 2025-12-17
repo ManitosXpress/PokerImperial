@@ -1,6 +1,15 @@
 import { Room, Player } from '../types';
 import { PokerGame } from './PokerGame';
 import { endPokerSession } from '../middleware/firebaseAuth';
+import * as admin from 'firebase-admin';
+import * as crypto from 'crypto';
+
+// 🔐 GAME SECRET para firmar cashouts
+const GAME_SECRET = process.env.GAME_SECRET || 'default-secret-change-in-production-2024';
+
+if (!process.env.GAME_SECRET) {
+    console.warn('⚠️ [SECURITY] GAME_SECRET not set, using default - NOT SECURE FOR PRODUCTION!');
+}
 
 export class RoomManager {
     private rooms: Map<string, Room> = new Map();
@@ -256,11 +265,78 @@ export class RoomManager {
         return this.rooms.get(roomId);
     }
 
+    // ✅ NUEVO: Método para trigger cashout firmado con HMAC
+    private async triggerSecureCashout(
+        uid: string,
+        tableId: string,
+        finalChips: number,
+        reason: 'EXIT' | 'DISCONNECT' | 'BANKRUPTCY' | 'TABLE_CLOSED'
+    ): Promise<void> {
+        // 1. Generar payload firmado
+        const payload = {
+            uid,
+            tableId,
+            finalChips,
+            reason,
+            timestamp: Date.now()
+        };
+
+        const payloadString = JSON.stringify(payload);
+        const signature = crypto.createHmac('sha256', GAME_SECRET)
+            .update(payloadString)
+            .digest('hex');
+
+        // 2. Escribir a Firestore en _trigger_cashout
+        try {
+            const db = admin.firestore();
+            await db.collection('_trigger_cashout').add({
+                uid,
+                tableId,
+                finalChips,
+                reason,
+                authPayload: payloadString,
+                signature,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            console.log(`✅ Cashout triggered for ${uid}: ${finalChips} chips (${reason})`);
+        } catch (error) {
+            console.error(`❌ Failed to trigger cashout for ${uid}:`, error);
+
+            // ⚠️ CRÍTICO: Reintentar una vez si falla
+            try {
+                console.log(`🔄 Retrying cashout trigger for ${uid}...`);
+                const db = admin.firestore();
+                await db.collection('_trigger_cashout').add({
+                    uid,
+                    tableId,
+                    finalChips,
+                    reason,
+                    authPayload: payloadString,
+                    signature,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`✅ Cashout retry succeeded for ${uid}`);
+            } catch (retryError) {
+                console.error(`❌ Cashout retry failed for ${uid}:`, retryError);
+                throw retryError; // Propagar para que el caller lo maneje
+            }
+        }
+    }
+
     public removePlayer(playerId: string): { roomId: string, player: Player } | null {
         for (const [roomId, room] of this.rooms) {
             const index = room.players.findIndex(p => p.id === playerId);
             if (index !== -1) {
                 const player = room.players[index];
+
+                // ✅ NUEVO: Trigger cashout ANTES de remover al jugador
+                if (player.uid && player.chips > 0 && !player.isBot) {
+                    console.log(`💰 Triggering cashout for ${player.uid}: ${player.chips} chips`);
+                    this.triggerSecureCashout(player.uid, roomId, player.chips, 'EXIT')
+                        .catch(err => console.error(`❌ Failed to trigger cashout for ${player.uid}:`, err));
+                }
+
                 room.players.splice(index, 1);
 
                 // Also remove from game instance if exists
@@ -358,9 +434,7 @@ export class RoomManager {
     }
 
     // --- CLOSE TABLE AND CASH OUT ---
-    // CRÍTICO: Esta función SOLO notifica. La liquidación real se hace en la Cloud Function.
-    // La Cloud Function closeTableAndCashOut() es la única fuente de verdad para liquidaciones.
-    // NO llamar a endPokerSession() aquí para evitar doble liquidación.
+    // ✅ NUEVO: Ahora el servidor puede forzar cashouts para TODOS los jugadores
     public async closeTableAndCashOut(roomId: string) {
         const room = this.rooms.get(roomId);
         if (!room) {
@@ -368,23 +442,33 @@ export class RoomManager {
             return;
         }
 
-        console.log(`🔒 Notificando cierre de mesa ${roomId}. La liquidación será procesada por la Cloud Function.`);
+        console.log(`🔒 Cerrando mesa ${roomId} y procesando cashouts para todos los jugadores...`);
 
-        // Notify clients que la mesa se cerrará
-        // La Cloud Function closeTableAndCashOut() se encargará de la liquidación real
+        // ✅ CRÍTICO: Procesar cashout para TODOS los jugadores (excepto bots)
+        const cashoutPromises = room.players
+            .filter(p => p.uid && p.chips > 0 && !p.isBot)
+            .map(p => {
+                console.log(`💰 Triggering cashout for ${p.uid}: ${p.chips} chips`);
+                return this.triggerSecureCashout(p.uid!, roomId, p.chips, 'TABLE_CLOSED');
+            });
+
+        try {
+            await Promise.all(cashoutPromises);
+            console.log(`✅ All players cashed out from table ${roomId}`);
+        } catch (error) {
+            console.error(`❌ Error processing cashouts for table ${roomId}:`, error);
+            // Continuar de todos modos para cerrar la mesa
+        }
+
+        // Notify clients
         if (this.emitCallback) {
             this.emitCallback(roomId, 'room_closed', {
-                reason: 'Game Finished - Last Man Standing',
-                message: 'La partida ha terminado. Las fichas se están convirtiendo a créditos...'
+                reason: 'Game Finished',
+                message: 'Chips converted to credits'
             });
         }
 
-        // CRÍTICO: NO procesar liquidaciones aquí.
-        // La Cloud Function closeTableAndCashOut() debe ser llamada desde el cliente
-        // o desde un trigger de Firestore para procesar TODOS los jugadores en una sola transacción atómica.
-        console.log(`ℹ️ Mesa ${roomId} notificada. Esperando que la Cloud Function procese la liquidación.`);
-
-        // Eliminar la sala después de un breve delay para asegurar que los mensajes se envíen
+        // Eliminar la sala después de un breve delay
         setTimeout(() => {
             this.deleteRoom(roomId);
         }, 1000);

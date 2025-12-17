@@ -15,6 +15,7 @@ import { dailyEconomyCron as newDailyEconomyCron, triggerDailyStats } from './fu
 import { getTopHolders, getTopWinners24h, get24hMetrics, getWeeklyTrends, getCurrentLiquidity, getTotalRake } from './functions/analytics';
 import { cleanupDuplicateSessions, checkUserSessions } from './functions/cleanupDuplicateSessions';
 import { sanitizeMoneyInPlay } from './functions/sanitize_money_in_play';
+import { onCashoutTriggered } from './functions/cashoutTrigger';
 
 // Initialize Firebase Admin SDK (lazy initialization)
 if (!admin.apps.length) {
@@ -94,4 +95,7 @@ export const getTotalRakeFunction = getTotalRake;
 
 // Backfill / Repair Script (Callable version to avoid timeout)
 export { recalcDailyStatsCallable } from './functions/backfillStats';
+
+// Cashout Trigger (Server-Initiated Cashouts)
+export const onCashoutTriggeredFunction = onCashoutTriggered;
 
