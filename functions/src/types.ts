@@ -62,24 +62,31 @@ export interface LedgerEntry {
     metadata?: any;
 }
 
+export type TournamentType = 'FREEZEOUT' | 'REBUY' | 'BOUNTY' | 'TURBO';
+
 export interface Tournament {
     id: string;
     name: string;
     buyIn: number;
-    type: string; // Deprecated, mantener por compatibilidad
-    scope: 'GLOBAL' | 'CLUB'; // NUEVO: Alcance del torneo
-    speed: 'TURBO' | 'REGULAR' | 'DEEP_STACK'; // NUEVO: Velocidad
+    type: TournamentType;
+    scope: 'GLOBAL' | 'CLUB';
+    settings: {
+        rebuyAllowed: boolean;
+        bountyAmount?: number; // Para KO
+        blindSpeed: 'SLOW' | 'NORMAL' | 'TURBO';
+    };
     prizePool: number;
-    estimatedPlayers: number; // NUEVO: Para calcular prize pool
+    estimatedPlayers: number;
     createdBy: string;
-    clubId?: string; // Obligatorio si scope === 'CLUB'
-    status: 'registering' | 'active' | 'completed';
+    clubId?: string;
+    status: 'REGISTERING' | 'LATE_REG' | 'RUNNING' | 'FINISHED';
     createdAt: any;
     startTime: any;
-    players: string[];
+    registeredPlayerIds: string[]; // UIDs de los inscritos
+    chatRoomId: string; // ID para la colección de mensajes
     // Configuración de Mesa Final
-    finalTableMusic?: string; // NUEVO: Música especial para mesa final
-    finalTableTheme?: string; // NUEVO: Tema visual para mesa final
+    finalTableMusic?: string;
+    finalTableTheme?: string;
 }
 
 export interface ClubStats {

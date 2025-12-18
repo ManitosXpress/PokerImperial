@@ -6,6 +6,7 @@ import '../tournament/create_tournament_screen.dart';
 import '../../widgets/poker_loading_indicator.dart';
 import '../../widgets/tournament/tournament_list_item.dart';
 import '../../widgets/tournament/club_hall_of_fame.dart';
+import '../tournament/tournament_lobby_screen.dart';
 
 class ClubTournamentsScreen extends StatefulWidget {
   final String clubId;
@@ -74,7 +75,6 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
         ),
         child: _buildContent(),
       ),
-      floatingActionButton: _buildFloatingActionButton(),
     );
   }
 
@@ -128,108 +128,19 @@ class _ClubTournamentsScreenState extends State<ClubTournamentsScreen> {
                   ),
                 ],
               ),
-        // If embedded, show FAB in bottom right of the tab view
-        if (widget.isEmbedded && widget.isOwner)
-          Positioned(
-            bottom: 16,
-            right: 16,
-            child: _buildFloatingActionButton()!,
-          ),
       ],
     );
   }
 
   void _handleJoinTournament(Map<String, dynamic> tournament) {
-    final buyIn = (tournament['buyIn'] as num).toDouble();
-    final balance = Provider.of<WalletProvider>(context, listen: false).balance;
-
-    if (balance < buyIn) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: const Color(0xFF1A1A2E),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: const BorderSide(color: Color(0xFFE94560), width: 2),
-          ),
-          title: Row(
-            children: const [
-              Icon(Icons.warning_amber_rounded, color: Color(0xFFE94560), size: 32),
-              SizedBox(width: 12),
-              Text(
-                'Saldo Insuficiente',
-                style: TextStyle(color: Color(0xFFE94560)),
-              ),
-            ],
-          ),
-          content: const Text(
-            'No tienes créditos suficientes para entrar al torneo.\n\n'
-            'Por favor, comunícate con tu líder de club para cargar más crédito.',
-            style: TextStyle(color: Colors.white70, fontSize: 16),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              style: TextButton.styleFrom(
-                backgroundColor: const Color(0xFFE94560),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: const Text(
-                'Entendido',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-      );
-    } else {
-      // Proceed with join logic (to be implemented)
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: const [
-              Icon(Icons.info_outline, color: Colors.white),
-              SizedBox(width: 12),
-              Text('Uniéndose al torneo... (Lógica pendiente)'),
-            ],
-          ),
-          backgroundColor: const Color(0xFF00C851),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      );
-    }
-  }
-
-  Widget? _buildFloatingActionButton() {
-    if (!widget.isOwner) return null;
-    
-    return FloatingActionButton.extended(
-      onPressed: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => CreateTournamentScreen(clubId: widget.clubId),
-          ),
-        );
-        _loadTournaments();
-      },
-      label: const Text(
-        'CREAR TORNEO',
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.2,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TournamentLobbyScreen(
+          tournamentId: tournament['id'],
         ),
       ),
-      icon: const Icon(Icons.add_circle_outline, size: 24),
-      backgroundColor: const Color(0xFFE94560),
-      elevation: 8,
-      extendedPadding: const EdgeInsets.symmetric(horizontal: 24),
     );
   }
+
 }

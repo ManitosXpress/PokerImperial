@@ -49,13 +49,13 @@ class TournamentSpeedSelector extends StatelessWidget {
           decoration: BoxDecoration(
             gradient: isSelected
                 ? const LinearGradient(
-                    colors: [Color(0xFFE94560), Color(0xFFCC3850)],
+                    colors: [Color(0xFFD4AF37), Color(0xFFFFD700)],
                   )
                 : null,
             color: isSelected ? null : Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? const Color(0xFFE94560) : Colors.white.withOpacity(0.1),
+              color: isSelected ? const Color(0xFFD4AF37) : Colors.white.withOpacity(0.1),
               width: isSelected ? 2 : 1,
             ),
           ),
@@ -69,7 +69,7 @@ class TournamentSpeedSelector extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white.withOpacity(0.5),
+                  color: isSelected ? Colors.black : Colors.white.withOpacity(0.5),
                   fontSize: 12,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),

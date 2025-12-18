@@ -196,7 +196,7 @@ class _ClubOwnerDashboardState extends State<ClubOwnerDashboard> {
                     children: [
                       Expanded(
                         child: _GameOpCard(
-                          title: 'Mesas Privadas',
+                          title: 'Mesas Públicas',
                           icon: Icons.table_bar,
                           buttonText: 'Crear Nueva Sala',
                           imageAsset: 'assets/images/poker_table_bg.jpg', // Placeholder or use gradient

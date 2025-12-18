@@ -51,12 +51,13 @@ class TournamentProvider with ChangeNotifier {
     }
   }
 
-  /// NUEVO: createTournamentPremium - Soporta scope, speed y configuración Pro
+  /// NUEVO: createTournamentPremium - Soporta scope, type y settings
   Future<void> createTournamentPremium({
     required String name,
     required int buyIn,
     required String scope,
-    required String speed,
+    required String type, // FREEZEOUT, REBUY, BOUNTY, TURBO
+    required Map<String, dynamic> settings, // { rebuyAllowed, bountyAmount, blindSpeed }
     String? clubId,
     int? estimatedPlayers,
     String? finalTableMusic,
@@ -70,7 +71,8 @@ class TournamentProvider with ChangeNotifier {
         'name': name,
         'buyIn': buyIn,
         'scope': scope,
-        'speed': speed,
+        'type': type,
+        'settings': settings,
         'clubId': clubId,
         'estimatedPlayers': estimatedPlayers ?? 10,
         'finalTableMusic': finalTableMusic,
@@ -86,6 +88,75 @@ class TournamentProvider with ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  /// Register for a tournament
+  Future<Map<String, dynamic>> registerForTournament(String tournamentId) async {
+    try {
+      final result = await _functions.httpsCallable('registerForTournamentFunction').call({
+        'tournamentId': tournamentId,
+      });
+
+      if (result.data['success'] == true) {
+        await fetchTournaments(); // Refresh list
+      }
+
+      return {
+        'success': true,
+        'message': result.data['message'] ?? 'Inscripción exitosa',
+        'remainingCredits': result.data['remainingCredits'],
+      };
+    } catch (e) {
+      print('Error registering for tournament: $e');
+      rethrow;
+    }
+  }
+
+  /// Unregister from a tournament
+  Future<Map<String, dynamic>> unregisterFromTournament(String tournamentId) async {
+    try {
+      final result = await _functions.httpsCallable('unregisterFromTournamentFunction').call({
+        'tournamentId': tournamentId,
+      });
+
+      if (result.data['success'] == true) {
+        await fetchTournaments(); // Refresh list
+      }
+
+      return {
+        'success': true,
+        'message': result.data['message'] ?? 'Inscripción cancelada',
+        'refundAmount': result.data['refundAmount'],
+      };
+    } catch (e) {
+      print('Error unregistering from tournament: $e');
+      rethrow;
+    }
+  }
+
+  /// Send a chat message
+  Future<void> sendMessage(String tournamentId, String message) async {
+    try {
+      await _functions.httpsCallable('sendTournamentMessageFunction').call({
+        'tournamentId': tournamentId,
+        'message': message,
+      });
+    } catch (e) {
+      print('Error sending message: $e');
+      rethrow;
+    }
+  }
+
+  /// Start the tournament (Host only)
+  Future<void> startTournament(String tournamentId) async {
+    try {
+      await _functions.httpsCallable('startTournamentFunction').call({
+        'tournamentId': tournamentId,
+      });
+    } catch (e) {
+      print('Error starting tournament: $e');
+      rethrow;
     }
   }
 }

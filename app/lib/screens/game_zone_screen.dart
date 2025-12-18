@@ -129,38 +129,7 @@ class _GameZoneScreenState extends State<GameZoneScreen> with SingleTickerProvid
           ),
         ),
       ),
-      floatingActionButton: _isLoadingRole || _userRole != 'club'
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: () {
-                if (_tabController.index == 0) {
-                  showDialog(
-                    context: context,
-                    builder: (context) => const CreateTableDialog(),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(isSpanish
-                          ? 'Crear Torneo - Próximamente'
-                          : 'Create Tournament - Coming Soon'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
-                }
-              },
-              backgroundColor: const Color(0xFFFFD700),
-              icon: const Icon(Icons.add, color: Colors.black),
-              label: Text(
-                _tabController.index == 0
-                    ? (isSpanish ? 'Crear Mesa' : 'Create Table')
-                    : (isSpanish ? 'Crear Torneo' : 'Create Tournament'),
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+
     );
   }
 }

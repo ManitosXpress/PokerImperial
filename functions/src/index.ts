@@ -3,7 +3,8 @@ import * as admin from "firebase-admin";
 import { addCredits, deductCredits, withdrawCredits, adminWithdrawCredits } from "./functions/credits";
 import { settleGameRound, joinTable, processCashOut, universalTableSettlement } from "./functions/gameEconomy";
 import { createClub, joinClub, leaveClub, ownerCreateMember, sellerCreatePlayer } from './functions/club';
-import { createTournament } from './functions/tournament';
+import { createTournament, registerForTournament, unregisterFromTournament, startTournament } from './functions/tournament';
+import { sendTournamentMessage } from './functions/chat';
 import { onTournamentFinish } from './functions/tournamentTriggers';
 import { getClubLeaderboard } from './functions/leaderboard';
 import { ownerTransferCredit, sellerTransferCredit } from './functions/clubWallet';
@@ -39,11 +40,14 @@ export const sellerCreatePlayerFunction = functions.https.onCall(sellerCreatePla
 
 // Tournament Functions
 export const createTournamentFunction = functions.https.onCall(createTournament);
+export const registerForTournamentFunction = functions.https.onCall(registerForTournament);
+export const unregisterFromTournamentFunction = functions.https.onCall(unregisterFromTournament);
+export const startTournamentFunction = functions.https.onCall(startTournament);
+export const sendTournamentMessageFunction = functions.https.onCall(sendTournamentMessage);
 export const onTournamentFinishFunction = onTournamentFinish;
 
 // Leaderboard Functions
 export const getClubLeaderboardFunction = functions.https.onCall(getClubLeaderboard);
-
 // Club Wallet Functions
 export const ownerTransferCreditFunction = functions.https.onCall(ownerTransferCredit);
 export const sellerTransferCreditFunction = functions.https.onCall(sellerTransferCredit);

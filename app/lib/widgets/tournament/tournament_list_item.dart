@@ -91,6 +91,7 @@ class TournamentListItem extends StatelessWidget {
                     child: const Text(
                       'UNIRSE',
                       style: TextStyle(
+                        color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 1.2,
