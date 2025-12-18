@@ -191,7 +191,7 @@ export const registerForTournament = async (data: any, context: functions.https.
     }
 
     // 6. Verificar créditos suficientes
-    const userCredits = userData?.credits || 0;
+    const userCredits = userData?.credit || 0;
     const buyIn = tournament?.buyIn || 0;
 
     if (userCredits < buyIn) {
@@ -206,13 +206,24 @@ export const registerForTournament = async (data: any, context: functions.https.
         await db.runTransaction(async (transaction) => {
             // Deducir buy-in
             transaction.update(userDoc.ref, {
-                credits: admin.firestore.FieldValue.increment(-buyIn)
+                credit: admin.firestore.FieldValue.increment(-buyIn)
             });
 
-            // Agregar a registeredPlayerIds
+            // Agregar a registeredPlayerIds (Mantener por compatibilidad temporal, pero la UI usará subcolección)
             transaction.update(tournamentRef, {
                 registeredPlayerIds: admin.firestore.FieldValue.arrayUnion(uid),
                 prizePool: admin.firestore.FieldValue.increment(buyIn)
+            });
+
+            // Agregar a subcolección participants
+            const participantRef = tournamentRef.collection('participants').doc(uid);
+            transaction.set(participantRef, {
+                uid: uid,
+                displayName: userData?.displayName || 'Unknown Player',
+                photoURL: userData?.photoURL || null,
+                joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+                chips: 0, // Chips iniciales se asignan al iniciar o son 0 en lobby
+                status: 'registered'
             });
 
             // Crear entrada en ledger
@@ -299,7 +310,7 @@ export const unregisterFromTournament = async (data: any, context: functions.htt
 
             // Refund buy-in
             transaction.update(userRef, {
-                credits: admin.firestore.FieldValue.increment(buyIn)
+                credit: admin.firestore.FieldValue.increment(buyIn)
             });
 
             // Remover de registeredPlayerIds
@@ -307,6 +318,10 @@ export const unregisterFromTournament = async (data: any, context: functions.htt
                 registeredPlayerIds: admin.firestore.FieldValue.arrayRemove(uid),
                 prizePool: admin.firestore.FieldValue.increment(-buyIn)
             });
+
+            // Remover de subcolección participants
+            const participantRef = tournamentRef.collection('participants').doc(uid);
+            transaction.delete(participantRef);
 
             // Crear entrada en ledger
             const ledgerRef = db.collection('financial_ledger').doc();
@@ -391,10 +406,10 @@ export const startTournament = async (data: any, context: functions.https.Callab
     const maxPlayersPerTable = 9; // Standard full ring
     const playerCount = registeredPlayerIds.length;
     const tableCount = Math.ceil(playerCount / maxPlayersPerTable);
-    
+
     // Shuffle players for random seating
     const shuffledPlayers = [...registeredPlayerIds].sort(() => Math.random() - 0.5);
-    
+
     // Fetch user profiles for table population
     const userRefs = shuffledPlayers.map((pid: string) => db.collection('users').doc(pid));
     // Firestore limits getAll to 10 args? No, but let's be safe. 
@@ -413,7 +428,7 @@ export const startTournament = async (data: any, context: functions.https.Callab
     for (let i = 0; i < tableCount; i++) {
         const tableId = db.collection('poker_tables').doc().id;
         tableIds.push(tableId);
-        
+
         // Determine players for this table
         const start = i * maxPlayersPerTable;
         const end = Math.min(start + maxPlayersPerTable, playerCount);

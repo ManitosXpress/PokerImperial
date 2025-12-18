@@ -168,7 +168,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                           // Left Panel: Registered Players
                           Expanded(
                             flex: 1,
-                            child: _buildPlayersList(registeredPlayerIds),
+                            child: _buildPlayersList(widget.tournamentId, tournament['createdBy']),
                           ),
                           
                           // Right Panel: Chat
@@ -339,7 +339,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
     );
   }
 
-  Widget _buildPlayersList(List<String> playerIds) {
+  Widget _buildPlayersList(String tournamentId, String? hostId) {
     return Container(
       margin: const EdgeInsets.only(left: 16, right: 8, bottom: 16),
       decoration: BoxDecoration(
@@ -361,24 +361,52 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                 topRight: Radius.circular(16),
               ),
             ),
-            child: Row(
-              children: [
-                const Icon(Icons.people, color: Color(0xFFD4AF37)),
-                const SizedBox(width: 8),
-                Text(
-                  'Jugadores Inscritos (${playerIds.length})',
-                  style: const TextStyle(
-                    color: Color(0xFFD4AF37),
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('tournaments')
+                  .doc(tournamentId)
+                  .collection('participants')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+                return Row(
+                  children: [
+                    const Icon(Icons.people, color: Color(0xFFD4AF37)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Jugadores Inscritos ($count)',
+                      style: const TextStyle(
+                        color: Color(0xFFD4AF37),
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
           Expanded(
-            child: playerIds.isEmpty
-                ? Center(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('tournaments')
+                  .doc(tournamentId)
+                  .collection('participants')
+                  .orderBy('joinedAt', descending: false)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
+                }
+
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final participants = snapshot.data!.docs;
+
+                if (participants.isEmpty) {
+                  return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -405,95 +433,105 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                         ),
                       ],
                     ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(8),
-                    itemCount: playerIds.length,
-                    itemBuilder: (context, index) {
-                      return FutureBuilder<DocumentSnapshot>(
-                        future: FirebaseFirestore.instance
-                            .collection('users')
-                            .doc(playerIds[index])
-                            .get(),
-                        builder: (context, userSnapshot) {
-                          if (!userSnapshot.hasData) {
-                            return const SizedBox.shrink();
-                          }
+                  );
+                }
 
-                          final userData = userSnapshot.data!.data() as Map<String, dynamic>?;
-                          final displayName = userData?['displayName'] ?? 'Jugador ${index + 1}';
-                          final photoURL = userData?['photoURL'];
+                return ListView.builder(
+                  padding: const EdgeInsets.all(8),
+                  itemCount: participants.length,
+                  itemBuilder: (context, index) {
+                    final participant = participants[index].data() as Map<String, dynamic>;
+                    final uid = participant['uid'];
+                    final displayName = participant['displayName'] ?? 'Jugador';
+                    final photoURL = participant['photoURL'];
+                    final isHost = uid == hostId;
 
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(12),
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white.withOpacity(0.1),
+                            Colors.white.withOpacity(0.05),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: isHost 
+                            ? Border.all(color: const Color(0xFFD4AF37).withOpacity(0.5))
+                            : null,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.white.withOpacity(0.1),
-                                  Colors.white.withOpacity(0.05),
-                                ],
+                              shape: BoxShape.circle,
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFD4AF37), Color(0xFFFFD700)],
                               ),
-                              borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFFD4AF37), Color(0xFFFFD700)],
-                                    ),
-                                  ),
-                                  child: photoURL != null
-                                      ? ClipOval(
-                                          child: Image.network(
-                                            photoURL,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) => const Icon(
-                                              Icons.person,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        )
-                                      : const Icon(Icons.person, color: Colors.white),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    displayName,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                ),
-                                if (index == 0)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFD4AF37),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Text(
-                                      'HOST',
-                                      style: TextStyle(
-                                        color: Colors.black,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 10,
+                            child: photoURL != null
+                                ? ClipOval(
+                                    child: Image.network(
+                                      photoURL,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                        Icons.person,
+                                        color: Colors.white,
                                       ),
+                                    ),
+                                  )
+                                : const Icon(Icons.person, color: Colors.white),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  displayName,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                if (isHost)
+                                  Text(
+                                    'Organizador',
+                                    style: TextStyle(
+                                      color: const Color(0xFFD4AF37).withOpacity(0.8),
+                                      fontSize: 10,
                                     ),
                                   ),
                               ],
                             ),
-                          );
-                        },
-                      );
-                    },
-                  ),
+                          ),
+                          if (isHost)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFD4AF37),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'HOST',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -534,13 +572,23 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
-                  .collection('chats')
-                  .doc(chatRoomId)
+                  .collection('tournaments')
+                  .doc(widget.tournamentId)
                   .collection('messages')
                   .orderBy('timestamp', descending: true)
                   .limit(50)
                   .snapshots(),
               builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'Error: ${snapshot.error}',
+                      style: const TextStyle(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }
+
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
@@ -549,7 +597,10 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
 
                 if (messages.isEmpty) {
                   return Center(
-                    child: Text('¡Sé el primero en escribir!', style: TextStyle(color: Colors.white.withOpacity(0.3))),
+                    child: Text(
+                      '¡Sé el primero en escribir!',
+                      style: TextStyle(color: Colors.white.withOpacity(0.3)),
+                    ),
                   );
                 }
 

@@ -57,8 +57,7 @@ export const sendTournamentMessage = async (data: any, context: functions.https.
     }
     */
 
-    // 4. Guardar mensaje en la subcolección 'messages' del documento de chat (o colección raíz 'chats')
-    // Usaremos una colección raíz 'chats/{chatRoomId}/messages' para escalabilidad
+    // 4. Guardar mensaje en la subcolección 'messages' del documento del torneo
     try {
         const messageData = {
             senderId: uid,
@@ -69,8 +68,8 @@ export const sendTournamentMessage = async (data: any, context: functions.https.
             type: 'text', // 'text', 'system', 'emoji'
         };
 
-        await db.collection('chats')
-            .doc(chatRoomId)
+        await db.collection('tournaments')
+            .doc(tournamentId)
             .collection('messages')
             .add(messageData);
 

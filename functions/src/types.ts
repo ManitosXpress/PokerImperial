@@ -3,7 +3,7 @@ export interface User {
     email: string;
     displayName: string;
     photoURL?: string;
-    credits: number;
+    credit: number;
     clubId?: string;
     sellerId?: string;
     createdAt: any; // Firestore Timestamp

@@ -76,6 +76,17 @@ service cloud.firestore {
     match /tournaments/{tournamentId} {
       allow read: if true;
       allow write: if false; // Use Cloud Functions
+      
+      // Chat messages subcollection
+      match /messages/{messageId} {
+        allow read, write: if request.auth != null;
+      }
+
+      // Participants subcollection
+      match /participants/{participantId} {
+        allow read: if request.auth != null;
+      }
+
     }
 
     // Poker Tables
