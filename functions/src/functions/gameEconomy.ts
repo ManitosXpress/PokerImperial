@@ -31,7 +31,7 @@ if (!process.env.GAME_SECRET && !functions.config().game?.secret) {
 }
 
 // Lazy initialization de Firestore
-const getDb = () => {
+export const getDb = () => {
     if (!admin.apps.length) {
         admin.initializeApp();
     }
@@ -260,8 +260,8 @@ function verifySignature(authPayload: string, receivedSignature: string): boolea
  * Core logic for settling a game round.
  * Can be called by the client (via Callable) or the server (via Trigger).
  */
-export const settleGameRoundCore = async (data: SettleRoundRequest) => {
-    const db = getDb();
+export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?: admin.firestore.Firestore) => {
+    const db = injectedDb || getDb();
     const { potTotal, winnerUid, gameId, tableId, finalPlayerStacks, authPayload, signature } = data;
 
     // 🔐 VERIFICACIÓN DE FIRMA CRIPTOGRÁFICA (Opcional pero recomendado)

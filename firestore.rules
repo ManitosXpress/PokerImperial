@@ -119,6 +119,12 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions
     }
     
+    // System Stats - Super Admin Dashboard metrics
+    match /system_stats/{docId} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow write: if false; // Only Cloud Functions write here
+    }
+    
     match /{document=**} {
       allow read, write: if false;
     }

@@ -212,14 +212,17 @@ export const getSystemStats = async (data: any, context: functions.https.Callabl
             totalCirculation += (Number(d.credit) || 0);
         });
 
-        // Update cache for reference
-        await db.collection('system_stats').doc('economy').set({
-            totalCirculation: totalCirculation,
-            lastCalculated: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-
-        const economyDoc = await db.collection('system_stats').doc('economy').get();
-        const accumulatedRake = economyDoc.data()?.accumulated_rake || 0;
+        // 4. Get accumulated rake with null safety - READ FIRST
+        const economyDoc = await db.collection('system_stats').doc('economy').get();
+        const economyData = economyDoc.exists ? economyDoc.data() : null;
+        const accumulatedRake = economyData?.accumulated_rake || 0;
+        
+        // 5. Update cache for reference - WRITE AFTER reading, preserve rake
+        await db.collection('system_stats').doc('economy').set({
+            totalCirculation: totalCirculation,
+            accumulated_rake: accumulatedRake,
+            lastCalculated: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
 
         return {
             totalUsers,

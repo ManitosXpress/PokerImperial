@@ -116,4 +116,4 @@ export const onCashoutTriggeredFunction = onCashoutTriggered;
 
 // Settlement Trigger (Server-Initiated Settlement)
 import { onSettlementTriggered } from './functions/settlementTrigger';
-export const onSettlementTriggeredFunction = onSettlementTriggered;
+export const onSettlementTriggeredV4 = onSettlementTriggered;

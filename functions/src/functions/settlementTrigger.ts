@@ -1,14 +1,31 @@
 import * as functions from "firebase-functions";
+import * as admin from "firebase-admin";
 import { settleGameRoundCore } from "./gameEconomy";
 import { SettleRoundRequest } from "../types";
+
+// Global initialization to ensure app exists
+if (!admin.apps.length) {
+    admin.initializeApp();
+}
 
 export const onSettlementTriggered = functions.firestore
     .document('_trigger_settlement/{docId}')
     .onCreate(async (snap, context) => {
+        const db = admin.firestore(); // Use admin directly since we initialized it globally
+
         const data = snap.data();
         const docId = context.params.docId;
 
         console.log(`[TRIGGER] Settlement triggered for ${docId}`);
+
+        // DEBUG: Confirm execution
+        try {
+            await db.collection('_debug_settlement_errors').add({
+                docId,
+                status: 'STARTED',
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (e) { console.error('Debug write failed', e); }
 
         if (!data) {
             console.error('[TRIGGER] No data in settlement trigger');
@@ -27,14 +44,23 @@ export const onSettlementTriggered = functions.firestore
         };
 
         try {
-            await settleGameRoundCore(request);
+            await settleGameRoundCore(request, db);
             console.log(`[TRIGGER] Settlement successful for ${docId}`);
 
             // Cleanup trigger document
             await snap.ref.delete();
-        } catch (error) {
+        } catch (error: any) {
             console.error(`[TRIGGER] Settlement failed for ${docId}:`, error);
-            // Don't delete so we can inspect/retry? Or maybe delete to avoid loops?
-            // For now, keep it to debug.
+
+            // Write error to Firestore for debugging
+            try {
+                await admin.firestore().collection('_debug_settlement_errors').add({
+                    docId,
+                    error: error.message || JSON.stringify(error),
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (e) {
+                console.error('Failed to write debug error:', e);
+            }
         }
     });
