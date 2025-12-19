@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'imperial_currency.dart';
 import '../providers/club_provider.dart';
 import 'credentials_dialog.dart';
 import '../widgets/poker_loading_indicator.dart';
@@ -130,8 +131,8 @@ class _ClubOwnerDashboardState extends State<ClubOwnerDashboard> {
                     style: TextStyle(color: Colors.white54, fontSize: 14),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    '\$${credit.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                  ImperialCurrency(
+                    amount: credit,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 36,
@@ -141,6 +142,7 @@ class _ClubOwnerDashboardState extends State<ClubOwnerDashboard> {
                         Shadow(color: Color(0xFFFFD700), blurRadius: 10, offset: Offset(0, 0)),
                       ],
                     ),
+                    iconSize: 36,
                   ),
                   
                   const SizedBox(height: 24),

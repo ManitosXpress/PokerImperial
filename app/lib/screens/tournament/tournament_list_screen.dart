@@ -25,10 +25,18 @@ class _TournamentListScreenState extends State<TournamentListScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<TournamentProvider>(context);
+    
+    // Filtrar solo torneos globales (Open to All)
+    // Incluye torneos con scope='GLOBAL' o torneos antiguos sin scope ni clubId
+    final globalTournaments = provider.tournaments.where((t) {
+      final scope = t['scope'];
+      final clubId = t['clubId'];
+      return scope == 'GLOBAL' || (scope == null && clubId == null);
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tournaments'),
+        title: const Text('Torneos'),
         backgroundColor: const Color(0xFF1A1A2E),
       ),
       body: Container(
@@ -42,15 +50,15 @@ class _TournamentListScreenState extends State<TournamentListScreen> {
         child: provider.isLoading
             ? const Center(
                 child: PokerLoadingIndicator(
-                  statusText: 'Loading Tournaments...',
+                  statusText: 'Cargando Torneos...',
                   color: Color(0xFFFFD700),
                 ),
               )
             : ListView.builder(
                 padding: const EdgeInsets.all(16),
-                itemCount: provider.tournaments.length,
+                itemCount: globalTournaments.length,
                 itemBuilder: (context, index) {
-                  final tournament = provider.tournaments[index];
+                  final tournament = globalTournaments[index];
                   return TournamentListItem(
                     tournament: tournament,
                     onJoin: () {

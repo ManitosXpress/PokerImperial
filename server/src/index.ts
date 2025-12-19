@@ -264,6 +264,30 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('join_spectator', ({ roomId }: { roomId: string }) => {
+        try {
+            console.log(`👀 Spectator ${socket.id} joining room ${roomId}`);
+            socket.join(roomId);
+
+            const room = roomManager.getRoom(roomId);
+            if (room) {
+                const roomWithFlags = { ...room, isPublic: room.isPublic ?? false, hostId: room.hostId };
+                // Send room info so the client knows it connected
+                socket.emit('room_joined', roomWithFlags);
+
+                // Send current game state if game is running
+                if (room.gameState) {
+                    socket.emit('game_started', room.gameState);
+                }
+            } else {
+                socket.emit('error', 'Room not found');
+            }
+        } catch (e: any) {
+            console.error(`Error joining spectator: ${e.message}`);
+            socket.emit('error', e.message);
+        }
+    });
+
     socket.on('join_room', async ({ roomId, playerName, token }: { roomId: string, playerName: string, token?: string }) => {
         try {
             let sessionId: string | undefined;

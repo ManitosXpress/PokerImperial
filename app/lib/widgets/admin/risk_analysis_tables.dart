@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../imperial_currency.dart';
 
 class RiskAnalysisTables extends StatelessWidget {
   const RiskAnalysisTables({super.key});
@@ -17,7 +19,7 @@ class RiskAnalysisTables extends StatelessWidget {
           rowBuilder: (data) {
             return [
               DataCell(Text(data['displayName'] ?? 'Unknown', style: const TextStyle(color: Colors.white))),
-              DataCell(Text('\$${data['credit'] ?? 0}', style: const TextStyle(color: Colors.greenAccent))),
+              DataCell(ImperialCurrency(amount: data['credit'] ?? 0, style: const TextStyle(color: Colors.greenAccent), iconSize: 14)),
             ];
           },
         ),
@@ -34,7 +36,12 @@ class RiskAnalysisTables extends StatelessWidget {
           rowBuilder: (data) {
             return [
               DataCell(Text(data['userName'] ?? data['userId'] ?? 'Unknown', style: const TextStyle(color: Colors.white))),
-              DataCell(Text('+\$${data['netProfit'] ?? 0}', style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold))),
+              DataCell(Row(
+                children: [
+                  const Text('+', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                  ImperialCurrency(amount: data['netProfit'] ?? 0, style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold), iconSize: 14),
+                ],
+              )),
               DataCell(Text(data['tableId'] ?? '-', style: const TextStyle(color: Colors.white54))),
             ];
           },

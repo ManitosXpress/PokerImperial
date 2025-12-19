@@ -14,6 +14,9 @@ export const onTournamentFinish = functions.firestore
 
         // Detectar cuando un torneo pasa a 'FINISHED'
         if (before.status !== 'FINISHED' && after.status === 'FINISHED') {
+            if (!admin.apps.length) {
+                admin.initializeApp();
+            }
             const db = admin.firestore();
             const { clubId, prizePool } = after;
 

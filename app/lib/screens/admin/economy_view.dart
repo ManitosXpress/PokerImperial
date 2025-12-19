@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/imperial_currency.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
@@ -329,7 +330,7 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
                                 return ListTile(
                                   title: Text(option['displayName'], style: const TextStyle(color: Colors.white)),
                                   subtitle: Text(option['email'], style: const TextStyle(color: Colors.white54)),
-                                  trailing: Text('\$${option['credits']}', style: const TextStyle(color: Colors.amber)),
+                                  trailing: ImperialCurrency(amount: option['credits'], style: const TextStyle(color: Colors.amber), iconSize: 14),
                                   onTap: () => onSelected(option),
                                 );
                               },
@@ -424,7 +425,7 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text('Total Liquidity', style: TextStyle(color: Colors.white70)),
-                          Text('\$${liquidity.toString()}', style: const TextStyle(color: Colors.blue, fontSize: 24, fontWeight: FontWeight.bold)),
+                          ImperialCurrency(amount: liquidity, style: const TextStyle(color: Colors.blue, fontSize: 24, fontWeight: FontWeight.bold), iconSize: 24),
                         ],
                       ),
                     ],
@@ -449,7 +450,7 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text('Ganancias Casa (Rake)', style: TextStyle(color: Colors.white70)),
-                          Text('\$${houseRake.toString()}', style: const TextStyle(color: Colors.green, fontSize: 24, fontWeight: FontWeight.bold)),
+                          ImperialCurrency(amount: houseRake, style: const TextStyle(color: Colors.green, fontSize: 24, fontWeight: FontWeight.bold), iconSize: 24),
                         ],
                       ),
                     ],

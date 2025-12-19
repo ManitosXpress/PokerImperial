@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../imperial_currency.dart';
 
 class EconomicKPIs extends StatelessWidget {
   final double volume24h;
@@ -18,9 +19,17 @@ class EconomicKPIs extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
         children: [
-          _buildKpiCard(
+          _buildKpiCardWithWidget(
             title: 'Volumen (24h)',
-            value: '\$${volume24h.toStringAsFixed(0)}',
+            valueWidget: ImperialCurrency(
+              amount: volume24h,
+              style: const TextStyle(
+                color: Colors.cyan,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+              iconSize: 22,
+            ),
             icon: Icons.show_chart,
             color: Colors.cyan,
             subtitle: 'Fichas apostadas',
@@ -34,9 +43,17 @@ class EconomicKPIs extends StatelessWidget {
             subtitle: 'Manos jugadas',
           ),
           const SizedBox(width: 16),
-          _buildKpiCard(
+          _buildKpiCardWithWidget(
             title: 'GGR (Hoy)',
-            value: '\$${ggr24h.toStringAsFixed(0)}',
+            valueWidget: ImperialCurrency(
+              amount: ggr24h,
+              style: const TextStyle(
+                color: Colors.orangeAccent,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+              iconSize: 22,
+            ),
             icon: Icons.local_fire_department,
             color: Colors.orangeAccent,
             subtitle: 'Rake Bruto',
@@ -46,9 +63,34 @@ class EconomicKPIs extends StatelessWidget {
     );
   }
 
+
+
   Widget _buildKpiCard({
     required String title,
     required String value,
+    required IconData icon,
+    required Color color,
+    required String subtitle,
+  }) {
+    return _buildKpiCardWithWidget(
+      title: title,
+      valueWidget: Text(
+        value,
+        style: TextStyle(
+          color: color,
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      icon: icon,
+      color: color,
+      subtitle: subtitle,
+    );
+  }
+
+  Widget _buildKpiCardWithWidget({
+    required String title,
+    required Widget valueWidget,
     required IconData icon,
     required Color color,
     required String subtitle,
@@ -72,14 +114,7 @@ class EconomicKPIs extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                color: color,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            valueWidget,
             const SizedBox(height: 4),
             Text(
               subtitle,

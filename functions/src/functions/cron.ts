@@ -14,6 +14,9 @@ import * as admin from "firebase-admin";
  * Writes to: stats_daily/{YYYY-MM-DD}
  */
 export const dailyEconomyCron = functions.pubsub.schedule('0 0 * * *').timeZone('America/New_York').onRun(async (context) => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
     const db = admin.firestore();
 
     // Calculate date range for "Yesterday"

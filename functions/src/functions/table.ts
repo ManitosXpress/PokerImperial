@@ -19,7 +19,7 @@ export const createPublicTable = functions.https.onCall(async (data, context) =>
     }
 
     const uid = context.auth.uid;
-    const db = admin.firestore();
+    const db = getDb();
 
     // 2. Validate User Role (Must be Club Owner)
     const userDoc = await db.collection('users').doc(uid).get();
@@ -98,7 +98,7 @@ export const createClubTableFunction = functions.https.onCall(async (data, conte
     }
 
     const uid = context.auth.uid;
-    const db = admin.firestore();
+    const db = getDb();
 
     // 2. Validate Club Ownership
     const { clubId, name, smallBlind, bigBlind, buyInMin, buyInMax } = data;
@@ -164,7 +164,7 @@ export const startGameFunction = functions.https.onCall(async (data, context) =>
     }
 
     const uid = context.auth.uid;
-    const db = admin.firestore();
+    const db = getDb();
     const { tableId } = data;
 
     if (!tableId) {

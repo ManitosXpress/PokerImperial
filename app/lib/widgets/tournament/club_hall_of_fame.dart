@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../imperial_currency.dart';
 
 class ClubHallOfFame extends StatelessWidget {
   final String clubId;
@@ -75,10 +76,18 @@ class ClubHallOfFame extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: _buildStatCard(
+                    child: _buildStatCardWithWidget(
                       '💰',
                       'Mayor Premio',
-                      '\$${biggestPot.toStringAsFixed(0)}',
+                      ImperialCurrency(
+                        amount: biggestPot,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        iconSize: 20,
+                      ),
                     ),
                   ),
                 ],
@@ -91,6 +100,17 @@ class ClubHallOfFame extends StatelessWidget {
   }
 
   Widget _buildStatCard(String emoji, String label, String value) {
+    return _buildStatCardWithWidget(emoji, label, Text(
+      value,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
+      ),
+    ));
+  }
+
+  Widget _buildStatCardWithWidget(String emoji, String label, Widget valueWidget) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -112,14 +132,7 @@ class ClubHallOfFame extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          valueWidget,
         ],
       ),
     );

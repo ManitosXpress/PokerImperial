@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../widgets/imperial_currency.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../widgets/poker_loading_indicator.dart';
 
@@ -172,7 +173,7 @@ class _UserManagementViewState extends State<UserManagementView> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(role.toUpperCase(), style: TextStyle(color: roleColor, fontWeight: FontWeight.bold, fontSize: 10)),
-                Text('\$${credit.toString()}', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
+                ImperialCurrency(amount: credit, style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold), iconSize: 14),
               ],
             ),
             IconButton(

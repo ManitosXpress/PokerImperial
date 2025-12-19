@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/imperial_currency.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../game_screen.dart';
@@ -374,7 +375,13 @@ class _TableCard extends StatelessWidget {
                       child: _InfoChip(
                         icon: Icons.remove_red_eye,
                         label: 'Ciegas',
-                        value: '\$$smallBlind/\$$bigBlind',
+                        valueWidget: Row(
+                          children: [
+                            ImperialCurrency(amount: smallBlind, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold), iconSize: 14,),
+                            const Text('/', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                            ImperialCurrency(amount: bigBlind, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold), iconSize: 14,),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -382,7 +389,13 @@ class _TableCard extends StatelessWidget {
                       child: _InfoChip(
                         icon: Icons.attach_money,
                         label: 'Buy-In',
-                        value: '\$$minBuyIn-\$$maxBuyIn',
+                        valueWidget: Row(
+                          children: [
+                            ImperialCurrency(amount: minBuyIn, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold), iconSize: 14,),
+                            const Text('-', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                            ImperialCurrency(amount: maxBuyIn, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold), iconSize: 14,),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -600,12 +613,12 @@ class _PlayerAvatarsRow extends StatelessWidget {
 class _InfoChip extends StatelessWidget {
   final IconData icon;
   final String label;
-  final String value;
+  final Widget valueWidget;
 
   const _InfoChip({
     required this.icon,
     required this.label,
-    required this.value,
+    required this.valueWidget,
   });
 
   @override
@@ -637,14 +650,7 @@ class _InfoChip extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            valueWidget,
           ],
         ),
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/imperial_currency.dart';
 import 'package:provider/provider.dart';
 import '../../providers/language_provider.dart';
 import '../coin_stack_slider.dart';
@@ -59,7 +60,7 @@ class _BettingDialogState extends State<BettingDialog> {
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Color(0xFFFFD700),
-                fontSize: 13, 
+                fontSize: 13,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 0.5,
               ),

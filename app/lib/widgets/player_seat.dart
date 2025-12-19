@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'poker_card.dart';
+import 'imperial_currency.dart';
 
 import '../utils/responsive_utils.dart';
 
 class PlayerSeat extends StatelessWidget {
   final String name;
-  final String chips;
+  final int chips; // Changed from String to int
   final bool isMe;
   final bool isActive;
   final bool isDealer;
@@ -13,11 +15,12 @@ class PlayerSeat extends StatelessWidget {
   final List<String>? cards;
   final String? handRank; // Add hand rank for showdown
   final bool isWinner; // Highlight winner
+  final int? currentBet; // Added for bet amount bubble
 
   const PlayerSeat({
     super.key,
     required this.name,
-    required this.chips,
+    required this.chips, // Changed from String to int
     this.isMe = false,
     this.isActive = true,
     this.isDealer = false,
@@ -25,6 +28,7 @@ class PlayerSeat extends StatelessWidget {
     this.cards,
     this.handRank,
     this.isWinner = false,
+    this.currentBet, // Added
   });
 
 
@@ -41,6 +45,8 @@ class PlayerSeat extends StatelessWidget {
     final double cardWidth = ResponsiveUtils.scale(context, isMe ? 70 : 28);
     // Ensure height matches PokerCard aspect ratio (1.4) to prevent clipping
     final double cardHeight = cardWidth * 1.4;
+
+    final bool isMobile = MediaQuery.of(context).size.width < 600; // Determine if it's a mobile device
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -163,6 +169,29 @@ class PlayerSeat extends StatelessWidget {
                   ),
                 ),
 
+              // Bet Amount Bubble
+              if (currentBet != null && currentBet! > 0)
+                Positioned(
+                  top: -10, // Adjusted to prevent overlap
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFD4AF37), width: 1),
+                    ),
+                    child: ImperialCurrency(
+                      amount: currentBet!,
+                      style: const TextStyle(
+                        color: Color(0xFFD4AF37),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      iconSize: 12,
+                    ),
+                  ),
+                ),
+              
               // Info Pill (Name + Chips)
               Positioned(
                 bottom: 0,
@@ -189,13 +218,15 @@ class PlayerSeat extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        '\$$chips',
-                        style: const TextStyle(
-                          color: Color(0xFFFFD700),
-                          fontSize: 11,
+                      // Player Stack
+                      ImperialCurrency(
+                        amount: chips,
+                        style: TextStyle(
+                          color: isMe ? const Color(0xFFFFD700) : Colors.white,
+                          fontSize: isMobile ? 10 : 11, // Adjusted font size for consistency
                           fontWeight: FontWeight.bold,
                         ),
+                        iconSize: isMobile ? 10 : 11, // Adjusted icon size for consistency
                       ),
                     ],
                   ),

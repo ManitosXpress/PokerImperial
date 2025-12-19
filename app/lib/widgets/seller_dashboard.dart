@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'imperial_currency.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -79,8 +80,8 @@ class _SellerDashboardState extends State<SellerDashboard> {
                 style: TextStyle(color: Colors.white54, fontSize: 14),
               ),
               const SizedBox(height: 4),
-              Text(
-                '\$${credit.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+              ImperialCurrency(
+                amount: credit,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 36,
@@ -90,6 +91,7 @@ class _SellerDashboardState extends State<SellerDashboard> {
                     Shadow(color: Color(0xFF0088cc), blurRadius: 10, offset: Offset(0, 0)),
                   ],
                 ),
+                iconSize: 36,
               ),
               
               const SizedBox(height: 24),

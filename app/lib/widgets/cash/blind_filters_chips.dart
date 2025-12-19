@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../imperial_currency.dart';
 
 enum BlindTier {
   micro(label: 'Micro', maxBigBlind: 20, color: Color(0xFF00FF88)),
@@ -65,9 +66,20 @@ class _BlindFiltersChipsState extends State<BlindFiltersChips> {
                     padding: const EdgeInsets.only(right: 8),
                     child: _FilterChip(
                       label: tier.label,
-                      subtitle: tier == BlindTier.high
-                          ? '>\$${BlindTier.medium.maxBigBlind}'
-                          : '≤\$${tier.maxBigBlind}',
+                      subtitleWidget: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(tier == BlindTier.high ? '>' : '≤', style: TextStyle(color: tier == BlindTier.high ? Colors.white38 : Colors.white38, fontSize: 10)),
+                          ImperialCurrency(
+                            amount: tier == BlindTier.high ? BlindTier.medium.maxBigBlind : tier.maxBigBlind,
+                            style: TextStyle(
+                              color: tier.color.withOpacity(0.8),
+                              fontSize: 10,
+                            ),
+                            iconSize: 10,
+                          ),
+                        ],
+                      ),
                       isSelected: widget.selectedTier == tier,
                       color: tier.color,
                       onTap: () => widget.onTierSelected(tier),
@@ -86,6 +98,7 @@ class _BlindFiltersChipsState extends State<BlindFiltersChips> {
 class _FilterChip extends StatefulWidget {
   final String label;
   final String? subtitle;
+  final Widget? subtitleWidget;
   final bool isSelected;
   final Color color;
   final VoidCallback onTap;
@@ -93,6 +106,7 @@ class _FilterChip extends StatefulWidget {
   const _FilterChip({
     required this.label,
     this.subtitle,
+    this.subtitleWidget,
     required this.isSelected,
     required this.color,
     required this.onTap,
@@ -178,9 +192,9 @@ class _FilterChipState extends State<_FilterChip> with SingleTickerProviderState
                   letterSpacing: widget.isSelected ? 1 : 0,
                 ),
               ),
-              if (widget.subtitle != null) ...[
+              if (widget.subtitle != null || widget.subtitleWidget != null) ...[
                 const SizedBox(height: 2),
-                Text(
+                widget.subtitleWidget ?? Text(
                   widget.subtitle!,
                   style: TextStyle(
                     color: widget.isSelected

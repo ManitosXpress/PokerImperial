@@ -1,13 +1,22 @@
 import 'package:flutter/material.dart';
+import '../../widgets/imperial_currency.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../providers/tournament_provider.dart';
+import '../../providers/club_provider.dart';
+import '../game_screen.dart';
+import '../../widgets/tournament/god_mode_admin_panel.dart';
 
 class TournamentLobbyScreen extends StatefulWidget {
   final String tournamentId;
+  final bool isAdminMode; // GOD MODE parameter
 
-  const TournamentLobbyScreen({super.key, required this.tournamentId});
+  const TournamentLobbyScreen({
+    super.key,
+    required this.tournamentId,
+    this.isAdminMode = false, // Default to normal mode
+  });
 
   @override
   State<TournamentLobbyScreen> createState() => _TournamentLobbyScreenState();
@@ -138,6 +147,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
           final isRegistered = registeredPlayerIds.contains(currentUser?.uid);
           final tournamentStatus = tournament['status'] ?? 'REGISTERING';
           final canRegister = tournamentStatus == 'REGISTERING' || tournamentStatus == 'LATE_REG';
+          final activeTableId = tournament['activeTableId'];
 
           return Stack(
             children: [
@@ -159,7 +169,14 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                 child: Column(
                   children: [
                     // Tournament Header
-                    _buildTournamentHeader(tournament),
+                    _buildTournamentHeader(tournament, widget.isAdminMode),
+                    
+                    // God Mode Admin Panel (only for admins)
+                    if (widget.isAdminMode)
+                      GodModeAdminPanel(
+                        tournament: tournament,
+                        tournamentId: widget.tournamentId,
+                      ),
                     
                     // Main Content Area
                     Expanded(
@@ -182,7 +199,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
 
                     // Bottom Action Bar
                     _buildActionBar(isRegistered, canRegister, tournamentStatus, 
-                        tournament['createdBy'] == currentUser?.uid, registeredPlayerIds.length),
+                        tournament['createdBy'] == currentUser?.uid, registeredPlayerIds.length, activeTableId),
                   ],
                 ),
               ),
@@ -193,60 +210,95 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
     );
   }
 
-  Widget _buildTournamentHeader(Map<String, dynamic> tournament) {
+  Widget _buildTournamentHeader(Map<String, dynamic> tournament, bool isAdminMode) {
     return Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            const Color(0xFFD4AF37).withOpacity(0.2),
-            const Color(0xFFFFD700).withOpacity(0.1),
-          ],
+          colors: isAdminMode
+              ? [
+                  const Color(0xFFB71C1C), // Deep Red for God Mode
+                  const Color(0xFFD4AF37), // Gold
+                ]
+              : [
+                  const Color(0xFFD4AF37).withOpacity(0.2), // Normal mode
+                  const Color(0xFFFFD700).withOpacity(0.1),
+                ],
         ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: const Color(0xFFD4AF37),
+          color: isAdminMode ? const Color(0xFFB71C1C) : const Color(0xFFD4AF37),
           width: 2,
         ),
       ),
       child: Column(
         children: [
-          Text(
-            tournament['name'] ?? 'Torneo',
-            style: const TextStyle(
-              color: Color(0xFFD4AF37),
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  tournament['name'] ?? 'Torneo',
+                  style: TextStyle(
+                    color: isAdminMode ? Colors.white : const Color(0xFFD4AF37),
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              if (isAdminMode)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD4AF37),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'GOD MODE',
+                    style: TextStyle(
+                      color: Color(0xFFB71C1C),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildStatChip(
-                Icons.attach_money,
-                'Buy-in',
-                '\$${tournament['buyIn']}',
-                Colors.green,
+              Column(
+                children: [
+                  _buildDetailRow(
+                      Icons.attach_money,
+                      'Buy-in',
+                      ImperialCurrency(
+                          amount: tournament['buyIn'],
+                          style: const TextStyle(color: Colors.white, fontSize: 16))),
+                  _buildDetailRow(
+                      Icons.emoji_events,
+                      'Premio',
+                      ImperialCurrency(
+                          amount: tournament['prizePool'] ?? 0,
+                          style: const TextStyle(
+                              color: Color(0xFFD4AF37),
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold))),
+                  _buildStatChip(
+                    Icons.people,
+                    'Jugadores',
+                    '${(tournament['registeredPlayerIds'] as List).length}/${tournament['estimatedPlayers']}',
+                    Colors.blue,
+                  ),
+                ],
               ),
-              _buildStatChip(
-                Icons.emoji_events,
-                'Prize Pool',
-                '\$${tournament['prizePool']}',
-                const Color(0xFFD4AF37),
-              ),
-              _buildStatChip(
-                Icons.people,
-                'Jugadores',
-                '${(tournament['registeredPlayerIds'] as List).length}/${tournament['estimatedPlayers']}',
-                Colors.blue,
-              ),
+              if (tournament['settings'] != null)
+                _buildTournamentTypeBadge(tournament['type'], tournament['settings']),
             ],
           ),
-          const SizedBox(height: 8),
-          _buildTournamentTypeBadge(tournament['type'], tournament['settings']),
         ],
       ),
     );
@@ -276,6 +328,31 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
     );
   }
 
+  Widget _buildDetailRow(IconData icon, String label, Widget valueWidget) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: Colors.white54, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          valueWidget,
+        ],
+      ),
+    );
+  }
+  
   Widget _buildTournamentTypeBadge(String type, Map<String, dynamic>? settings) {
     String emoji = '';
     String label = '';
@@ -701,7 +778,97 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
     }
   }
 
-  Widget _buildActionBar(bool isRegistered, bool canRegister, String status, bool isHost, int playerCount) {
+  Widget _buildActionBar(bool isRegistered, bool canRegister, String status, bool isHost, int playerCount, String? activeTableId) {
+    // Check for spectator role
+    final clubProvider = Provider.of<ClubProvider>(context);
+    final userRole = clubProvider.currentUserRole;
+    final isSpectator = userRole == 'admin' || userRole == 'club' || userRole == 'seller' || isHost;
+
+    if (status == 'RUNNING' && activeTableId != null) {
+       return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.3),
+          border: Border(
+            top: BorderSide(
+              color: Colors.white.withOpacity(0.1),
+              width: 1,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(child: _buildStatusIndicator(status)),
+            const SizedBox(width: 16),
+            Expanded(
+              flex: 2,
+              child: isRegistered
+                  ? ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => GameScreen(
+                              roomId: activeTableId,
+                              isTournamentMode: true,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('JUGAR AHORA'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    )
+                  : isSpectator
+                      ? ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => GameScreen(
+                                  roomId: activeTableId,
+                                  isSpectatorMode: true,
+                                  isTournamentMode: true,
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.remove_red_eye),
+                          label: const Text('OBSERVAR MESA'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFD4AF37),
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        )
+                      : Container(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[800],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'Torneo en Progreso',
+                            style: TextStyle(color: Colors.white54),
+                          ),
+                        ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -727,10 +894,10 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
               flex: 2,
               child: ElevatedButton.icon(
                 onPressed: () {
-                  if (playerCount < 8) {
+                  if (playerCount < 4) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Mínimo se necesitan 8 jugadores para iniciar el torneo'),
+                        content: Text('Mínimo se necesitan 4 jugadores para iniciar el torneo'),
                         backgroundColor: Colors.orange,
                         duration: Duration(seconds: 2),
                       ),
@@ -742,7 +909,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                 icon: const Icon(Icons.play_arrow, color: Colors.white),
                 label: const Text('INICIAR TORNEO'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: playerCount >= 8 ? Colors.redAccent : Colors.grey[800],
+                  backgroundColor: playerCount >= 4 ? Colors.redAccent : Colors.grey[800],
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(

@@ -1,9 +1,9 @@
 import * as functions from "firebase-functions";
-import * as admin from "firebase-admin";
 import { addCredits, deductCredits, withdrawCredits, adminWithdrawCredits } from "./functions/credits";
 import { settleGameRound, joinTable, processCashOut, universalTableSettlement } from "./functions/gameEconomy";
 import { createClub, joinClub, leaveClub, ownerCreateMember, sellerCreatePlayer } from './functions/club';
 import { createTournament, registerForTournament, unregisterFromTournament, startTournament } from './functions/tournament';
+import { adminPauseTournament, adminResumeTournament, adminForceBlindLevel, adminBroadcastMessage } from './functions/tournamentAdmin';
 import { sendTournamentMessage } from './functions/chat';
 import { onTournamentFinish } from './functions/tournamentTriggers';
 import { getClubLeaderboard } from './functions/leaderboard';
@@ -20,9 +20,11 @@ import { sanitizeMoneyInPlay } from './functions/sanitize_money_in_play';
 import { onCashoutTriggered } from './functions/cashoutTrigger';
 
 // Initialize Firebase Admin SDK (lazy initialization)
-if (!admin.apps.length) {
-    admin.initializeApp();
-}
+// Removed global init to prevent deployment timeouts. 
+// Each function must ensure admin is initialized.
+// if (!admin.apps.length) {
+//     admin.initializeApp();
+// }
 
 // Export Cloud Functions
 export const addCreditsFunction = functions.https.onCall(addCredits);
@@ -46,8 +48,15 @@ export const startTournamentFunction = functions.https.onCall(startTournament);
 export const sendTournamentMessageFunction = functions.https.onCall(sendTournamentMessage);
 export const onTournamentFinishFunction = onTournamentFinish;
 
+// Tournament Admin (God Mode) Functions
+export const adminPauseTournamentFunction = functions.https.onCall(adminPauseTournament);
+export const adminResumeTournamentFunction = functions.https.onCall(adminResumeTournament);
+export const adminForceBlindLevelFunction = functions.https.onCall(adminForceBlindLevel);
+export const adminBroadcastMessageFunction = functions.https.onCall(adminBroadcastMessage);
+
 // Leaderboard Functions
 export const getClubLeaderboardFunction = functions.https.onCall(getClubLeaderboard);
+
 // Club Wallet Functions
 export const ownerTransferCreditFunction = functions.https.onCall(ownerTransferCredit);
 export const sellerTransferCreditFunction = functions.https.onCall(sellerTransferCredit);
@@ -104,4 +113,3 @@ export { recalcDailyStatsCallable } from './functions/backfillStats';
 
 // Cashout Trigger (Server-Initiated Cashouts)
 export const onCashoutTriggeredFunction = onCashoutTriggered;
-

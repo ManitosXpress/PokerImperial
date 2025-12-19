@@ -159,4 +159,56 @@ class TournamentProvider with ChangeNotifier {
       rethrow;
     }
   }
+
+  // ==================== GOD MODE ADMIN METHODS ====================
+
+  /// Pause a running tournament (Admin only)
+  Future<void> adminPauseTournament(String tournamentId) async {
+    try {
+      await _functions.httpsCallable('adminPauseTournamentFunction').call({
+        'tournamentId': tournamentId,
+      });
+    } catch (e) {
+      print('Error pausing tournament: $e');
+      rethrow;
+    }
+  }
+
+  /// Resume a paused tournament (Admin only)
+  Future<void> adminResumeTournament(String tournamentId) async {
+    try {
+      await _functions.httpsCallable('adminResumeTournamentFunction').call({
+        'tournamentId': tournamentId,
+      });
+    } catch (e) {
+      print('Error resuming tournament: $e');
+      rethrow;
+    }
+  }
+
+  /// Force increment blind level (Admin only)
+  Future<Map<String, dynamic>> adminForceBlindLevel(String tournamentId) async {
+    try {
+      final result = await _functions.httpsCallable('adminForceBlindLevelFunction').call({
+        'tournamentId': tournamentId,
+      });
+      return Map<String, dynamic>.from(result.data);
+    } catch (e) {
+      print('Error forcing blind level: $e');
+      rethrow;
+    }
+  }
+
+  /// Broadcast admin message to all tournament participants (Admin only)
+  Future<void> adminBroadcastMessage(String tournamentId, String message) async {
+    try {
+      await _functions.httpsCallable('adminBroadcastMessageFunction').call({
+        'tournamentId': tournamentId,
+        'message': message,
+      });
+    } catch (e) {
+      print('Error broadcasting message: $e');
+      rethrow;
+    }
+  }
 }

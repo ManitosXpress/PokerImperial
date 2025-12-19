@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../widgets/imperial_currency.dart';
 import 'package:intl/intl.dart';
 import '../../widgets/poker_loading_indicator.dart';
 
@@ -71,7 +72,7 @@ class FinanceHistoryView extends StatelessWidget {
                       return DataRow(cells: [
                         DataCell(Text(formattedDate, style: const TextStyle(color: Colors.white70))),
                         DataCell(Text(userId, style: const TextStyle(color: Colors.white70, fontSize: 12))),
-                        DataCell(Text('\$${amount.toString()}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold))),
+                        DataCell(ImperialCurrency(amount: amount, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold), iconSize: 14)),
                         DataCell(Text(type, style: TextStyle(color: typeColor, fontWeight: FontWeight.bold))),
                         DataCell(Text(details, style: const TextStyle(color: Colors.white54))),
                       ]);

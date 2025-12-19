@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/imperial_currency.dart';
 
 class TournamentListItem extends StatelessWidget {
   final Map<String, dynamic> tournament;
@@ -71,9 +72,19 @@ class TournamentListItem extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    _buildInfoChip('Buy-in', '\$${tournament['buyIn']}'),
+                    _buildInfoChip(
+                      Icons.attach_money,
+                      'Buy-in',
+                      ImperialCurrency(amount: tournament['buyIn'], style: const TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.bold)),
+                      const Color(0xFFD4AF37),
+                    ),
                     const SizedBox(width: 12),
-                    _buildInfoChip('Prize Pool', '\$${tournament['prizePool']}'),
+                    _buildInfoChip(
+                      Icons.emoji_events,
+                      'Premio',
+                       ImperialCurrency(amount: tournament['prizePool'] ?? 0, style: const TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
+                      const Color(0xFF00E5FF),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -149,31 +160,27 @@ class TournamentListItem extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoChip(String label, String value) {
+  Widget _buildInfoChip(IconData icon, String label, Widget content, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
           Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white54,
-              fontSize: 11,
+            '$label: ',
+            style: TextStyle(
+              color: color.withOpacity(0.8),
+              fontSize: 12,
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          content,
         ],
       ),
     );

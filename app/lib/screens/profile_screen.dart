@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/imperial_currency.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../providers/language_provider.dart';
@@ -357,13 +358,14 @@ class ProfileScreen extends StatelessWidget {
                                           color: Color(0xFFF1E3D3), // Beige
                                         ),
                                       ),
-                                      Text(
-                                        '\$${walletProvider.balance.toStringAsFixed(2)}',
+                                      ImperialCurrency(
+                                        amount: walletProvider.balance,
                                         style: const TextStyle(
                                           fontSize: 28,
                                           fontWeight: FontWeight.bold,
                                           color: Color(0xFFC89A4E), // Gold
                                         ),
+                                        iconSize: 28,
                                       ),
                                     ],
                                   ),
@@ -473,14 +475,27 @@ class ProfileScreen extends StatelessWidget {
                                               ],
                                             ),
                                           ),
-                                          Text(
-                                            '${isCredit ? '+' : '-'}\$${transaction.amount.toStringAsFixed(2)}',
-                                            style: TextStyle(
-                                              color: isCredit ? Colors.green : Colors.red,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 16,
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  isCredit ? '+' : '-',
+                                                  style: TextStyle(
+                                                    color: isCredit ? Colors.green : Colors.red,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 16,
+                                                  ),
+                                                ),
+                                                ImperialCurrency(
+                                                  amount: transaction.amount,
+                                                  style: TextStyle(
+                                                    color: isCredit ? Colors.green : Colors.red,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 16,
+                                                  ),
+                                                  iconSize: 16,
+                                                ),
+                                              ],
                                             ),
-                                          ),
                                         ],
                                       );
                                     },

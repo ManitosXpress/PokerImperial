@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/imperial_currency.dart';
 
 class PrizePoolCalculator extends StatelessWidget {
   final double buyIn;
@@ -46,8 +47,8 @@ class PrizePoolCalculator extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            '\$${totalPrizePool.toStringAsFixed(0)}',
+          ImperialCurrency(
+            amount: totalPrizePool,
             style: TextStyle(
               color: const Color(0xFFFFD700),
               fontSize: 48,
@@ -59,14 +60,28 @@ class PrizePoolCalculator extends StatelessWidget {
                 ),
               ],
             ),
+            iconSize: 48,
           ),
           const SizedBox(height: 8),
-          Text(
-            '$estimatedPlayers jugadores × \$${buyIn.toStringAsFixed(0)}',
-            style: const TextStyle(
-              color: Colors.white54,
-              fontSize: 14,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '$estimatedPlayers jugadores × ',
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 14,
+                ),
+              ),
+              ImperialCurrency(
+                amount: buyIn,
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 14,
+                ),
+                iconSize: 14,
+              ),
+            ],
           ),
         ],
       ),

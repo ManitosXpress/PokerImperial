@@ -206,6 +206,39 @@ class SocketService extends ChangeNotifier {
     });
   }
 
+  Future<void> joinSpectator(String roomId, {Function(String roomId)? onSuccess, Function(String error)? onError}) async {
+    if (_socket == null || !_socket!.connected) {
+      if (onError != null) {
+        onError('Socket no conectado. Intenta nuevamente.');
+      }
+      return;
+    }
+
+    print('Emitting join_spectator event for room $roomId');
+    
+    _socket!.emit('join_spectator', {'roomId': roomId});
+    
+    // Set up one-time listeners for response
+    _socket!.once('room_joined', (data) {
+      print('Spectator joined room successfully: ${data['id']}');
+
+      // Track current room
+      _currentRoomId = data['id'];
+      notifyListeners();
+
+      if (onSuccess != null) {
+        onSuccess(data['id']);
+      }
+    });
+    
+    _socket!.once('error', (data) {
+      print('Spectator join error: $data');
+      if (onError != null) {
+        onError(data.toString());
+      }
+    });
+  }
+
   Future<void> joinRoom(String roomId, String playerName, {Function(String roomId)? onSuccess, Function(String error)? onError}) async {
     if (_socket == null || !_socket!.connected) {
       if (onError != null) {

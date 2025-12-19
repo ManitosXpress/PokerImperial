@@ -7,6 +7,9 @@ import * as admin from "firebase-admin";
  * Only admins and club owners can create tournaments.
  */
 export const createTournament = async (data: any, context: functions.https.CallableContext) => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
     const db = admin.firestore();
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
@@ -105,6 +108,10 @@ export const createTournament = async (data: any, context: functions.https.Calla
         startTime: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
         registeredPlayerIds: [], // Nuevo campo
         chatRoomId: chatRoomId, // Nuevo campo
+        // God Mode tracking fields
+        isPaused: false,
+        currentBlindLevel: 1,
+        totalRakeCollected: 0,
     };
 
     if (clubId) {
@@ -133,6 +140,9 @@ export const createTournament = async (data: any, context: functions.https.Calla
  * Deduce el buy-in de sus créditos y lo agrega a la lista de registrados.
  */
 export const registerForTournament = async (data: any, context: functions.https.CallableContext) => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
     const db = admin.firestore();
 
     if (!context.auth) {
@@ -261,6 +271,9 @@ export const registerForTournament = async (data: any, context: functions.https.
  * Solo disponible si el torneo aún no ha comenzado.
  */
 export const unregisterFromTournament = async (data: any, context: functions.https.CallableContext) => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
     const db = admin.firestore();
 
     if (!context.auth) {
@@ -357,6 +370,9 @@ export const unregisterFromTournament = async (data: any, context: functions.htt
  * Only the host/owner can start the tournament.
  */
 export const startTournament = async (data: any, context: functions.https.CallableContext) => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
     const db = admin.firestore();
 
     if (!context.auth) {
@@ -398,8 +414,8 @@ export const startTournament = async (data: any, context: functions.https.Callab
 
     // 4. Validate Player Count
     const registeredPlayerIds = tournament?.registeredPlayerIds || [];
-    if (registeredPlayerIds.length < 2) {
-        throw new functions.https.HttpsError('failed-precondition', 'Minimum 2 players required to start.');
+    if (registeredPlayerIds.length < 4) {
+        throw new functions.https.HttpsError('failed-precondition', 'Minimum 4 players required to start.');
     }
 
     // 5. Create Tables and Distribute Players
@@ -479,10 +495,66 @@ export const startTournament = async (data: any, context: functions.https.Callab
     batch.update(tournamentRef, {
         status: 'RUNNING',
         tableIds: tableIds,
-        startTime: admin.firestore.FieldValue.serverTimestamp()
+        activeTableId: tableIds[0], // Set the first table as active for the lobby
+        startTime: admin.firestore.FieldValue.serverTimestamp(),
+        startedAt: admin.firestore.FieldValue.serverTimestamp() // For God Mode duration tracking
     });
 
     await batch.commit();
+
+    // 7. Send Notifications (Non-blocking, Optimized with Multicast)
+    try {
+        const tokens: string[] = [];
+
+        // Collect tokens from all players
+        // We already fetched user snapshots in step 5
+        userSnapshots.forEach(snap => {
+            if (snap.exists) {
+                const userData = snap.data();
+                if (userData?.fcmToken) {
+                    tokens.push(userData.fcmToken);
+                }
+            }
+        });
+
+        if (tokens.length > 0) {
+            // Use modern sendEachForMulticast API (up to 500 tokens per call)
+            const multicastMessage = {
+                tokens: tokens,
+                notification: {
+                    title: '¡Torneo Iniciado!',
+                    body: `El torneo ${tournament?.name} ha comenzado. ¡Buena suerte!`
+                },
+                data: {
+                    type: 'TOURNAMENT_START',
+                    tournamentId: tournamentId,
+                    tableId: tableIds[0] // Redirect to first table (or their specific table if logic allows)
+                }
+            };
+
+            // Send multicast (optimized for batch notifications)
+            const response = await admin.messaging().sendEachForMulticast(multicastMessage);
+
+            // Enhanced logging for debugging
+            console.log(`✅ FCM Multicast: ${response.successCount}/${tokens.length} notificaciones enviadas exitosamente`);
+
+            if (response.failureCount > 0) {
+                console.warn(`⚠️ FCM Multicast: ${response.failureCount} notificaciones fallaron`);
+                // Log individual failures for debugging (optional, only in development)
+                response.responses.forEach((resp, idx) => {
+                    if (!resp.success) {
+                        console.warn(`  - Token ${idx}: ${resp.error?.message || 'Unknown error'}`);
+                    }
+                });
+            }
+        } else {
+            console.log('ℹ️ No se encontraron tokens FCM para notificar');
+        }
+    } catch (error) {
+        // Critical error handler - tournament MUST continue even if notifications fail
+        console.error("❌ Error crítico al enviar notificaciones FCM:", error);
+        console.error("   El torneo continúa sin notificaciones.");
+    }
 
     return {
         success: true,

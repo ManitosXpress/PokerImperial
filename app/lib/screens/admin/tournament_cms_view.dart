@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../widgets/imperial_currency.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../widgets/poker_loading_indicator.dart';
 
@@ -47,16 +48,44 @@ class _TournamentCMSViewState extends State<TournamentCMSView> {
             itemCount: docs.length,
             itemBuilder: (context, index) {
               final data = docs[index].data() as Map<String, dynamic>;
+              final tournamentId = docs[index].id;
+              final status = data['status'] ?? '';
+              final showGodModeButton = status == 'RUNNING' || status == 'REGISTERING';
+
               return Card(
                 color: Colors.white10,
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: ListTile(
                   title: Text(data['name'] ?? 'Sin Nombre', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: Text(
-                    'Buy-In: \$${data['buyIn']} | Tipo: ${data['type']} | Estado: ${data['status']}',
-                    style: const TextStyle(color: Colors.white70),
+                  subtitle: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Buy-In: ', style: TextStyle(color: Colors.white70)),
+                      ImperialCurrency(amount: data['buyIn'], style: const TextStyle(color: Colors.white70), iconSize: 14),
+                      Text(' | Tipo: ${data['type']} | Estado: ${data['status']}', style: const TextStyle(color: Colors.white70)),
+                    ],
                   ),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.white54),
+                  trailing: showGodModeButton
+                      ? ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              '/tournament-lobby',
+                              arguments: {
+                                'tournamentId': tournamentId,
+                                'isAdminMode': true,
+                              },
+                            );
+                          },
+                          icon: const Icon(Icons.bolt, size: 18),
+                          label: const Text('GESTIONAR'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFB71C1C), // Deep Red
+                            foregroundColor: const Color(0xFFD4AF37), // Gold
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                        )
+                      : const Icon(Icons.chevron_right, color: Colors.white54),
                 ),
               );
             },

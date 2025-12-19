@@ -27,6 +27,7 @@ class GameScreen extends StatefulWidget {
   final Map<String, dynamic>? initialGameState;
   final bool isPracticeMode;
   final bool isSpectatorMode;
+  final bool isTournamentMode;
 
   const GameScreen({
     super.key,
@@ -34,6 +35,7 @@ class GameScreen extends StatefulWidget {
     this.initialGameState,
     this.isPracticeMode = false,
     this.isSpectatorMode = false,
+    this.isTournamentMode = false,
   });
 
   @override
@@ -105,7 +107,15 @@ class _GameScreenState extends State<GameScreen> {
     final userRole = clubProvider.currentUserRole;
     final isSpectatorRole = userRole == 'club' || userRole == 'seller' || userRole == 'admin';
     
-    if (!widget.isSpectatorMode && !isSpectatorRole && user != null) {
+    if (widget.isSpectatorMode) {
+      setState(() => _isJoining = true);
+      socketService.connect().then((_) {
+        if (mounted) {
+          _setupSocketListeners(socketService);
+          _attemptJoinSpectator();
+        }
+      });
+    } else if (!isSpectatorRole && user != null) {
       setState(() => _isJoining = true);
       
       socketService.connect().then((_) async {
@@ -488,6 +498,31 @@ class _GameScreenState extends State<GameScreen> {
      });
   }
 
+  void _attemptJoinSpectator() {
+     final socketService = Provider.of<SocketService>(context, listen: false);
+     print('Attempting to join room ${widget.roomId} as SPECTATOR...');
+     socketService.joinSpectator(
+        widget.roomId,
+        onSuccess: (roomId) {
+           print('Joined room $roomId as spectator');
+           if (mounted) setState(() => _isJoining = false);
+        },
+        onError: (err) {
+           print('Spectator Join Error: $err');
+           _scheduleRetrySpectator();
+        }
+     );
+  }
+
+  void _scheduleRetrySpectator() {
+     _retryJoinTimer?.cancel();
+     _retryJoinTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) {
+           _attemptJoinSpectator();
+        }
+     });
+  }
+
   @override
   void dispose() {
     _practiceController?.dispose();
@@ -721,6 +756,21 @@ class _GameScreenState extends State<GameScreen> {
           child: gameState == null
               ? Builder(
                   builder: (context) {
+                    // Si es modo torneo, saltamos la sala de espera y mostramos un loader
+                    // mientras llega el estado del juego (game_started)
+                    if (widget.isTournamentMode) {
+                       return const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                               CircularProgressIndicator(color: Color(0xFFD4AF37)),
+                               SizedBox(height: 16),
+                               Text('Conectando a la mesa del torneo...', style: TextStyle(color: Colors.white))
+                            ],
+                          )
+                       );
+                    }
+
                     bool isHost = false;
                     bool isPublic = true;
                     
@@ -1034,7 +1084,7 @@ class _GameScreenState extends State<GameScreen> {
                               top: finalY,
                               child: PlayerSeat(
                                 name: player['name'],
-                                chips: player['chips'].toString(),
+                                chips: (player['chips'] is int) ? player['chips'] : int.tryParse(player['chips'].toString()) ?? 0,
                                 isActive: isActive,
                                 isMe: isMe,
                                 isDealer: isDealer,

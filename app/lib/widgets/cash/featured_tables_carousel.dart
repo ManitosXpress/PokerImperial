@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../screens/table_lobby_screen.dart';
+import '../imperial_currency.dart';
 
 class FeaturedTablesCarousel extends StatelessWidget {
   const FeaturedTablesCarousel({super.key});
@@ -223,13 +224,28 @@ class _FeaturedTableCard extends StatelessWidget {
                             fontSize: 12,
                           ),
                         ),
-                        Text(
-                          '\$$smallBlind/\$$bigBlind',
-                          style: const TextStyle(
-                            color: Color(0xFFFFD700),
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          children: [
+                            ImperialCurrency(
+                              amount: smallBlind,
+                              style: const TextStyle(
+                                color: Color(0xFFFFD700),
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              iconSize: 18,
+                            ),
+                            const Text('/', style: TextStyle(color: Color(0xFFFFD700), fontSize: 18, fontWeight: FontWeight.bold)),
+                            ImperialCurrency(
+                              amount: bigBlind,
+                              style: const TextStyle(
+                                color: Color(0xFFFFD700),
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              iconSize: 18,
+                            ),
+                          ],
                         ),
                       ],
                     ),

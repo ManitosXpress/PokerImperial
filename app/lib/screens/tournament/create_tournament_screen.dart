@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/imperial_currency.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../providers/tournament_provider.dart';
@@ -431,9 +432,12 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
             keyboardType: TextInputType.number,
             onChanged: (value) => setState(() {}), // Trigger rebuild for prize pool
             decoration: InputDecoration(
-              labelText: 'Buy-in (\$)',
+              labelText: 'Buy-in',
               labelStyle: const TextStyle(color: Color(0xFFD4AF37)),
-              prefixIcon: const Icon(Icons.attach_money, color: Color(0xFFD4AF37)),
+              prefixIcon: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Image.asset('assets/images/imperial_coin.png', width: 24, height: 24),
+              ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: Colors.white.withOpacity(0.3), width: 2),
@@ -572,8 +576,8 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                 _buildSummaryRow('Tipo', _getTypeLabel(_selectedType)),
                 if (_selectedType != 'TURBO') _buildSummaryRow('Ciegas', _getBlindSpeedLabel(_selectedBlindSpeed)),
                 if (_selectedType == 'REBUY') _buildSummaryRow('Rebuy', _rebuyAllowed ? '✅ Permitido' : '❌ No permitido'),
-                if (_selectedType == 'BOUNTY') _buildSummaryRow('Bounty', '\$$_bountyAmount'),
-                _buildSummaryRow('Buy-in', '\$${_buyInController.text}'),
+                if (_selectedType == 'BOUNTY') _buildSummaryWidgetRow('Bounty', ImperialCurrency(amount: _bountyAmount, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+                _buildSummaryWidgetRow('Buy-in', ImperialCurrency(amount: _buyInController.text, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
                 _buildSummaryRow('Jugadores Estimados', '$_estimatedPlayers'),
                 const Divider(color: Colors.white24, height: 32),
                 PrizePoolCalculator(
@@ -583,6 +587,25 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryWidgetRow(String label, Widget valueWidget) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 16,
+            ),
+          ),
+          valueWidget,
         ],
       ),
     );
