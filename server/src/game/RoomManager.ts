@@ -324,6 +324,34 @@ export class RoomManager {
         }
     }
 
+    // ✅ NUEVO: Método para trigger settlement firmado con HMAC
+    private async triggerRoundSettlement(roomId: string, data: any): Promise<void> {
+        if (!data.authPayload || !data.securitySignature) {
+            console.error(`❌ Cannot trigger settlement for room ${roomId}: Missing signature`);
+            return;
+        }
+
+        try {
+            const db = admin.firestore();
+            await db.collection('_trigger_settlement').add({
+                tableId: roomId,
+                gameId: `game_${Date.now()}`, // Or extract from payload if parsed, but payload string is enough
+                winnerUid: data.winner?.uid,
+                potTotal: data.gameState?.pot || 0,
+                authPayload: data.authPayload,
+                signature: data.securitySignature,
+                finalPlayerStacks: data.gameState?.players?.reduce((acc: any, p: any) => {
+                    if (p.uid) acc[p.uid] = p.chips;
+                    return acc;
+                }, {}),
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`✅ Settlement triggered for room ${roomId}`);
+        } catch (error) {
+            console.error(`❌ Failed to trigger settlement for room ${roomId}:`, error);
+        }
+    }
+
     public removePlayer(playerId: string): { roomId: string, player: Player } | null {
         for (const [roomId, room] of this.rooms) {
             const index = room.players.findIndex(p => p.id === playerId);
@@ -363,9 +391,19 @@ export class RoomManager {
 
         if (!room || !game) throw new Error('Room or game not found');
 
-        if (emitCallback) {
-            game.onGameStateChange = emitCallback;
-        }
+        // Intercept callback to trigger settlement
+        const interceptedCallback = (data: any) => {
+            if (data.type === 'hand_winner') {
+                // Trigger settlement logic
+                this.triggerRoundSettlement(roomId, data).catch(err => console.error('Settlement trigger error:', err));
+            }
+
+            if (emitCallback) {
+                emitCallback(data);
+            }
+        };
+
+        game.onGameStateChange = interceptedCallback;
 
         // Attach System Events Callback
         game.onSystemEvent = async (event, data) => {

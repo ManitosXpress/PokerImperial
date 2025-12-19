@@ -256,9 +256,11 @@ function verifySignature(authPayload: string, receivedSignature: string): boolea
     }
 }
 
-export const settleGameRound = async (data: SettleRoundRequest, context: functions.https.CallableContext) => {
-    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
-
+/**
+ * Core logic for settling a game round.
+ * Can be called by the client (via Callable) or the server (via Trigger).
+ */
+export const settleGameRoundCore = async (data: SettleRoundRequest) => {
     const db = getDb();
     const { potTotal, winnerUid, gameId, tableId, finalPlayerStacks, authPayload, signature } = data;
 
@@ -303,9 +305,28 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
     console.log(`[ECONOMY] Settling round ${gameId} in ${tableId}. Pot: ${potTotal}, Winner: ${winnerUid}`);
     console.log(`[ECONOMY] Final Player Stacks from Server:`, finalPlayerStacks);
 
-    // CÁLCULO DE RAKE (8%)
-    const RAKE_PERCENTAGE = 0.08;
-    const rakeAmount = Math.floor(potTotal * RAKE_PERCENTAGE);
+    // CÁLCULO DE RAKE (Server Authority)
+    let rakeAmount = 0;
+
+    if (authPayload) {
+        try {
+            const trustedPayload = JSON.parse(authPayload);
+            if (trustedPayload.rakeTaken !== undefined) {
+                rakeAmount = Number(trustedPayload.rakeTaken);
+                console.log(`[ECONOMY] Using trusted rake amount from server: ${rakeAmount}`);
+            } else {
+                // Fallback (no debería ocurrir con el nuevo servidor)
+                rakeAmount = Math.floor(potTotal * 0.08);
+                console.warn('[ECONOMY] Rake not in payload, calculated locally.');
+            }
+        } catch (e) {
+            rakeAmount = Math.floor(potTotal * 0.08);
+        }
+    } else {
+        // Legacy mode
+        rakeAmount = Math.floor(potTotal * 0.08);
+    }
+
     const winnerPrize = potTotal - rakeAmount;
 
     try {
@@ -454,6 +475,11 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
         console.error(`[ECONOMY] Settle Error:`, error);
         throw error instanceof functions.https.HttpsError ? error : new functions.https.HttpsError('internal', error.message);
     }
+};
+
+export const settleGameRound = async (data: SettleRoundRequest, context: functions.https.CallableContext) => {
+    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
+    return settleGameRoundCore(data);
 };
 
 /**

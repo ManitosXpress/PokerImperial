@@ -113,3 +113,7 @@ export { recalcDailyStatsCallable } from './functions/backfillStats';
 
 // Cashout Trigger (Server-Initiated Cashouts)
 export const onCashoutTriggeredFunction = onCashoutTriggered;
+
+// Settlement Trigger (Server-Initiated Settlement)
+import { onSettlementTriggered } from './functions/settlementTrigger';
+export const onSettlementTriggeredFunction = onSettlementTriggered;

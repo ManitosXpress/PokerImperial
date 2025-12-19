@@ -982,6 +982,7 @@ export class PokerGame {
                 gameId: `hand_${Date.now()}`,
                 winnerUid: mainWinner.uid, // Ganador principal para referencia
                 potTotal: this.sidePots.reduce((acc, pot) => acc + pot.amount, 0) + this.pot, // Total real incluyendo side pots
+                rakeTaken: totalRakeCollected,
                 finalPlayerStacks: finalPlayerStacks,
                 timestamp: Date.now()
             };
@@ -1300,6 +1301,7 @@ export class PokerGame {
             gameId: `hand_${Date.now()}`,
             winnerUid: winner.uid,
             potTotal: (finalAmount || 0) + rakeAmount, // Reconstruir pot total
+            rakeTaken: rakeAmount,
             finalPlayerStacks: finalPlayerStacks,
             timestamp: Date.now()
         };
