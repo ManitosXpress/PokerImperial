@@ -224,9 +224,41 @@ class _GameScreenState extends State<GameScreen> {
        print('👀 spectator_joined received: $data');
        if (mounted) {
          setState(() {
-           roomState = data; // Spectators might receive room state here
            _isJoining = false;
            _socketReady = true;
+           
+           // --- CRITICAL FIX: Hydrate players from gameState.activePlayers ---
+           if (data != null && data['gameState'] != null && data['gameState']['activePlayers'] != null) {
+             final serverPlayers = data['gameState']['activePlayers'] as List;
+             
+             // Build roomState with properly mapped players
+             roomState = {
+               ...Map<String, dynamic>.from(data),
+               'players': serverPlayers.map((p) {
+                 // Map server player format to expected roomState player format
+                 return {
+                   'id': p['oddsId'] ?? p['oddsid'] ?? p['id'] ?? '',
+                   'oddsId': p['oddsId'] ?? p['oddsid'] ?? p['id'] ?? '',
+                   'oddsid': p['oddsId'] ?? p['oddsid'] ?? p['id'] ?? '', // Support both casing
+                   'name': p['name'] ?? p['displayName'] ?? 'Player',
+                   'chips': p['chips'] ?? p['buyIn'] ?? 0,
+                   'isReady': p['isReady'] ?? true,
+                   'isHost': p['isHost'] ?? false,
+                 };
+               }).toList(),
+               // Preserve other important fields from gameState
+               'hostId': data['gameState']['hostId'] ?? data['hostId'],
+               'maxPlayers': data['gameState']['maxPlayers'] ?? data['maxPlayers'] ?? 8,
+               'smallBlind': data['gameState']['smallBlind'] ?? data['smallBlind'] ?? 10,
+               'bigBlind': data['gameState']['bigBlind'] ?? data['bigBlind'] ?? 20,
+             };
+             
+             print('✅ Lista de jugadores hidratada para Admin/Spectator: ${(roomState!['players'] as List).length} jugadores');
+           } else {
+             // Fallback: just use the received data if structure is different
+             roomState = data;
+             print('⚠️ spectator_joined: No activePlayers found, using raw data');
+           }
          });
          _retryJoinTimer?.cancel();
        }
@@ -1078,7 +1110,7 @@ class _GameScreenState extends State<GameScreen> {
                                 ),
                         ),
                         
-                        // Footer
+                        // Footer with Start Button
                         Container(
                           padding: const EdgeInsets.all(24),
                           decoration: const BoxDecoration(
@@ -1087,14 +1119,65 @@ class _GameScreenState extends State<GameScreen> {
                           ),
                           child: SafeArea(
                             top: false,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                            child: Column(
                               children: [
-                                const Icon(Icons.hourglass_empty, color: Colors.white70),
-                                const SizedBox(width: 12),
-                                const Text(
-                                  'Esperando a que el host inicie la partida...',
-                                  style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.bold),
+                                // Show START GAME button if user has authority
+                                // User can start if: Host (jugador) OR Admin/Club (espectador)
+                                if (isHost || userRole == 'admin' || userRole == 'club')
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 16),
+                                    child: SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton(
+                                        onPressed: players.length >= 2 ? _startGame : null,
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFFD4AF37), // Gold
+                                          foregroundColor: Colors.black,
+                                          disabledBackgroundColor: Colors.grey[700],
+                                          disabledForegroundColor: Colors.grey[500],
+                                          padding: const EdgeInsets.symmetric(vertical: 16),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          elevation: players.length >= 2 ? 8 : 2,
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.play_arrow,
+                                              color: players.length >= 2 ? Colors.black : Colors.grey[500],
+                                              size: 28,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Text(
+                                              'INICIAR PARTIDA',
+                                              style: TextStyle(
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                                letterSpacing: 1.2,
+                                                color: players.length >= 2 ? Colors.black : Colors.grey[500],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                // Info message
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.hourglass_empty, color: Colors.white70),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      (isHost || userRole == 'admin' || userRole == 'club')
+                                          ? (players.length >= 2 ? 'Todo listo! Presiona para iniciar' : 'Esperando mínimo 2 jugadores...')
+                                          : 'Esperando a que el host inicie la partida...',
+                                      style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),

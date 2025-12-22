@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../widgets/imperial_currency.dart';
 import 'package:provider/provider.dart';
@@ -27,9 +28,63 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
   final _scrollController = ScrollController();
   bool _isRegistering = false;
   bool _isUnregistering = false;
+  
+  // Auto-redirect control variables
+  bool _hasRedirected = false;
+  StreamSubscription<DocumentSnapshot>? _tournamentSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupAutoJoinListener();
+  }
+
+  /// Sets up a listener to automatically redirect registered players
+  /// to their assigned table when the tournament starts.
+  void _setupAutoJoinListener() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    _tournamentSubscription = FirebaseFirestore.instance
+        .collection('tournaments')
+        .doc(widget.tournamentId)
+        .snapshots()
+        .listen((snapshot) {
+      if (!snapshot.exists || !mounted) return;
+
+      final data = snapshot.data() as Map<String, dynamic>;
+      final status = data['status'] ?? 'REGISTERING';
+      final activeTableId = data['activeTableId'] as String?;
+
+      // Check if tournament is running and has an active table
+      final isRunning = status == 'RUNNING' || status == 'active' || status == 'started';
+
+      if (isRunning && activeTableId != null && !_hasRedirected) {
+        // Check if the current user is a registered participant
+        final registeredPlayerIds = List<String>.from(data['registeredPlayerIds'] ?? []);
+        
+        if (registeredPlayerIds.contains(currentUserId)) {
+          _hasRedirected = true;
+          print('🚀 Torneo iniciado. Redirigiendo automáticamente a mesa: $activeTableId');
+          
+          // Navigate to the game screen
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => GameScreen(
+                roomId: activeTableId,
+                isTournamentMode: true,
+              ),
+            ),
+          );
+        }
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _tournamentSubscription?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
