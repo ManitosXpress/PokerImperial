@@ -288,7 +288,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('join_room', async ({ roomId, playerName, token }: { roomId: string, playerName: string, token?: string }) => {
+    socket.on('join_room', async ({ roomId, playerName, token, isSpectator }: { roomId: string, playerName: string, token?: string, isSpectator?: boolean }) => {
         try {
             let sessionId: string | undefined;
             let entryFee = 1000;
@@ -312,23 +312,27 @@ io.on('connection', (socket) => {
                 if (verifiedUid) {
                     uid = verifiedUid;
                     console.log(`[JOIN_ROOM] ✅ Usuario autenticado: ${uid}`);
-                    const balance = await getUserBalance(uid);
-                    console.log(`[JOIN_ROOM] 💰 Balance del usuario: ${balance}, EntryFee requerido: ${entryFee}`);
-                    if (balance < entryFee) {
-                        console.log(`[JOIN_ROOM] ❌ Balance insuficiente: ${balance} < ${entryFee}`);
-                        socket.emit('insufficient_balance', { required: entryFee, current: balance });
-                        return;
+
+                    // Si es espectador, no necesitamos verificar balance ni crear sesión de juego
+                    if (!isSpectator) {
+                        const balance = await getUserBalance(uid);
+                        console.log(`[JOIN_ROOM] 💰 Balance del usuario: ${balance}, EntryFee requerido: ${entryFee}`);
+                        if (balance < entryFee) {
+                            console.log(`[JOIN_ROOM] ❌ Balance insuficiente: ${balance} < ${entryFee}`);
+                            socket.emit('insufficient_balance', { required: entryFee, current: balance });
+                            return;
+                        }
+                        // ✅ CORREGIDO: Llamar a Cloud Function en lugar de crear sesión directamente
+                        console.log(`[JOIN_ROOM] 📞 Llamando a callJoinTableFunction para usuario ${uid}, mesa ${roomId}, buyIn ${entryFee}`);
+                        const { callJoinTableFunction } = await import('./middleware/firebaseAuth');
+                        sessionId = await callJoinTableFunction(uid, roomId, entryFee) || undefined;
+                        if (!sessionId) {
+                            console.error(`[JOIN_ROOM] ❌ callJoinTableFunction retornó null para usuario ${uid}`);
+                            socket.emit('error', 'Failed to reserve credits');
+                            return;
+                        }
+                        console.log(`[JOIN_ROOM] ✅ Sesión creada: ${sessionId}`);
                     }
-                    // ✅ CORREGIDO: Llamar a Cloud Function en lugar de crear sesión directamente
-                    console.log(`[JOIN_ROOM] 📞 Llamando a callJoinTableFunction para usuario ${uid}, mesa ${roomId}, buyIn ${entryFee}`);
-                    const { callJoinTableFunction } = await import('./middleware/firebaseAuth');
-                    sessionId = await callJoinTableFunction(uid, roomId, entryFee) || undefined;
-                    if (!sessionId) {
-                        console.error(`[JOIN_ROOM] ❌ callJoinTableFunction retornó null para usuario ${uid}`);
-                        socket.emit('error', 'Failed to reserve credits');
-                        return;
-                    }
-                    console.log(`[JOIN_ROOM] ✅ Sesión creada: ${sessionId}`);
                     (socket as any).userId = uid;
                 } else {
                     console.error(`[JOIN_ROOM] ❌ Token inválido o verificación falló`);
@@ -341,6 +345,45 @@ io.on('connection', (socket) => {
                 return;
             }
 
+            // --- LÓGICA DE ESPECTADOR ---
+            if (isSpectator) {
+                console.log(`👀 [JOIN_ROOM] Usuario ${playerName} (${uid}) uniéndose como ESPECTADOR a sala ${roomId}`);
+                const room = roomManager.getRoom(roomId);
+
+                if (room) {
+                    socket.join(roomId);
+                    const roomWithFlags = { ...room, isPublic: room.isPublic ?? false, hostId: room.hostId };
+
+                    // Emitir evento específico para espectador
+                    socket.emit('spectator_joined', roomWithFlags);
+
+                    // También enviar estado del juego si está activo
+                    if (room.gameState) {
+                        socket.emit('game_started', room.gameState);
+                    }
+                    console.log(`✅ [JOIN_ROOM] Espectador unido exitosamente`);
+                } else {
+                    // Intentar hidratar desde Firestore si no está en memoria (para espectadores también)
+                    try {
+                        const roomDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
+                        if (roomDoc.exists) {
+                            // Si existe en DB pero no en memoria, podríamos recrearla o simplemente decir que no está activa
+                            // Para espectadores, si la mesa no está en memoria, probablemente no hay juego activo.
+                            // Pero podríamos cargarla para que vea la "Waiting Room".
+                            console.log(`[JOIN_ROOM] Mesa encontrada en Firestore pero no en memoria. Cargando para espectador...`);
+                            // ... Lógica de hidratación simplificada o error
+                            socket.emit('error', 'La mesa no está activa en este momento.');
+                        } else {
+                            socket.emit('error', 'Room not found');
+                        }
+                    } catch (e) {
+                        socket.emit('error', 'Room not found');
+                    }
+                }
+                return; // TERMINAR AQUÍ para espectadores
+            }
+
+            // --- LÓGICA DE JUGADOR NORMAL ---
             let room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
 
             if (!room) {

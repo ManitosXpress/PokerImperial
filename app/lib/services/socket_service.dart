@@ -264,7 +264,7 @@ class SocketService extends ChangeNotifier {
     _socket!.emit('join_spectator', {'roomId': roomId});
     
     // Set up one-time listeners for response
-    _socket!.once('room_joined', (data) {
+    void handleSpectatorJoined(data) {
       print('Spectator joined room successfully: ${data['id']}');
 
       // Track current room
@@ -274,7 +274,13 @@ class SocketService extends ChangeNotifier {
       if (onSuccess != null) {
         onSuccess(data['id']);
       }
-    });
+      _socket!.off('spectator_joined', handleSpectatorJoined); // Cleanup
+      _socket!.off('room_joined', handleSpectatorJoined); // Cleanup
+    }
+
+    // Listen for BOTH room_joined and spectator_joined
+    _socket!.once('room_joined', handleSpectatorJoined);
+    _socket!.once('spectator_joined', handleSpectatorJoined);
     
     _socket!.once('error', (data) {
       print('Spectator join error: $data');
@@ -284,7 +290,7 @@ class SocketService extends ChangeNotifier {
     });
   }
 
-  Future<void> joinRoom(String roomId, String playerName, {Function(String roomId)? onSuccess, Function(String error)? onError}) async {
+  Future<void> joinRoom(String roomId, String playerName, {bool isSpectator = false, Function(String roomId)? onSuccess, Function(String error)? onError}) async {
     if (_socket == null || !_socket!.connected) {
       if (onError != null) {
         onError('Socket no conectado. Intenta nuevamente.');
@@ -292,7 +298,7 @@ class SocketService extends ChangeNotifier {
       return;
     }
 
-    print('Emitting join_room event for $playerName to room $roomId');
+    print('Emitting join_room event for $playerName to room $roomId (isSpectator: $isSpectator)');
     
     final user = FirebaseAuth.instance.currentUser;
     final token = await user?.getIdToken();
@@ -300,7 +306,8 @@ class SocketService extends ChangeNotifier {
     _socket!.emit('join_room', {
       'roomId': roomId, 
       'playerName': playerName,
-      'token': token
+      'token': token,
+      'isSpectator': isSpectator
     });
     
     // Set up one-time listeners for response

@@ -196,6 +196,42 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   void _setupSocketListeners(SocketService socketService) {
+    // FIX: Synchronous check for already connected socket
+    if (socketService.socket.connected) {
+      print('🔌 Socket already connected (Synchronous Check).');
+      if (widget.isSpectatorMode && mounted) {
+        print('🔓 Force unlocking loading screen for Spectator/Admin (Synchronous)');
+        setState(() {
+          _isJoining = false;
+          _socketReady = true;
+        });
+      }
+    }
+
+    socketService.socket.on('connect', (_) {
+      print('✅ Socket connected (GameScreen)');
+      // FIX: Force unlock for spectators immediately upon connection
+      if (widget.isSpectatorMode && mounted) {
+        print('🔓 Force unlocking loading screen for Spectator/Admin');
+        setState(() {
+          _isJoining = false;
+          _socketReady = true;
+        });
+      }
+    });
+
+    socketService.socket.on('spectator_joined', (data) {
+       print('👀 spectator_joined received: $data');
+       if (mounted) {
+         setState(() {
+           roomState = data; // Spectators might receive room state here
+           _isJoining = false;
+           _socketReady = true;
+         });
+         _retryJoinTimer?.cancel();
+       }
+    });
+
     socketService.socket.on('player_joined', (data) {
       if (mounted) setState(() => roomState = data);
     });
