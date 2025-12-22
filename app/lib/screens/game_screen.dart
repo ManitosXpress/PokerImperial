@@ -118,7 +118,10 @@ class _GameScreenState extends State<GameScreen> {
     final userRole = clubProvider.currentUserRole;
     final isSpectatorRole = userRole == 'club' || userRole == 'seller' || userRole == 'admin';
     
-    if (widget.isSpectatorMode) {
+    // FIX: Treat Admin/Club/Seller as Spectator even if widget.isSpectatorMode is false
+    final shouldJoinAsSpectator = widget.isSpectatorMode || isSpectatorRole;
+    
+    if (shouldJoinAsSpectator) {
       setState(() => _isJoining = true);
       
       try {
@@ -150,7 +153,7 @@ class _GameScreenState extends State<GameScreen> {
           );
         }
       }
-    } else if (!isSpectatorRole && user != null) {
+    } else if (user != null) {
       setState(() => _isJoining = true);
       
       try {
@@ -167,31 +170,28 @@ class _GameScreenState extends State<GameScreen> {
           setState(() => _socketReady = true);
         } else if (mounted) {
           setState(() => _isJoining = false);
-          if (!widget.isSpectatorMode) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Error: No se pudo conectar al servidor'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Error: No se pudo conectar al servidor'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
       } catch (e) {
         print('Error connecting to socket: $e');
         if (mounted) {
           setState(() => _isJoining = false);
-          if (!widget.isSpectatorMode) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Error de conexión: ${e.toString()}'),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error de conexión: ${e.toString()}'),
+              backgroundColor: Colors.orange,
+            ),
+          );
         }
       }
     } else {
-      print('User is spectator (role: $userRole), skipping socket join');
+      // This should only happen if user is null and not spectator?
+      print('User not logged in and not spectator, cannot join.');
     }
   }
 
@@ -586,9 +586,14 @@ class _GameScreenState extends State<GameScreen> {
 
   void _attemptJoinSpectator() {
      final socketService = Provider.of<SocketService>(context, listen: false);
-     print('Attempting to join room ${widget.roomId} as SPECTATOR...');
-     socketService.joinSpectator(
+     final user = FirebaseAuth.instance.currentUser;
+     print('Attempting to join room ${widget.roomId} as SPECTATOR (via joinRoom)...');
+     
+     // Use joinRoom with isSpectator: true to leverage the backend fix
+     socketService.joinRoom(
         widget.roomId,
+        user?.displayName ?? 'Spectator',
+        isSpectator: true,
         onSuccess: (roomId) {
            print('Joined room $roomId as spectator');
            if (mounted) setState(() => _isJoining = false);
