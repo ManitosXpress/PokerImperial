@@ -89,9 +89,12 @@ service cloud.firestore {
 
     }
 
-    // Poker Tables
+    // Poker Tables - Public read for all authenticated users, including admins as spectators
     match /poker_tables/{tableId} {
+      // All authenticated users can read tables (for listing and spectating)
+      // Admins can read ALL tables regardless of who created them
       allow read: if request.auth != null;
+      
       // Allow users to update 'players' array (join/leave) and 'readyPlayers' status
       allow update: if request.auth != null && (
         // Allow joining/leaving (modifying players array)

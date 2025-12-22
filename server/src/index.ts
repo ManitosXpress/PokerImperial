@@ -345,42 +345,62 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            // --- LÓGICA DE ESPECTADOR ---
-            if (isSpectator) {
+            // === LÓGICA DE ESPECTADOR (NUEVA) ===
+            if (isSpectator === true) {
                 console.log(`👀 [JOIN_ROOM] Usuario ${playerName} (${uid}) uniéndose como ESPECTADOR a sala ${roomId}`);
                 const room = roomManager.getRoom(roomId);
 
                 if (room) {
                     socket.join(roomId);
-                    const roomWithFlags = { ...room, isPublic: room.isPublic ?? false, hostId: room.hostId };
 
-                    // Emitir evento específico para espectador
-                    socket.emit('spectator_joined', roomWithFlags);
+                    // Obtener estado actual del juego desde RoomManager
+                    const currentGameState = roomManager.getGameState(roomId);
 
-                    // También enviar estado del juego si está activo
-                    if (room.gameState) {
-                        socket.emit('game_started', room.gameState);
+                    // EMITIR EL EVENTO QUE DESBLOQUEA LA APP
+                    socket.emit('spectator_joined', {
+                        roomId: roomId,
+                        gameState: currentGameState || { roomId, status: room.gameState, players: room.players },
+                        isSpectator: true
+                    });
+
+                    console.log(`✅ [JOIN_ROOM] Espectador unido - Evento spectator_joined emitido con estado: ${room.gameState}`);
+
+                    // Si el juego ya está corriendo, enviar el estado completo
+                    if (room.gameState === 'playing' && currentGameState) {
+                        socket.emit('game_started', currentGameState);
+                        console.log(`🎮 [JOIN_ROOM] Juego activo - Enviando game_started a espectador`);
                     }
-                    console.log(`✅ [JOIN_ROOM] Espectador unido exitosamente`);
                 } else {
-                    // Intentar hidratar desde Firestore si no está en memoria (para espectadores también)
+                    // Intentar hidratar desde Firestore si no está en memoria
+                    console.log(`[JOIN_ROOM] ⚠️ Mesa ${roomId} no encontrada en memoria, intentando hidratar desde Firestore...`);
                     try {
                         const roomDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
                         if (roomDoc.exists) {
-                            // Si existe en DB pero no en memoria, podríamos recrearla o simplemente decir que no está activa
-                            // Para espectadores, si la mesa no está en memoria, probablemente no hay juego activo.
-                            // Pero podríamos cargarla para que vea la "Waiting Room".
-                            console.log(`[JOIN_ROOM] Mesa encontrada en Firestore pero no en memoria. Cargando para espectador...`);
-                            // ... Lógica de hidratación simplificada o error
-                            socket.emit('error', 'La mesa no está activa en este momento.');
+                            const roomData = roomDoc.data();
+                            console.log(`[JOIN_ROOM] Mesa encontrada en Firestore con status: ${roomData?.status}`);
+
+                            // Unir al socket de todas formas para que reciba actualizaciones
+                            socket.join(roomId);
+
+                            // Emitir spectator_joined con datos de Firestore
+                            socket.emit('spectator_joined', {
+                                roomId: roomId,
+                                gameState: roomData,
+                                isSpectator: true,
+                                fromFirestore: true
+                            });
+
+                            console.log(`✅ [JOIN_ROOM] Espectador unido a mesa hidratada desde Firestore`);
                         } else {
+                            console.error(`[JOIN_ROOM] ❌ Mesa ${roomId} no existe en Firestore`);
                             socket.emit('error', 'Room not found');
                         }
                     } catch (e) {
+                        console.error(`[JOIN_ROOM] ❌ Error al hidratar mesa desde Firestore:`, e);
                         socket.emit('error', 'Room not found');
                     }
                 }
-                return; // TERMINAR AQUÍ para espectadores
+                return; // IMPORTANTE: No seguir a addPlayer
             }
 
             // --- LÓGICA DE JUGADOR NORMAL ---
