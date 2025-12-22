@@ -7,7 +7,9 @@ import '../../widgets/tournament/tournament_list_item.dart';
 import 'tournament_lobby_screen.dart';
 
 class TournamentListScreen extends StatefulWidget {
-  const TournamentListScreen({super.key});
+  final String? userRole;
+
+  const TournamentListScreen({super.key, this.userRole});
 
   @override
   State<TournamentListScreen> createState() => _TournamentListScreenState();
@@ -76,6 +78,23 @@ class _TournamentListScreenState extends State<TournamentListScreen> {
               ),
       ),
 
+      floatingActionButton: (widget.userRole == 'admin' || widget.userRole == 'club')
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: 70.0),
+              child: FloatingActionButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => CreateTournamentScreen(userRole: widget.userRole),
+                    ),
+                  );
+                },
+                backgroundColor: const Color(0xFFFFD700),
+                child: const Icon(Icons.add, color: Colors.black),
+              ),
+            )
+          : null,
     );
   }
 }

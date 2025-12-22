@@ -3,11 +3,11 @@ import '../../widgets/imperial_currency.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../game_screen.dart';
-import '../table_lobby_screen.dart';
+// TableLobbyScreen import removed
 import '../../services/socket_service.dart';
 import 'package:provider/provider.dart';
-import '../../widgets/cash/featured_tables_carousel.dart';
 import '../../widgets/cash/blind_filters_chips.dart';
+import '../../widgets/create_table_dialog.dart';
 
 class CashTablesView extends StatefulWidget {
   final String? userRole;
@@ -35,13 +35,13 @@ class _CashTablesViewState extends State<CashTablesView> with AutomaticKeepAlive
     final roomId = _roomIdController.text.trim();
     if (roomId.isEmpty) return;
     
-    // Navigate to Lobby
+    // Navigate to GameScreen (Waiting Room)
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => TableLobbyScreen(
-          tableId: roomId,
-          tableName: 'Sala $roomId', // We don't have the name yet, but Lobby will fetch it
+        builder: (_) => GameScreen(
+          roomId: roomId,
+          isSpectatorMode: false,
         ),
       ),
     );
@@ -62,10 +62,11 @@ class _CashTablesViewState extends State<CashTablesView> with AutomaticKeepAlive
           ],
         ),
       ),
-      child: Column(
+      child: Stack(
         children: [
-          // Featured Tables Carousel
-          const FeaturedTablesCarousel(),
+          Column(
+            children: [
+          // Featured Tables Removed as per user request to fix visual glitch
           
           // Blind Filters
           BlindFiltersChips(
@@ -122,21 +123,11 @@ class _CashTablesViewState extends State<CashTablesView> with AutomaticKeepAlive
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('poker_tables')
-                  .where('status', isEqualTo: 'active') // Should we include 'waiting'/'lobby'? User said "waiting" or "lobby".
-                  // But the code previously used 'active'. 
-                  // Let's check TableLobbyScreen logic. It checks for 'active' to go to game.
-                  // If status is 'waiting', it stays in lobby.
-                  // So we should probably fetch 'waiting' AND 'active' (if late join allowed) or just 'waiting'?
-                  // User said: "status == 'waiting' o status == 'lobby'"
-                  // Let's update the query. Firestore doesn't support OR in where clauses easily without 'in'.
-                  .where('status', whereIn: ['waiting', 'lobby', 'active']) 
-                  .where('isPublic', isEqualTo: true)
+                  // Fetch ALL tables and filter client-side to ensure nothing is missed due to indexes/case-sensitivity
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: Color(0xFFFFD700)),
-                  );
+                  return const SizedBox.shrink();
                 }
 
                 if (snapshot.hasError) {
@@ -171,7 +162,64 @@ class _CashTablesViewState extends State<CashTablesView> with AutomaticKeepAlive
                   );
                 }
 
-                final tables = snapshot.data!.docs;
+                // Client-side filtering (The "Nuclear Option" to find that missing table)
+                final tables = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  
+                  // 1. Check Status
+                  final status = (data['status'] as String?)?.toLowerCase() ?? '';
+                  final validStatuses = ['waiting', 'lobby', 'active', 'open'];
+                  if (!validStatuses.contains(status)) return false;
+
+                  // 2. Check Visibility (Is Public?)
+                  // Condition: Explicitly PUBLIC or NOT Explicitly PRIVATE
+                  
+                  // 2. Check Visibility (Is Public?)
+                  // User Requirement: "solo tienen que salir las mesas isPublic=true"
+                  // Strict check. No fallback to !isPrivate.
+                  
+                  final isPublicRaw = data['isPublic'];
+                  final isPublic = isPublicRaw == true || isPublicRaw == 'true';
+
+                  return isPublic; 
+                }).toList();
+
+                // Sort: Active first, then Waiting
+                tables.sort((a, b) {
+                   final aData = a.data() as Map<String, dynamic>;
+                   final bData = b.data() as Map<String, dynamic>;
+                   final aStatus = (aData['status'] as String?)?.toLowerCase() ?? '';
+                   final bStatus = (bData['status'] as String?)?.toLowerCase() ?? '';
+                   
+                   // Active first
+                   if (aStatus == 'active' && bStatus != 'active') return -1;
+                   if (aStatus != 'active' && bStatus == 'active') return 1;
+                   
+                   return 0; 
+                });
+
+                if (tables.isEmpty) {
+                   return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.table_chart_outlined,
+                          size: 80,
+                          color: Colors.white.withOpacity(0.3),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No hay mesas públicas activas',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.6),
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
 
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -189,14 +237,34 @@ class _CashTablesViewState extends State<CashTablesView> with AutomaticKeepAlive
                       maxBuyIn: table['maxBuyIn'] ?? 1000,
                       playerCount: (table['players'] as List?)?.length ?? 0,
                       maxPlayers: 8,
+
                       createdByName: table['createdByName'] ?? 'Club',
                       userRole: widget.userRole,
+                      status: table['status'] ?? 'waiting',
                     );
                   },
                 );
               },
             ),
           ),
+        ],
+      ),
+          if (widget.userRole == 'admin' || widget.userRole == 'club')
+            Positioned(
+              bottom: 86,
+              right: 16,
+              child: FloatingActionButton(
+                heroTag: 'create_table_fab',
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => const CreateTableDialog(),
+                  );
+                },
+                backgroundColor: const Color(0xFFFFD700),
+                child: const Icon(Icons.add, color: Colors.black),
+              ),
+            ),
         ],
       ),
     );
@@ -214,6 +282,7 @@ class _TableCard extends StatelessWidget {
   final int maxPlayers;
   final String createdByName;
   final String? userRole;
+  final String status;
 
   const _TableCard({
     required this.tableId,
@@ -226,11 +295,13 @@ class _TableCard extends StatelessWidget {
     required this.maxPlayers,
     required this.createdByName,
     required this.userRole,
+    required this.status,
   });
 
   bool get isHot => playerCount >= (maxPlayers * 0.5);
   bool get isVip => minBuyIn >= 1000;
   bool get isFull => playerCount >= maxPlayers;
+  bool get isActive => status == 'active';
 
   @override
   Widget build(BuildContext context) {
@@ -266,7 +337,7 @@ class _TableCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: isFull ? null : () => _joinTable(context),
+          onTap: (isFull && !isActive) ? null : () => _joinTable(context),
           child: Padding(
             padding: const EdgeInsets.all(18),
             child: Column(
@@ -408,14 +479,16 @@ class _TableCard extends StatelessWidget {
                   width: double.infinity,
                   height: 44,
                   decoration: BoxDecoration(
-                    gradient: isFull
+                    gradient: (isFull && !isActive)
                         ? null
-                        : const LinearGradient(
-                            colors: [Color(0xFFFFD700), Color(0xFFB8860B)],
+                        : LinearGradient(
+                            colors: isActive 
+                                ? [const Color(0xFF00C853), const Color(0xFF009624)] // Green for Spectate
+                                : [const Color(0xFFFFD700), const Color(0xFFB8860B)], // Gold for Join
                           ),
-                    color: isFull ? Colors.grey.withOpacity(0.3) : null,
+                    color: (isFull && !isActive) ? Colors.grey.withOpacity(0.3) : null,
                     borderRadius: BorderRadius.circular(12),
-                    boxShadow: isFull
+                    boxShadow: (isFull && !isActive)
                         ? null
                         : [
                             BoxShadow(
@@ -428,27 +501,35 @@ class _TableCard extends StatelessWidget {
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      onTap: isFull ? null : () => _joinTable(context),
+                      onTap: (isFull && !isActive) ? null : () => _joinTable(context),
                       borderRadius: BorderRadius.circular(12),
                       child: Center(
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
-                              isFull ? Icons.block : Icons.play_arrow,
-                              color: isFull ? Colors.white38 : Colors.black,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              isFull ? 'MESA LLENA' : 'JUGAR YA',
-                              style: TextStyle(
-                                color: isFull ? Colors.white38 : Colors.black,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
+                              Icon(
+                                (isFull && !isActive) 
+                                    ? Icons.block 
+                                    : isActive 
+                                        ? Icons.remove_red_eye 
+                                        : Icons.play_arrow,
+                                color: (isFull && !isActive) ? Colors.white38 : Colors.black,
+                                size: 20,
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              Text(
+                                (isFull && !isActive) 
+                                    ? 'MESA LLENA' 
+                                    : isActive 
+                                        ? 'VER MESA' 
+                                        : 'ENTRAR',
+                                style: TextStyle(
+                                  color: (isFull && !isActive) ? Colors.white38 : Colors.black,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -464,39 +545,65 @@ class _TableCard extends StatelessWidget {
   }
 
   void _joinTable(BuildContext context) {
-    final isSpectator = userRole == 'club';
-
-    if (isSpectator) {
+    if (isActive) {
+      // Spectator Mode
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('🔍 Entrando como Espectador...'),
+          content: Text('👀 Entrando como Espectador...'),
           backgroundColor: Colors.blue,
           duration: Duration(seconds: 1),
         ),
       );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🎮 Uniéndose a la mesa...'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 1),
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GameScreen(
+            roomId: tableId,
+            isSpectatorMode: true,
+          ),
         ),
       );
-    }
+    } else {
+      // Join Lobby (Regular Flow)
+      // Admin and Club (Staff) join as Spectators (handled in TableLobbyScreen or here if needed)
+      // But typically they go to lobby first to see players, then start?
+      // Actually existing logic said:
+      
+      final isStaff = userRole == 'admin' || userRole == 'club';
 
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (context.mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => TableLobbyScreen(
-              tableId: tableId,
-              tableName: tableName,
-            ),
+      if (isStaff) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🔍 Entrando como Espectador/Admin...'),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 1),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎮 Uniéndose a la mesa...'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 1),
           ),
         );
       }
-    });
+
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (context.mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => GameScreen(
+                roomId: tableId,
+                isSpectatorMode: false,
+              ),
+            ),
+          );
+        }
+      });
+    }
   }
 }
 

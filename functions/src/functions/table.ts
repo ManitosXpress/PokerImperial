@@ -25,10 +25,10 @@ export const createPublicTable = functions.https.onCall(async (data, context) =>
     const userDoc = await db.collection('users').doc(uid).get();
     const userData = userDoc.data();
 
-    if (!userData || userData.role !== 'club') {
+    if (!userData || (userData.role !== 'club' && userData.role !== 'admin')) {
         throw new functions.https.HttpsError(
             'permission-denied',
-            'Only Club Owners can create public tables.'
+            'Only Club Owners and Admins can create public tables.'
         );
     }
 
@@ -66,11 +66,15 @@ export const createPublicTable = functions.https.onCall(async (data, context) =>
         bigBlind: Number(bigBlind),
         minBuyIn: Number(minBuyIn),
         maxBuyIn: Number(maxBuyIn),
-        createdByClubId: uid,
-        createdByName: userData.displayName || 'Club Owner',
-        isPublic: true,
-        status: 'active',
+        clubId: null, // Explicitly null for public tables
+        hostId: uid,  // The creator is the host
+        createdByClubId: uid, // Kept for reference
+        createdByName: userData.displayName || 'Admin',
+        isPrivate: false, // Explicitly public
+        isPublic: true,   // Redundant but clear
+        status: 'waiting', // Start in waiting state
         players: [],
+        activePlayers: [], // Added missing field
         spectators: [],
         createdAt: timestamp,
         currentRound: null,
@@ -247,30 +251,51 @@ export const getInGameBalance = async (data: any, context: functions.https.Calla
             .where('status', '==', 'active')
             .get();
 
-        if (activeSessionsQuery.empty) {
+        // ════════════════════════════════════════════════════════════════════════
+        // 3. MANEJO EXPLÍCITO DE VACÍO (CRÍTICO para evitar Error 500)
+        // ════════════════════════════════════════════════════════════════════════
+        if (!activeSessionsQuery || activeSessionsQuery.empty || activeSessionsQuery.size === 0) {
             console.log(`[GET_IN_GAME_BALANCE] ✅ Usuario ${uid} no tiene sesiones activas. Retornando 0.`);
-            return { moneyInPlay: 0 };
+            return {
+                moneyInPlay: 0,
+                sessionCount: 0,
+                sessions: []
+            };
         }
 
         // ════════════════════════════════════════════════════════════════════════
-        // 3. SUMAR BUY-IN DE TODAS LAS SESIONES ACTIVAS
+        // 4. SUMAR BUY-IN DE TODAS LAS SESIONES ACTIVAS (Con Validación Defensiva)
         // ════════════════════════════════════════════════════════════════════════
         let totalMoneyInPlay = 0;
         const sessionDetails: Array<{ sessionId: string; buyInAmount: number; roomId: string }> = [];
 
         for (const doc of activeSessionsQuery.docs) {
-            const sessionData = doc.data();
-            const buyInAmount = Number(sessionData.buyInAmount) || 0;
-            const roomId = sessionData.roomId || 'unknown';
+            // ✅ DEFENSIVO: Verificar que el documento existe y tiene datos
+            if (!doc || !doc.exists) {
+                console.warn(`[GET_IN_GAME_BALANCE] ⚠️ Documento de sesión inválido encontrado, saltando...`);
+                continue;
+            }
 
-            totalMoneyInPlay += buyInAmount;
+            const sessionData = doc.data();
+
+            // ✅ DEFENSIVO: Manejar undefined/null/NaN como 0
+            const buyInAmount = (sessionData?.buyInAmount !== undefined && sessionData?.buyInAmount !== null)
+                ? Number(sessionData.buyInAmount)
+                : 0;
+
+            // Si el valor parseado es NaN, usar 0
+            const safeBuyIn = isNaN(buyInAmount) ? 0 : buyInAmount;
+
+            const roomId = sessionData?.roomId || 'unknown';
+
+            totalMoneyInPlay += safeBuyIn;
             sessionDetails.push({
                 sessionId: doc.id,
-                buyInAmount,
+                buyInAmount: safeBuyIn,
                 roomId
             });
 
-            console.log(`[GET_IN_GAME_BALANCE] 📊 Sesión ${doc.id}: buyInAmount=${buyInAmount}, roomId=${roomId}`);
+            console.log(`[GET_IN_GAME_BALANCE] 📊 Sesión ${doc.id}: buyInAmount=${safeBuyIn}, roomId=${roomId}`);
         }
 
         console.log(`[GET_IN_GAME_BALANCE] ✅ Total moneyInPlay calculado: ${totalMoneyInPlay} (${sessionDetails.length} sesión/es activa/s)`);
@@ -281,10 +306,15 @@ export const getInGameBalance = async (data: any, context: functions.https.Calla
             sessions: sessionDetails // Opcional: para debugging
         };
     } catch (error: any) {
+        // ════════════════════════════════════════════════════════════════════════
+        // 5. MANEJO DE ERRORES ROBUSTO (Nunca dejar crashear el servidor)
+        // ════════════════════════════════════════════════════════════════════════
         console.error(`[GET_IN_GAME_BALANCE] ❌ Error calculando moneyInPlay para usuario ${uid}:`, error);
+        console.error('[GET_IN_GAME_BALANCE] Stack trace:', error.stack);
+
         throw new functions.https.HttpsError(
             'internal',
-            `Failed to calculate in-game balance: ${error.message || 'Unknown error'}`
+            `Failed to calculate in-game balance: ${error.message || 'Unknown database error. Please contact support.'}`
         );
     }
 };

@@ -788,7 +788,10 @@ export class PokerGame {
         distribution: { platform: number, club: number, seller: number }
     } {
         const RAKE_PERCENTAGE = 0.08;
-        const totalRake = Math.floor(pot * RAKE_PERCENTAGE);
+        const MAX_RAKE_CAP = 500; // Tope máximo de comisión por mano (ajustable)
+        let totalRake = Math.floor(pot * RAKE_PERCENTAGE);
+        if (totalRake > MAX_RAKE_CAP) totalRake = MAX_RAKE_CAP;
+
         const netPot = pot - totalRake;
 
         let distribution = {

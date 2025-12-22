@@ -145,6 +145,51 @@ class SocketService extends ChangeNotifier {
     }
   }
 
+  /// Wait for socket connection to be established
+  /// Returns true if connected, false if timeout or error
+  Future<bool> waitForConnection({Duration timeout = const Duration(seconds: 10)}) async {
+    if (_isConnected && _socket != null && _socket!.connected) {
+      return true;
+    }
+
+    final completer = Completer<bool>();
+    Timer? timeoutTimer;
+    
+    void checkConnection() {
+      if (_isConnected && _socket != null && _socket!.connected) {
+        timeoutTimer?.cancel();
+        if (!completer.isCompleted) {
+          completer.complete(true);
+        }
+      }
+    }
+
+    // Listen for connection state changes
+    void listener() {
+      checkConnection();
+    }
+    
+    addListener(listener);
+    
+    // Check immediately in case already connected
+    checkConnection();
+    
+    // Set timeout
+    timeoutTimer = Timer(timeout, () {
+      removeListener(listener);
+      if (!completer.isCompleted) {
+        print('Socket connection timeout after ${timeout.inSeconds} seconds');
+        completer.complete(false);
+      }
+    });
+    
+    final result = await completer.future;
+    removeListener(listener);
+    timeoutTimer?.cancel();
+    
+    return result;
+  }
+
   void disconnect() {
     _socket?.dispose();
     _socket?.disconnect();

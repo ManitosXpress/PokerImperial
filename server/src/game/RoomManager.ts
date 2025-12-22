@@ -41,17 +41,25 @@ export class RoomManager {
 
     /**
      * Limpia mesas vacías o inactivas para liberar memoria
+     * ✅ ACTUALIZADO: Maneja async deleteRoom para actualizar Firestore
      */
-    private cleanupEmptyRooms() {
+    private async cleanupEmptyRooms() {
         const now = Date.now();
         let cleanedCount = 0;
 
-        for (const [roomId, room] of this.rooms.entries()) {
+        // Convertir a array para evitar problemas con async iteration
+        const roomEntries = Array.from(this.rooms.entries());
+
+        for (const [roomId, room] of roomEntries) {
             // Eliminar mesas completamente vacías
             if (room.players.length === 0) {
                 console.log(`🗑️ Cleaning up empty room: ${roomId}`);
-                this.deleteRoom(roomId);
-                cleanedCount++;
+                try {
+                    await this.deleteRoom(roomId);
+                    cleanedCount++;
+                } catch (err) {
+                    console.error(`❌ Error cleaning room ${roomId}:`, err);
+                }
                 continue;
             }
 
@@ -69,8 +77,12 @@ export class RoomManager {
                 const allPlayersLeft = room.players.every(p => p.isBot || p.status === 'ELIMINATED');
                 if (allPlayersLeft) {
                     console.log(`🗑️ Cleaning up finished room with no active players: ${roomId}`);
-                    this.deleteRoom(roomId);
-                    cleanedCount++;
+                    try {
+                        await this.deleteRoom(roomId);
+                        cleanedCount++;
+                    } catch (err) {
+                        console.error(`❌ Error cleaning finished room ${roomId}:`, err);
+                    }
                 }
             }
         }
@@ -373,9 +385,25 @@ export class RoomManager {
                     game.removePlayer(playerId);
                 }
 
-                // OPTIMIZACIÓN: Limpiar inmediatamente mesas vacías para liberar memoria
+                // ✅ FIX ZOMBIE TABLES: Actualizar Firestore y limpiar memoria cuando la sala queda vacía
                 if (room.players.length === 0) {
-                    console.log(`🗑️ Room ${roomId} is now empty - cleaning up immediately`);
+                    console.log(`🗑️ Room ${roomId} is now empty - updating Firestore and cleaning up`);
+
+                    // PASO 1: Actualizar estado en Firestore ANTES de eliminar de memoria
+                    const db = admin.firestore();
+                    db.collection('poker_tables').doc(roomId).update({
+                        status: 'finished',
+                        players: [],
+                        activePlayers: [],
+                        lastActionTime: admin.firestore.FieldValue.serverTimestamp()
+                    }).then(() => {
+                        console.log(`✅ Firestore updated: Room ${roomId} marked as finished`);
+                    }).catch(err => {
+                        console.error(`❌ Failed to update Firestore for room ${roomId}:`, err);
+                        // Continuar de todos modos para limpiar memoria
+                    });
+
+                    // PASO 2: Eliminar de memoria (no bloqueamos con await)
                     this.deleteRoom(roomId);
                 }
 
@@ -526,9 +554,29 @@ export class RoomManager {
         return game.getGameState();
     }
 
-    public deleteRoom(roomId: string) {
+    public async deleteRoom(roomId: string) {
         const room = this.rooms.get(roomId);
         const game = this.games.get(roomId);
+
+        // ✅ FIX ZOMBIE TABLES: Actualizar Firestore antes de eliminar de memoria
+        try {
+            const db = admin.firestore();
+            const tableRef = db.collection('poker_tables').doc(roomId);
+            const tableDoc = await tableRef.get();
+
+            if (tableDoc.exists) {
+                await tableRef.update({
+                    status: 'finished',
+                    players: [],
+                    activePlayers: [],
+                    lastActionTime: admin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`✅ Firestore updated: Room ${roomId} marked as finished`);
+            }
+        } catch (err) {
+            console.error(`❌ Failed to update Firestore for room ${roomId}:`, err);
+            // Continuar de todos modos para limpiar memoria
+        }
 
         // Limpiar timers del juego si existen
         if (game && (game as any).turnTimer) {

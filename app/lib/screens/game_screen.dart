@@ -16,7 +16,8 @@ import '../widgets/chip_stack.dart';
 import '../widgets/game_wallet_dialog.dart';
 import '../game_controllers/practice_game_controller.dart';
 import '../widgets/game/betting_dialog.dart';
-import '../widgets/game/waiting_room_view.dart';
+import 'table_lobby_screen.dart';
+
 import '../widgets/game/victory_overlay.dart';
 import '../widgets/game/action_controls.dart';
 import '../widgets/game/rebuy_dialog.dart'; // Import RebuyDialog
@@ -28,6 +29,8 @@ class GameScreen extends StatefulWidget {
   final bool isPracticeMode;
   final bool isSpectatorMode;
   final bool isTournamentMode;
+  final String? clubOwnerId;
+  final String? currentUserId;
 
   const GameScreen({
     super.key,
@@ -36,6 +39,8 @@ class GameScreen extends StatefulWidget {
     this.isPracticeMode = false,
     this.isSpectatorMode = false,
     this.isTournamentMode = false,
+    this.clubOwnerId,
+    this.currentUserId,
   });
 
   @override
@@ -48,6 +53,7 @@ class _GameScreenState extends State<GameScreen> {
   bool _startConfirmationShown = false;
   bool _isJoining = false; 
   Timer? _retryJoinTimer;
+  bool _socketReady = false; // Track socket connection state
 
   // Practice Mode Controller
   PracticeGameController? _practiceController;
@@ -63,6 +69,11 @@ class _GameScreenState extends State<GameScreen> {
   
   // Rebuy Dialog State
   bool _isRebuyDialogShowing = false;
+  
+  // Club Leader Mode
+  bool get isClubLeader => widget.currentUserId != null && 
+                           widget.clubOwnerId != null && 
+                           widget.currentUserId == widget.clubOwnerId;
 
   @override
   void initState() {
@@ -99,7 +110,7 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  void _initOnlineMode() {
+  void _initOnlineMode() async {
     final socketService = Provider.of<SocketService>(context, listen: false);
     final user = FirebaseAuth.instance.currentUser;
     final clubProvider = Provider.of<ClubProvider>(context, listen: false);
@@ -109,37 +120,76 @@ class _GameScreenState extends State<GameScreen> {
     
     if (widget.isSpectatorMode) {
       setState(() => _isJoining = true);
-      socketService.connect().then((_) {
-        if (mounted) {
+      
+      try {
+        await socketService.connect();
+        final connected = await socketService.waitForConnection();
+        
+        if (mounted && connected) {
           _setupSocketListeners(socketService);
           _attemptJoinSpectator();
+          setState(() => _socketReady = true);
+        } else if (mounted) {
+          setState(() => _isJoining = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Error: No se pudo conectar al servidor'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
-      });
+      } catch (e) {
+        print('Error connecting to socket: $e');
+        if (mounted) {
+          setState(() => _isJoining = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error de conexión: ${e.toString()}'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
     } else if (!isSpectatorRole && user != null) {
       setState(() => _isJoining = true);
       
-      socketService.connect().then((_) async {
-        if (mounted) {
+      try {
+        await socketService.connect();
+        final connected = await socketService.waitForConnection();
+        
+        if (mounted && connected) {
           _setupSocketListeners(socketService);
           
           if (user != null) {
             _attemptJoinOrCreate(user);
           }
+          
+          setState(() => _socketReady = true);
+        } else if (mounted) {
+          setState(() => _isJoining = false);
+          if (!widget.isSpectatorMode) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Error: No se pudo conectar al servidor'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
-      }).catchError((e) {
+      } catch (e) {
         print('Error connecting to socket: $e');
         if (mounted) {
           setState(() => _isJoining = false);
-           if (!widget.isSpectatorMode) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Error de conexión: ${e.toString()}'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
-           }
+          if (!widget.isSpectatorMode) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error de conexión: ${e.toString()}'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
         }
-      });
+      }
     } else {
       print('User is spectator (role: $userRole), skipping socket join');
     }
@@ -566,7 +616,14 @@ class _GameScreenState extends State<GameScreen> {
       final socketService = Provider.of<SocketService>(context, listen: false);
       final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
 
-      if (widget.isSpectatorMode) {
+      // Check if I am in the game
+      bool isPlayerInGame = false;
+      if (gameState != null && gameState!['players'] != null) {
+         final players = gameState!['players'] as List;
+         isPlayerInGame = players.any((p) => p['id'] == myId);
+      }
+
+      if (widget.isSpectatorMode || !isPlayerInGame) {
         _stopTurnTimer();
         return;
       }
@@ -633,6 +690,20 @@ class _GameScreenState extends State<GameScreen> {
       _practiceController?.handleAction(_localPlayerId, action, amount);
     } else {
       final socketService = Provider.of<SocketService>(context, listen: false);
+      
+      // Guard: Don't send actions if spectator
+      final myId = socketService.socketId;
+      bool isPlayerInGame = false;
+      if (gameState != null && gameState!['players'] != null) {
+         final players = gameState!['players'] as List;
+         isPlayerInGame = players.any((p) => p['id'] == myId);
+      }
+      
+      if (widget.isSpectatorMode || !isPlayerInGame) {
+         print('⛔ Blocked action $action from spectator/non-player');
+         return;
+      }
+
       print('🎲 Sending game_action: roomId=${widget.roomId}, action=$action, amount=$amount');
       socketService.socket.emit('game_action',
           {'roomId': widget.roomId, 'action': action, 'amount': amount});
@@ -700,6 +771,16 @@ class _GameScreenState extends State<GameScreen> {
     if (gameState != null && gameState!['currentTurn'] != null) {
       isTurn = gameState!['currentTurn'] == myId;
     }
+
+    // Dynamic Spectator Detection
+    bool isPlayerInGame = false;
+    if (gameState != null && gameState!['players'] != null) {
+      final players = gameState!['players'] as List;
+      isPlayerInGame = players.any((p) => p['id'] == myId);
+    }
+    
+    // Effective Spectator Mode: Explicitly set OR implicitly detected (not in players list)
+    final bool effectiveSpectatorMode = widget.isSpectatorMode || (gameState != null && !isPlayerInGame);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -770,6 +851,27 @@ class _GameScreenState extends State<GameScreen> {
                           )
                        );
                     }
+                    
+                    // Show loading screen while socket is connecting
+                    if (!_socketReady && !widget.isPracticeMode) {
+                      return const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(color: Color(0xFFD4AF37)),
+                            SizedBox(height: 16),
+                            Text(
+                              'Conectando al servidor...',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
 
                     bool isHost = false;
                     bool isPublic = true;
@@ -786,17 +888,178 @@ class _GameScreenState extends State<GameScreen> {
                       }
                     }
                     
-                    return WaitingRoomView(
-                      roomId: widget.roomId,
-                      roomState: currentRoomState,
-                      onStartGame: _startGame,
-                      onCloseRoom: () {
-                        final socketService = Provider.of<SocketService>(context, listen: false);
-                        socketService.closeRoom(widget.roomId);
-                      },
-                      userRole: userRole,
-                      isHost: isHost,
-                      isPublic: isPublic,
+                    
+                    // Mesa VIP style waiting room
+                    final players = (currentRoomState?['players'] as List?) ?? [];
+                    final maxPlayers = currentRoomState?['maxPlayers'] ?? 8;
+                    final smallBlind = currentRoomState?['smallBlind'] ?? 10;
+                    final bigBlind = currentRoomState?['bigBlind'] ?? 20;
+                    
+                    return Column(
+                      children: [
+                        const SizedBox(height: 100),
+                        
+                        // Header: Blinds & Stats (MesaVIP style)
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  // Blinds Badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white10,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: Colors.white24),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.monetization_on, color: Color(0xFFFFD700), size: 16),
+                                        const SizedBox(width: 8),
+                                        Text('Blinds: $smallBlind/$bigBlind', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  // Players Badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white10,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: Colors.white24),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.people, color: Color(0xFFFFD700), size: 16),
+                                        const SizedBox(width: 8),
+                                        Text('Jugadores: ${players.length}/$maxPlayers', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              if (players.length < 2)
+                                const Text(
+                                  'Esperando mínimo 2 jugadores...',
+                                  style: TextStyle(color: Colors.amber, fontStyle: FontStyle.italic),
+                                ),
+                            ],
+                          ),
+                        ),
+                        
+                        const Divider(color: Colors.white24),
+                        
+                        // Players Grid
+                        Expanded(
+                          child: players.isEmpty
+                              ? Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.person_outline, size: 64, color: Colors.white.withOpacity(0.1)),
+                                      const SizedBox(height: 16),
+                                      const Text('La sala está vacía', style: TextStyle(color: Colors.white38)),
+                                    ],
+                                  ),
+                                )
+                              : GridView.builder(
+                                  padding: const EdgeInsets.all(24),
+                                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 3,
+                                    childAspectRatio: 0.75,
+                                    crossAxisSpacing: 16,
+                                    mainAxisSpacing: 16,
+                                  ),
+                                  itemCount: players.length,
+                                  itemBuilder: (context, index) {
+                                    final player = players[index];
+                                    final playerName = player['name'] ?? 'Player';
+                                    final photoUrl = player['photoUrl'];
+                                    final playerChips = player['chips'] ?? 1000;
+                                    final isPlayerHost = player['id'] == currentRoomState?['hostId'];
+                                    
+                                    return Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withOpacity(0.05),
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(color: Colors.white10, width: 1),
+                                          ),
+                                          child: Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              CircleAvatar(
+                                                radius: 30,
+                                                backgroundColor: Colors.black26,
+                                                backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                                                child: photoUrl == null ? const Icon(Icons.person, color: Colors.white70, size: 30) : null,
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                                child: Text(
+                                                  playerName,
+                                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                                  overflow: TextOverflow.ellipsis,
+                                                  maxLines: 1,
+                                                ),
+                                              ),
+                                              Text(
+                                                '🪙 $playerChips',
+                                                style: const TextStyle(color: Color(0xFFFFD700), fontSize: 12),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (isPlayerHost)
+                                          Positioned(
+                                            top: 8,
+                                            right: 8,
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.amber,
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: const Text('HOST', style: TextStyle(color: Colors.black, fontSize: 9, fontWeight: FontWeight.bold)),
+                                            ),
+                                          ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                        ),
+                        
+                        // Footer
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: const BoxDecoration(
+                            color: Colors.black87,
+                            border: Border(top: BorderSide(color: Colors.white12)),
+                          ),
+                          child: SafeArea(
+                            top: false,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.hourglass_empty, color: Colors.white70),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Esperando a que el host inicie la partida...',
+                                  style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     );
                   },
                 )
@@ -995,6 +1258,7 @@ class _GameScreenState extends State<GameScreen> {
                         final playersList = gameState!['players'] as List;
                         final myIndex =
                             playersList.indexWhere((p) => p['id'] == myId);
+                        // If I am not in the game (spectator), offset is 0 (neutral view)
                         final int offset = myIndex != -1 ? myIndex : 0;
 
                         int index = entry.key;
@@ -1131,21 +1395,21 @@ class _GameScreenState extends State<GameScreen> {
                     ),
 
                     // Action Controls (Refactored Widget)
-                    if (!widget.isSpectatorMode)
-                      ActionControls(
-                        isTurn: isTurn,
-                        isSpectatorMode: widget.isSpectatorMode,
-                        currentBet: gameState?['currentBet'] ?? 0,
-                        myCurrentBet: () {
-                          final players = gameState?['players'] as List?;
-                          if (players == null) return 0;
-                          final idx = players.indexWhere((p) => p['id'] == myId);
-                          return idx >= 0 ? (players[idx]['currentBet'] ?? 0) : 0;
-                        }(),
-                        secondsRemaining: _secondsRemaining,
-                        onAction: _sendAction,
-                        onShowBetDialog: _showCustomBetDialog,
-                      ),
+                    // Always render ActionControls, it handles spectator mode internally
+                    ActionControls(
+                      isTurn: isTurn,
+                      isSpectatorMode: effectiveSpectatorMode,
+                      currentBet: gameState?['currentBet'] ?? 0,
+                      myCurrentBet: () {
+                        final players = gameState?['players'] as List?;
+                        if (players == null) return 0;
+                        final idx = players.indexWhere((p) => p['id'] == myId);
+                        return idx >= 0 ? (players[idx]['currentBet'] ?? 0) : 0;
+                      }(),
+                      secondsRemaining: _secondsRemaining,
+                      onAction: _sendAction,
+                      onShowBetDialog: _showCustomBetDialog,
+                    ),
 
                     // Victory Screen Overlay (Refactored Widget)
                     if (_showVictoryScreen && _winnerData != null)

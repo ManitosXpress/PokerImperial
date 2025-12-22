@@ -18,7 +18,7 @@ export const adminSetUserRole = async (data: any, context: functions.https.Calla
     assertAdmin(context);
     const { targetUid, role } = data;
     if (!targetUid || !role) throw new functions.https.HttpsError('invalid-argument', 'Missing fields');
-    
+
     try {
         const db = getDb();
         await db.collection('users').doc(targetUid).update({ role });
@@ -37,7 +37,7 @@ export const adminSetUserRole = async (data: any, context: functions.https.Calla
 export const adminDeleteUser = async (data: any, context: functions.https.CallableContext) => {
     assertAdmin(context);
     const { targetUid } = data;
-    
+
     if (!targetUid) {
         throw new functions.https.HttpsError('invalid-argument', 'Missing targetUid.');
     }
@@ -49,18 +49,18 @@ export const adminDeleteUser = async (data: any, context: functions.https.Callab
 
     try {
         const db = getDb();
-        
+
         // Check if user exists
         const userRef = db.collection('users').doc(targetUid);
         const userDoc = await userRef.get();
-        
+
         if (!userDoc.exists) {
             throw new functions.https.HttpsError('not-found', 'User not found in Firestore.');
         }
 
         // Delete user document and all sub-collections
         const batch = db.batch();
-        
+
         // Delete sub-collections (like transactions)
         const subcollections = await userRef.listCollections();
         for (const subCol of subcollections) {
@@ -69,10 +69,10 @@ export const adminDeleteUser = async (data: any, context: functions.https.Callab
                 batch.delete(doc.ref);
             }
         }
-        
+
         // Delete the user document
         batch.delete(userRef);
-        
+
         await batch.commit();
 
         // Optionally delete from Firebase Auth (requires admin privileges)
@@ -89,12 +89,12 @@ export const adminDeleteUser = async (data: any, context: functions.https.Callab
 
     } catch (error: any) {
         console.error('Error deleting user:', error);
-        
+
         // If it's already an HttpsError, re-throw it
         if (error instanceof functions.https.HttpsError) {
             throw error;
         }
-        
+
         throw new functions.https.HttpsError('internal', `Failed to delete user: ${error.message}`);
     }
 };
@@ -129,7 +129,7 @@ export const adminMintCredits = async (data: any, context: functions.https.Calla
             const newCredit = currentBalance + amount;
             const displayName = userData?.displayName || 'Unknown';
 
-            transaction.update(userRef, { 
+            transaction.update(userRef, {
                 credit: newCredit,
                 credits: admin.firestore.FieldValue.delete() // Remove the plural duplicate
             });
@@ -147,7 +147,7 @@ export const adminMintCredits = async (data: any, context: functions.https.Calla
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 description: `Admin minted ${amount} credits for user ${displayName} (${targetUid})`
             });
-            
+
             // 3. Update Total Circulation Counter
             const statsRef = db.collection('system_stats').doc('economy');
             transaction.set(statsRef, {
@@ -206,23 +206,34 @@ export const getSystemStats = async (data: any, context: functions.https.Callabl
         let totalCirculation = 0;
 
         const allUsers = await db.collection('users').select('credit').get();
-        
+
         allUsers.forEach(doc => {
             const d = doc.data();
             totalCirculation += (Number(d.credit) || 0);
         });
 
-        // 4. Get accumulated rake with null safety - READ FIRST
-        const economyDoc = await db.collection('system_stats').doc('economy').get();
-        const economyData = economyDoc.exists ? economyDoc.data() : null;
-        const accumulatedRake = economyData?.accumulated_rake || 0;
-        
-        // 5. Update cache for reference - WRITE AFTER reading, preserve rake
-        await db.collection('system_stats').doc('economy').set({
-            totalCirculation: totalCirculation,
-            accumulated_rake: accumulatedRake,
-            lastCalculated: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        // 4. Get accumulated rake with null safety - READ FIRST
+
+        const economyDoc = await db.collection('system_stats').doc('economy').get();
+
+        const economyData = economyDoc.exists ? economyDoc.data() : null;
+
+        const accumulatedRake = economyData?.accumulated_rake || 0;
+
+
+
+        // 5. Update cache for reference - WRITE AFTER reading, preserve rake
+
+        await db.collection('system_stats').doc('economy').set({
+
+            totalCirculation: totalCirculation,
+
+            // accumulated_rake: accumulatedRake,
+
+            lastCalculated: admin.firestore.FieldValue.serverTimestamp()
+
+        }, { merge: true });
+
 
         return {
             totalUsers,
@@ -247,9 +258,9 @@ export const bootstrapAdmin = async (data: any, context: functions.https.Callabl
  */
 export const adminCreateUser = async (data: any, context: functions.https.CallableContext) => {
     assertAdmin(context);
-    
+
     const { username, password, displayName, role } = data;
-    
+
     if (!username || !password || !displayName || !role) {
         throw new functions.https.HttpsError('invalid-argument', 'Missing required fields: username, password, displayName, role');
     }
@@ -257,7 +268,7 @@ export const adminCreateUser = async (data: any, context: functions.https.Callab
     try {
         const db = getDb();
         const email = `${username}@poker.app`;
-        
+
         // Create Authentication User
         const userRecord = await admin.auth().createUser({
             email,
@@ -343,7 +354,7 @@ export const getUserTransactionHistory = async (data: any, context: functions.ht
         // Procesar financial_ledger
         for (const doc of financialLedgerSnapshot.docs) {
             const data = doc.data();
-            
+
             // Determinar amount según el tipo
             let amount = 0;
             if (data.type === 'GAME_WIN' || data.type === 'GAME_LOSS') {
@@ -468,7 +479,7 @@ export const repairStuckSessions = functions.https.onRequest(async (req, res) =>
                         repairReason: 'inconsistent_status_has_endtime',
                         repairedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
-                    
+
                     // Limpiar indicadores visuales del usuario
                     const userRef = db.collection('users').doc(userId);
                     transaction.update(userRef, {
@@ -502,7 +513,7 @@ export const repairStuckSessions = functions.https.onRequest(async (req, res) =>
         // 3. Para cada sesión activa (sin endTime), verificar si el usuario está en una mesa activa
         for (const sessionDoc of activeSessionsSnapshot.docs) {
             const sessionData = sessionDoc.data();
-            
+
             // Saltar si ya tiene endTime (ya se procesó arriba)
             if (sessionData.endTime != null) {
                 continue;
@@ -517,7 +528,7 @@ export const repairStuckSessions = functions.https.onRequest(async (req, res) =>
             try {
                 // Verificar si la mesa existe y está activa
                 const tableDoc = await db.collection('poker_tables').doc(roomId).get();
-                
+
                 if (!tableDoc.exists) {
                     // Mesa no existe, sesión huérfana - REPARAR
                     console.log(`⚠️ Sesión huérfana encontrada: ${sessionId} (Mesa ${roomId} no existe)`);
@@ -750,7 +761,7 @@ export const clearAllFirestoreData = functions.https.onRequest(async (req, res) 
 
             while (hasMore) {
                 let query: admin.firestore.Query = collectionRef.limit(batchSize);
-                
+
                 // Si hay un último documento, empezar desde ahí (paginación)
                 if (lastDoc) {
                     query = query.startAfter(lastDoc);
@@ -765,7 +776,7 @@ export const clearAllFirestoreData = functions.https.onRequest(async (req, res) 
 
                 // Eliminar cada documento y sus sub-colecciones
                 const batch = db.batch();
-                
+
                 for (const doc of snapshot.docs) {
                     // 1. Eliminar sub-colecciones del documento
                     const subCollections = await doc.ref.listCollections();
@@ -931,11 +942,11 @@ export const cleanWelcomeBonusUsers = functions.https.onRequest(async (req, res)
                 const txData = doc.data();
                 const reason = txData.reason || '';
                 const type = txData.type || '';
-                
+
                 // Ignorar transacciones de bono de bienvenida o refill automático
-                return !reason.includes('Welcome Bonus') && 
-                       !reason.includes('Bankruptcy Protection Refill') &&
-                       type !== 'system_refill';
+                return !reason.includes('Welcome Bonus') &&
+                    !reason.includes('Bankruptcy Protection Refill') &&
+                    type !== 'system_refill';
             });
 
             if (hasRealTransactions) {
@@ -1001,8 +1012,8 @@ export const cleanWelcomeBonusUsers = functions.https.onRequest(async (req, res)
 
         res.status(200).json({
             success: true,
-            message: dryRun 
-                ? 'Dry run completed. No changes made.' 
+            message: dryRun
+                ? 'Dry run completed. No changes made.'
                 : 'Welcome bonus users cleaned successfully.',
             cleaned: usersToClean.length,
             skipped: usersSkipped.length,
@@ -1088,7 +1099,7 @@ export const cleanStuckMoneyInPlay = functions.https.onRequest(async (req, res) 
             // Verificar si el usuario está en una mesa activa
             if (currentTableId) {
                 const tableDoc = await db.collection('poker_tables').doc(currentTableId).get();
-                
+
                 if (tableDoc.exists) {
                     const tableData = tableDoc.data();
                     const tableStatus = tableData?.status;
@@ -1116,7 +1127,7 @@ export const cleanStuckMoneyInPlay = functions.https.onRequest(async (req, res) 
             if (!activeSessionQuery.empty) {
                 // Verificar si la sesión tiene endTime (inconsistente)
                 const hasEndTime = activeSessionQuery.docs.some(doc => doc.data().endTime != null);
-                
+
                 if (!hasEndTime) {
                     // Sesión realmente activa, saltar
                     usersSkipped.push({
@@ -1185,8 +1196,8 @@ export const cleanStuckMoneyInPlay = functions.https.onRequest(async (req, res) 
 
         res.status(200).json({
             success: true,
-            message: dryRun 
-                ? 'Dry run completed. No changes made.' 
+            message: dryRun
+                ? 'Dry run completed. No changes made.'
                 : 'Stuck moneyInPlay users cleaned successfully.',
             cleaned: usersToClean.length,
             skipped: usersSkipped.length,
@@ -1263,7 +1274,7 @@ export const cleanupCorruptedSessions = functions.https.onRequest(async (req, re
         // PASO 1: Eliminar sesiones con roomId: 'new_room'
         // ============================================
         console.log('[CLEANUP] Paso 1: Buscando sesiones con roomId "new_room"...');
-        
+
         const newRoomSessionsQuery = await db.collection('poker_sessions')
             .where('roomId', '==', 'new_room')
             .get();

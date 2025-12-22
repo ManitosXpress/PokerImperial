@@ -1,4 +1,5 @@
 import * as functions from "firebase-functions";
+import * as admin from 'firebase-admin';
 import { addCredits, deductCredits, withdrawCredits, adminWithdrawCredits } from "./functions/credits";
 import { settleGameRound, joinTable, processCashOut, universalTableSettlement } from "./functions/gameEconomy";
 import { createClub, joinClub, leaveClub, ownerCreateMember, sellerCreatePlayer } from './functions/club';
@@ -22,9 +23,9 @@ import { onCashoutTriggered } from './functions/cashoutTrigger';
 // Initialize Firebase Admin SDK (lazy initialization)
 // Removed global init to prevent deployment timeouts. 
 // Each function must ensure admin is initialized.
-// if (!admin.apps.length) {
-//     admin.initializeApp();
-// }
+if (!admin.apps.length) {
+    admin.initializeApp();
+}
 
 // Export Cloud Functions
 export const addCreditsFunction = functions.https.onCall(addCredits);

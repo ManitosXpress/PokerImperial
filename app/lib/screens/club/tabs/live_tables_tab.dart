@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import '../../../providers/club_provider.dart';
 import '../../game_screen.dart';
-import '../../table_lobby_screen.dart';
+
 import '../../../widgets/poker_loading_indicator.dart';
 
 class LiveTablesTab extends StatelessWidget {
@@ -131,9 +131,9 @@ class LiveTablesTab extends StatelessWidget {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => TableLobbyScreen(
-                            tableId: tableId,
-                            tableName: table['name'] ?? 'Table',
+                          builder: (context) => GameScreen(
+                            roomId: tableId,
+                            isSpectatorMode: false,
                           ),
                         ),
                       );

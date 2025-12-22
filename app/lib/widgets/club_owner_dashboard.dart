@@ -301,7 +301,10 @@ class _ClubOwnerDashboardState extends State<ClubOwnerDashboard> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => CreateTournamentScreen(clubId: widget.clubId),
+        builder: (_) => CreateTournamentScreen(
+          clubId: widget.clubId,
+          userRole: 'club', // Club owners always have 'club' role
+        ),
       ),
     );
   }

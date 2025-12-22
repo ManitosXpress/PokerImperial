@@ -140,7 +140,7 @@ class _GameZoneScreenState extends State<GameZoneScreen> with SingleTickerProvid
                       controller: _tabController,
                       children: [
                         CashTablesView(userRole: _userRole),
-                        const TournamentListScreen(),
+                        TournamentListScreen(userRole: _userRole),
                       ],
                     ),
                   ),

@@ -9,8 +9,9 @@ import '../../widgets/tournament/prize_pool_calculator.dart';
 
 class CreateTournamentScreen extends StatefulWidget {
   final String? clubId;
+  final String? userRole; // 'admin', 'club', 'player', 'seller'
 
-  const CreateTournamentScreen({super.key, this.clubId});
+  const CreateTournamentScreen({super.key, this.clubId, this.userRole});
 
   @override
   State<CreateTournamentScreen> createState() => _CreateTournamentScreenState();
@@ -35,8 +36,13 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
   @override
   void initState() {
     super.initState();
-    // Si viene de un club, forzar CLUB scope
-    if (widget.clubId != null) {
+    
+    // 🎯 ROLE-BASED INITIALIZATION
+    // Admin: Force GLOBAL (Torneos Oficiales)
+    // Club Owner: Force CLUB (Torneos de Club)
+    if (widget.userRole == 'admin') {
+      _selectedScope = 'GLOBAL';
+    } else if (widget.userRole == 'club' || widget.clubId != null) {
       _selectedScope = 'CLUB';
     }
   }
@@ -297,13 +303,18 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
   }
 
   Widget _buildScopeSelectionPage() {
+    // 🔒 Para Admin: Mostrar solo GLOBAL (bloqueado)
+    final isAdmin = widget.userRole == 'admin';
+    // 🔒 Para Club Owner: Mostrar solo CLUB (bloqueado)
+    final isClubOwner = widget.userRole == 'club' || widget.clubId != null;
+    
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Selecciona el Alcance',
+            'Tipo de Torneo',
             style: TextStyle(
               color: Colors.white,
               fontSize: 28,
@@ -312,59 +323,171 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Decide quién puede participar en tu torneo',
+            isAdmin 
+              ? 'Como Admin, solo puedes crear Torneos Globales (Oficiales)'
+              : isClubOwner
+                ? 'Como Club Owner, solo puedes crear Torneos de Club'
+                : 'Decide quién puede participar en tu torneo',
             style: TextStyle(
               color: Colors.white.withOpacity(0.7),
               fontSize: 16,
             ),
           ),
           const SizedBox(height: 32),
-          Row(
-            children: [
-              Expanded(
-                child: TournamentScopeCard(
-                  scope: 'GLOBAL',
-                  isSelected: _selectedScope == 'GLOBAL',
-                  onTap: () => setState(() => _selectedScope = 'GLOBAL'),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: TournamentScopeCard(
-                  scope: 'CLUB',
-                  isSelected: _selectedScope == 'CLUB',
-                  onTap: () => setState(() => _selectedScope = 'CLUB'),
-                ),
-              ),
-            ],
-          ),
-          if (_selectedScope == 'GLOBAL') ...[
-            const SizedBox(height: 24),
+          
+          // 🎯 LOCKED INDICATOR FOR ADMINS (Global Only)
+          if (isAdmin) ...[
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF00D4FF).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFF00D4FF).withOpacity(0.3),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF00D4FF), Color(0xFF0084FF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-              ),
-              child: Row(
-                children: const [
-                  Icon(Icons.info_outline, color: Color(0xFF00D4FF), size: 24),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Torneos GLOBAL están abiertos a todos los usuarios de la plataforma.',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                      ),
-                    ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF00D4FF).withOpacity(0.3),
+                    blurRadius: 20,
+                    spreadRadius: 2,
                   ),
                 ],
               ),
+              child: Row(
+                children: const [
+                  Text('🌎', style: TextStyle(fontSize: 48)),
+                  SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'TORNEO GLOBAL (OFICIAL)',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Abierto a todos los usuarios de la plataforma',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.lock, color: Colors.white70, size: 24),
+                ],
+              ),
             ),
+          ]
+          // 🎯 LOCKED INDICATOR FOR CLUB OWNERS (Club Only)
+          else if (isClubOwner) ...[
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFD4AF37), Color(0xFFFFD700)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFFD700).withOpacity(0.3),
+                    blurRadius: 20,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Row(
+                children: const [
+                  Text('♣️', style: TextStyle(fontSize: 48)),
+                  SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'TORNEO DE CLUB',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Solo para miembros de tu club',
+                          style: TextStyle(
+                            color: Colors.black87,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.lock, color: Colors.black54, size: 24),
+                ],
+              ),
+            ),
+          ]
+          // 🎯 INTERACTIVE SELECTOR (para casos especiales o usuarios sin rol específico)
+          else ...[
+            Row(
+              children: [
+                Expanded(
+                  child: TournamentScopeCard(
+                    scope: 'GLOBAL',
+                    isSelected: _selectedScope == 'GLOBAL',
+                    onTap: () => setState(() => _selectedScope = 'GLOBAL'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: TournamentScopeCard(
+                    scope: 'CLUB',
+                    isSelected: _selectedScope == 'CLUB',
+                    onTap: () => setState(() => _selectedScope = 'CLUB'),
+                  ),
+                ),
+              ],
+            ),
+            if (_selectedScope == 'GLOBAL') ...[
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00D4FF).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFF00D4FF).withOpacity(0.3),
+                  ),
+                ),
+                child: Row(
+                  children: const [
+                    Icon(Icons.info_outline, color: Color(0xFF00D4FF), size: 24),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Torneos GLOBAL están abiertos a todos los usuarios de la plataforma.',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ],
       ),

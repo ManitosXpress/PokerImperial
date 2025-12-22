@@ -2,11 +2,21 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 
 /**
+ * Lazy initialization de Firestore para evitar timeout en deploy
+ */
+const getDb = () => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
+    return admin.firestore();
+};
+
+/**
  * createClub
  * Creates a new club.
  */
 export const createClub = async (data: any, context: functions.https.CallableContext) => {
-    const db = admin.firestore();
+    const db = getDb();
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
     }
@@ -46,7 +56,7 @@ export const createClub = async (data: any, context: functions.https.CallableCon
  * Adds a user to a club.
  */
 export const joinClub = async (data: any, context: functions.https.CallableContext) => {
-    const db = admin.firestore();
+    const db = getDb();
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
     }
@@ -88,7 +98,7 @@ export const joinClub = async (data: any, context: functions.https.CallableConte
  * Allows a club owner to create a new member (player or seller).
  */
 export const ownerCreateMember = async (data: any, context: functions.https.CallableContext) => {
-    const db = admin.firestore();
+    const db = getDb();
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
     }
@@ -166,13 +176,13 @@ export const ownerCreateMember = async (data: any, context: functions.https.Call
  * Removes a user from a club.
  */
 export const leaveClub = async (data: any, context: functions.https.CallableContext) => {
-    const db = admin.firestore();
+    const db = getDb();
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
     }
 
     const userId = context.auth.uid;
-    
+
     // Get user's current clubId
     const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
@@ -181,7 +191,7 @@ export const leaveClub = async (data: any, context: functions.https.CallableCont
 
     const userData = userDoc.data();
     const clubId = userData?.clubId;
-    
+
     if (!clubId) {
         throw new functions.https.HttpsError('failed-precondition', 'User is not a member of any club.');
     }
@@ -195,7 +205,7 @@ export const leaveClub = async (data: any, context: functions.https.CallableCont
         }
 
         const clubData = clubDoc.data();
-        
+
         // Check if user is the owner
         if (clubData?.ownerId === userId) {
             throw new functions.https.HttpsError('permission-denied', 'Club owner cannot leave the club. Transfer ownership first.');
@@ -229,7 +239,7 @@ export const leaveClub = async (data: any, context: functions.https.CallableCont
  * - Sets sellerId to track who recruited the player
  */
 export const sellerCreatePlayer = async (data: any, context: functions.https.CallableContext) => {
-    const db = admin.firestore();
+    const db = getDb();
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
     }
