@@ -466,13 +466,12 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
                     child: players.isEmpty
                         ? _buildEmptyState()
                         : GridView.builder(
-                            padding: const EdgeInsets.all(24),
-                            gridDelegate:
+                          gridDelegate:
                                 const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              childAspectRatio: 0.75,
-                              crossAxisSpacing: 16,
-                              mainAxisSpacing: 16,
+                              crossAxisCount: 4,
+                              childAspectRatio: 3.5,
+                              crossAxisSpacing: 12,
+                              mainAxisSpacing: 12,
                             ),
                             itemCount: players.length,
                             itemBuilder: (context, index) {
@@ -705,6 +704,7 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
       clipBehavior: Clip.none,
       children: [
         Container(
+          padding: const EdgeInsets.all(8.0), // Padding inside card
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(12),
@@ -713,79 +713,82 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
               width: isReady ? 2 : 1,
             ),
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Avatar
+              // Avatar (Left)
               Container(
-                padding: const EdgeInsets.all(3),
+                padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: isReady ? Colors.green : Colors.transparent,
-                    width: 2,
+                    width: isReady ? 2 : 0,
                   ),
                 ),
                 child: CircleAvatar(
-                  radius: 30,
+                  radius: 22, // Smaller radius for 3.5 aspect ratio
                   backgroundColor: Colors.black26,
                   backgroundImage: player['photoUrl'] != null
                       ? NetworkImage(player['photoUrl'])
                       : null,
                   child: player['photoUrl'] == null
-                      ? const Icon(Icons.person, color: Colors.white70, size: 30)
+                      ? const Icon(Icons.person, color: Colors.white70, size: 24)
                       : null,
                 ),
               ),
-              const SizedBox(height: 8),
-              // Name
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: Text(
-                  player['name'] ?? 'Unknown',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
+              const SizedBox(width: 12),
+              
+              // Info (Right)
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      player['name'] ?? 'Unknown',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '🪙 ${player['chips'] ?? 0}',
+                      style: const TextStyle(color: Color(0xFFFFD700), fontSize: 12),
+                    ),
+                  ],
                 ),
-              ),
-              // Chips
-              Text(
-                '🪙 ${player['chips'] ?? 0}',
-                style: const TextStyle(color: Color(0xFFFFD700), fontSize: 12),
               ),
             ],
           ),
         ),
         
-        // Host Badge
+        // Host Badge (Top Right)
         if (isHost)
           Positioned(
-            top: 8,
-            right: 8,
+            top: 4,
+            right: 4,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: Colors.amber,
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: const Text('HOST', style: TextStyle(color: Colors.black, fontSize: 9, fontWeight: FontWeight.bold)),
+              child: const Text('HOST', style: TextStyle(color: Colors.black, fontSize: 8, fontWeight: FontWeight.bold)),
             ),
           ),
           
-        // Ready Badge (Checkmark)
+        // Ready Badge (Checkmark overlay on avatar or bottom right)
         if (isReady)
           const Positioned(
-            bottom: 8,
-            right: 8,
-            child: CircleAvatar(
-              radius: 12,
-              backgroundColor: Colors.green,
-              child: Icon(Icons.check, color: Colors.white, size: 16),
-            ),
+            bottom: 4,
+            right: 4,
+            child: Icon(Icons.check_circle, color: Colors.green, size: 18),
           ),
       ],
     );

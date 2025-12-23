@@ -356,10 +356,31 @@ io.on('connection', (socket) => {
                     // Obtener estado actual del juego desde RoomManager
                     const currentGameState = roomManager.getGameState(roomId);
 
+                    // 2. FORZAR LA OBTENCIÓN DE JUGADORES (Fix Crítico)
+                    // Asegúrate de usar el método que devuelve TODOS los jugadores sentados
+                    const actualPlayers = room.players.map(p => {
+                        // Asegúrate de devolver un objeto serializable (PublicProfile)
+                        return {
+                            id: p.id,
+                            name: p.name,
+                            chips: p.chips,
+                            seatIndex: (p as any).seatIndex ?? room.players.indexOf(p), // Fallback to index if seatIndex missing
+                            avatar: (p as any).avatar, // o photoUrl
+                            isFolded: p.isFolded,
+                            status: p.status // 'PLAYING', 'SIT_OUT', etc
+                        };
+                    });
+
+                    console.log(`📦 [DEBUG] Enviando ${actualPlayers.length} jugadores al espectador admin.`);
+
                     // EMITIR EL EVENTO QUE DESBLOQUEA LA APP
                     socket.emit('spectator_joined', {
                         roomId: roomId,
-                        gameState: currentGameState || { roomId, status: room.gameState, players: room.players },
+                        gameState: {
+                            ...(currentGameState || { roomId, status: room.gameState }),
+                            activePlayers: actualPlayers, // <--- AQUÍ ESTÁ LA CLAVE
+                            players: actualPlayers        // Enviar en ambos campos por compatibilidad
+                        },
                         isSpectator: true
                     });
 
@@ -367,7 +388,11 @@ io.on('connection', (socket) => {
 
                     // Si el juego ya está corriendo, enviar el estado completo
                     if (room.gameState === 'playing' && currentGameState) {
-                        socket.emit('game_started', currentGameState);
+                        socket.emit('game_started', {
+                            ...currentGameState,
+                            activePlayers: actualPlayers,
+                            players: actualPlayers
+                        });
                         console.log(`🎮 [JOIN_ROOM] Juego activo - Enviando game_started a espectador`);
                     }
                 } else {

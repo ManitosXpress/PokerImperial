@@ -31,6 +31,7 @@ class GameScreen extends StatefulWidget {
   final bool isTournamentMode;
   final String? clubOwnerId;
   final String? currentUserId;
+  final bool autoStart;
 
   const GameScreen({
     super.key,
@@ -41,6 +42,7 @@ class GameScreen extends StatefulWidget {
     this.isTournamentMode = false,
     this.clubOwnerId,
     this.currentUserId,
+    this.autoStart = false,
   });
 
   @override
@@ -221,7 +223,8 @@ class _GameScreenState extends State<GameScreen> {
     });
 
     socketService.socket.on('spectator_joined', (data) {
-       print('👀 spectator_joined received: $data');
+       print('👀 spectator_joined received (RAW): $data');
+       
        if (mounted) {
          setState(() {
            _isJoining = false;
@@ -229,35 +232,70 @@ class _GameScreenState extends State<GameScreen> {
            
            // --- CRITICAL FIX: Hydrate players from gameState.activePlayers ---
            if (data != null && data['gameState'] != null && data['gameState']['activePlayers'] != null) {
-             final serverPlayers = data['gameState']['activePlayers'] as List;
+             final rawPlayers = data['gameState']['activePlayers'] as List;
+             print('🔍 DEBUG: Received ${rawPlayers.length} activePlayers from server');
+             print('🔍 DEBUG: First player structure: ${rawPlayers.isNotEmpty ? rawPlayers[0] : "EMPTY"}}');
+             
+             // Map server player format to expected roomState player format
+             final mappedPlayers = rawPlayers.map((p) {
+               final playerId = p['oddsId'] ?? p['oddsid'] ?? p['id'] ?? p['socketId'] ?? '';
+               final playerName = p['name'] ?? p['displayName'] ?? p['username'] ?? 'Player';
+               final playerChips = p['chips'] ?? p['buyIn'] ?? p['balance'] ?? 0;
+               
+               print('   📋 Mapping player: id=$playerId, name=$playerName, chips=$playerChips');
+               
+               return {
+                 'id': playerId,
+                 'oddsId': playerId,
+                 'oddsid': playerId, // Support both casing
+                 'name': playerName,
+                 'chips': playerChips,
+                 'isReady': p['isReady'] ?? true,
+                 'isHost': p['isHost'] ?? false,
+                 'photoUrl': p['photoUrl'] ?? p['avatar'],
+               };
+             }).toList();
              
              // Build roomState with properly mapped players
              roomState = {
-               ...Map<String, dynamic>.from(data),
-               'players': serverPlayers.map((p) {
-                 // Map server player format to expected roomState player format
-                 return {
-                   'id': p['oddsId'] ?? p['oddsid'] ?? p['id'] ?? '',
-                   'oddsId': p['oddsId'] ?? p['oddsid'] ?? p['id'] ?? '',
-                   'oddsid': p['oddsId'] ?? p['oddsid'] ?? p['id'] ?? '', // Support both casing
-                   'name': p['name'] ?? p['displayName'] ?? 'Player',
-                   'chips': p['chips'] ?? p['buyIn'] ?? 0,
-                   'isReady': p['isReady'] ?? true,
-                   'isHost': p['isHost'] ?? false,
-                 };
-               }).toList(),
-               // Preserve other important fields from gameState
+               'players': mappedPlayers,
                'hostId': data['gameState']['hostId'] ?? data['hostId'],
                'maxPlayers': data['gameState']['maxPlayers'] ?? data['maxPlayers'] ?? 8,
                'smallBlind': data['gameState']['smallBlind'] ?? data['smallBlind'] ?? 10,
                'bigBlind': data['gameState']['bigBlind'] ?? data['bigBlind'] ?? 20,
+               'isPublic': data['gameState']['isPublic'] ?? data['isPublic'] ?? true,
+               'status': data['gameState']['status'] ?? data['status'] ?? 'waiting',
              };
              
-             print('✅ Lista de jugadores hidratada para Admin/Spectator: ${(roomState!['players'] as List).length} jugadores');
+             print('✅ Admin sincronizó ${mappedPlayers.length} jugadores iniciales.');
+             print('✅ roomState.players: ${(roomState!['players'] as List).map((p) => p['name']).toList()}');
            } else {
-             // Fallback: just use the received data if structure is different
-             roomState = data;
-             print('⚠️ spectator_joined: No activePlayers found, using raw data');
+             print('⚠️ spectator_joined: No activePlayers found in gameState');
+             print('⚠️ data keys: ${data?.keys.toList()}');
+             print('⚠️ gameState keys: ${data?['gameState']?.keys.toList()}');
+             
+             // Fallback: try to find players in alternate locations
+             List? fallbackPlayers = data?['players'] ?? data?['gameState']?['players'];
+             
+             if (fallbackPlayers != null && fallbackPlayers.isNotEmpty) {
+               print('🔄 Found ${fallbackPlayers.length} players in fallback location');
+               roomState = {
+                 'players': fallbackPlayers,
+                 'hostId': data?['hostId'],
+                 'maxPlayers': data?['maxPlayers'] ?? 8,
+                 'smallBlind': data?['smallBlind'] ?? 10,
+                 'bigBlind': data?['bigBlind'] ?? 20,
+               };
+             } else {
+               print('❌ No players found in any location - setting empty roomState');
+               roomState = {
+                 'players': [],
+                 'hostId': data?['hostId'],
+                 'maxPlayers': 8,
+                 'smallBlind': 10,
+                 'bigBlind': 20,
+               };
+             }
            }
          });
          _retryJoinTimer?.cancel();
@@ -265,6 +303,8 @@ class _GameScreenState extends State<GameScreen> {
     });
 
     socketService.socket.on('player_joined', (data) {
+      print('🟢 player_joined event received: $data');
+      print('🟢 New player count: ${(data['players'] as List?)?.length ?? 0}');
       if (mounted) setState(() => roomState = data);
     });
 
@@ -403,6 +443,9 @@ class _GameScreenState extends State<GameScreen> {
     });
 
     socketService.socket.on('player_left', (data) {
+       print('🔴 player_left event received: $data');
+       print('🔴 Remaining player count: ${(data['players'] as List?)?.length ?? 0}');
+       
        // Check if I was kicked (sometimes server sends player_left with my ID)
        // But 'error' usually handles the kick message
        if (mounted) {
@@ -558,6 +601,11 @@ class _GameScreenState extends State<GameScreen> {
           user.displayName ?? 'Player',
           onSuccess: (roomId) {
              print('Joined room $roomId on socket');
+             // Auto-start game if requested (Tournament Host directly from lobby)
+             if (widget.autoStart) {
+                print('🚀 Auto-starting game for Tournament Host...');
+                _startGame();
+             }
           },
           onError: (err) {
             print('Socket Join Error: $err');
@@ -571,6 +619,11 @@ class _GameScreenState extends State<GameScreen> {
                         roomId: widget.roomId,
                         onSuccess: (newRoomId) {
                            print('Created room $newRoomId on socket as Host');
+                           // Auto-start game if requested
+                           if (widget.autoStart) {
+                              print('🚀 Auto-starting game after creation...');
+                              _startGame();
+                           }
                         },
                         onError: (createErr) {
                            print('Error creating room: $createErr');
@@ -912,19 +965,6 @@ class _GameScreenState extends State<GameScreen> {
                   builder: (context) {
                     // Si es modo torneo, saltamos la sala de espera y mostramos un loader
                     // mientras llega el estado del juego (game_started)
-                    if (widget.isTournamentMode) {
-                       return const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                               CircularProgressIndicator(color: Color(0xFFD4AF37)),
-                               SizedBox(height: 16),
-                               Text('Conectando a la mesa del torneo...', style: TextStyle(color: Colors.white))
-                            ],
-                          )
-                       );
-                    }
-                    
                     // Show loading screen while socket is connecting
                     if (!_socketReady && !widget.isPracticeMode) {
                       return const Center(
@@ -1043,10 +1083,10 @@ class _GameScreenState extends State<GameScreen> {
                               : GridView.builder(
                                   padding: const EdgeInsets.all(24),
                                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 3,
-                                    childAspectRatio: 0.75,
-                                    crossAxisSpacing: 16,
-                                    mainAxisSpacing: 16,
+                                    crossAxisCount: 4,
+                                    childAspectRatio: 3.5,
+                                    crossAxisSpacing: 12,
+                                    mainAxisSpacing: 12,
                                   ),
                                   itemCount: players.length,
                                   itemBuilder: (context, index) {
@@ -1055,54 +1095,93 @@ class _GameScreenState extends State<GameScreen> {
                                     final photoUrl = player['photoUrl'];
                                     final playerChips = player['chips'] ?? 1000;
                                     final isPlayerHost = player['id'] == currentRoomState?['hostId'];
-                                    
+                                    final isReady = player['isReady'] == true; // distinct from table_lobby logic but common in proper room state
+
                                     return Stack(
                                       clipBehavior: Clip.none,
                                       children: [
                                         Container(
+                                          padding: const EdgeInsets.all(8.0),
                                           decoration: BoxDecoration(
                                             color: Colors.white.withOpacity(0.05),
                                             borderRadius: BorderRadius.circular(12),
-                                            border: Border.all(color: Colors.white10, width: 1),
+                                            border: Border.all(
+                                              color: isReady ? Colors.green : Colors.white10,
+                                              width: isReady ? 2 : 1,
+                                            ),
                                           ),
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.start,
+                                            crossAxisAlignment: CrossAxisAlignment.center,
                                             children: [
-                                              CircleAvatar(
-                                                radius: 30,
-                                                backgroundColor: Colors.black26,
-                                                backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
-                                                child: photoUrl == null ? const Icon(Icons.person, color: Colors.white70, size: 30) : null,
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                                                child: Text(
-                                                  playerName,
-                                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                                                  overflow: TextOverflow.ellipsis,
-                                                  maxLines: 1,
+                                              // Avatar (Left)
+                                              Container(
+                                                padding: const EdgeInsets.all(2),
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  border: Border.all(
+                                                    color: isReady ? Colors.green : Colors.transparent,
+                                                    width: isReady ? 2 : 0,
+                                                  ),
+                                                ),
+                                                child: CircleAvatar(
+                                                  radius: 22,
+                                                  backgroundColor: Colors.black26,
+                                                  backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                                                  child: photoUrl == null ? const Icon(Icons.person, color: Colors.white70, size: 24) : null,
                                                 ),
                                               ),
-                                              Text(
-                                                '🪙 $playerChips',
-                                                style: const TextStyle(color: Color(0xFFFFD700), fontSize: 12),
+                                              const SizedBox(width: 12),
+                                              
+                                              // Info (Right)
+                                              Expanded(
+                                                child: Column(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      playerName,
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontWeight: FontWeight.bold,
+                                                        fontSize: 14,
+                                                      ),
+                                                      overflow: TextOverflow.ellipsis,
+                                                      maxLines: 1,
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      '🪙 $playerChips',
+                                                      style: const TextStyle(color: Color(0xFFFFD700), fontSize: 12),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
                                             ],
                                           ),
                                         ),
+                                        
+                                        // Host Badge (Top Right)
                                         if (isPlayerHost)
                                           Positioned(
-                                            top: 8,
-                                            right: 8,
+                                            top: 4,
+                                            right: 4,
                                             child: Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                               decoration: BoxDecoration(
                                                 color: Colors.amber,
                                                 borderRadius: BorderRadius.circular(4),
                                               ),
-                                              child: const Text('HOST', style: TextStyle(color: Colors.black, fontSize: 9, fontWeight: FontWeight.bold)),
+                                              child: const Text('HOST', style: TextStyle(color: Colors.black, fontSize: 8, fontWeight: FontWeight.bold)),
                                             ),
+                                          ),
+                                          
+                                        // Ready Badge (Bottom Right)
+                                        if (isReady)
+                                          const Positioned(
+                                            bottom: 4,
+                                            right: 4,
+                                            child: Icon(Icons.check_circle, color: Colors.green, size: 18),
                                           ),
                                       ],
                                     );

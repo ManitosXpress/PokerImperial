@@ -28,7 +28,7 @@ class GodModeAdminPanel extends StatelessWidget {
         // Financial KPIs (Only visible when running)
         if (isRunning) _buildFinancialKPIs(context),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
 
         // Emergency Control Panel
         _buildEmergencyControls(context, isRunning, isPaused, currentBlindLevel),
@@ -50,8 +50,8 @@ class GodModeAdminPanel extends StatelessWidget {
     }
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -60,12 +60,12 @@ class GodModeAdminPanel extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 2),
+        border: Border.all(color: const Color(0xFFD4AF37), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFFD4AF37).withOpacity(0.3),
-            blurRadius: 10,
-            spreadRadius: 2,
+            blurRadius: 8,
+            spreadRadius: 1,
           ),
         ],
       ),
@@ -77,10 +77,10 @@ class GodModeAdminPanel extends StatelessWidget {
               amount: totalRake,
               style: const TextStyle(
                 color: Colors.green,
-                fontSize: 14,
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
               ),
-              iconSize: 14,
+              iconSize: 12,
             )
           ),
           _buildKPIChip('⏱️', 'Duración', duration, Colors.blue),
@@ -95,7 +95,7 @@ class GodModeAdminPanel extends StatelessWidget {
       value,
       style: TextStyle(
         color: color,
-        fontSize: 14,
+        fontSize: 12,
         fontWeight: FontWeight.bold,
       ),
     ));
@@ -104,13 +104,13 @@ class GodModeAdminPanel extends StatelessWidget {
   Widget _buildKPIChipWithWidget(String emoji, String label, Widget valueWidget) {
     return Column(
       children: [
-        Text(emoji, style: const TextStyle(fontSize: 24)),
-        const SizedBox(height: 4),
+        Text(emoji, style: const TextStyle(fontSize: 18)),
+        const SizedBox(height: 2),
         Text(
           label,
           style: TextStyle(
             color: Colors.white.withOpacity(0.7),
-            fontSize: 10,
+            fontSize: 9,
           ),
         ),
         valueWidget,
@@ -125,8 +125,8 @@ class GodModeAdminPanel extends StatelessWidget {
     int currentBlindLevel,
   ) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: const Color(0xFFB71C1C).withOpacity(0.2),
         borderRadius: BorderRadius.circular(12),
@@ -137,19 +137,19 @@ class GodModeAdminPanel extends StatelessWidget {
         children: [
           const Row(
             children: [
-              Icon(Icons.admin_panel_settings, color: Color(0xFFD4AF37)),
+              Icon(Icons.admin_panel_settings, color: Color(0xFFD4AF37), size: 18),
               SizedBox(width: 8),
               Text(
                 'PANEL DE CONTROL DE EMERGENCIA',
                 style: TextStyle(
                   color: Color(0xFFD4AF37),
                   fontWeight: FontWeight.bold,
-                  fontSize: 14,
+                  fontSize: 12,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           Row(
             children: [
               // Pause/Resume Button
@@ -157,12 +157,16 @@ class GodModeAdminPanel extends StatelessWidget {
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () => _handlePauseResume(context, isPaused),
-                    icon: Icon(isPaused ? Icons.play_arrow : Icons.pause),
-                    label: Text(isPaused ? 'REANUDAR' : 'PAUSAR'),
+                    icon: Icon(isPaused ? Icons.play_arrow : Icons.pause, size: 16),
+                    label: Text(
+                      isPaused ? 'REANUDAR' : 'PAUSAR',
+                      style: const TextStyle(fontSize: 10),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isPaused ? Colors.green : Colors.orange,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      minimumSize: const Size(0, 36),
                     ),
                   ),
                 ),
@@ -174,12 +178,16 @@ class GodModeAdminPanel extends StatelessWidget {
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () => _handleForceBlindLevel(context, currentBlindLevel),
-                    icon: const Icon(Icons.fast_forward),
-                    label: Text('FORZAR (Lvl $currentBlindLevel)'),
+                    icon: const Icon(Icons.fast_forward, size: 16),
+                    label: Text(
+                      'FORZAR (Lvl $currentBlindLevel)',
+                      style: const TextStyle(fontSize: 10),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF9C27B0),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      minimumSize: const Size(0, 36),
                     ),
                   ),
                 ),
@@ -191,12 +199,16 @@ class GodModeAdminPanel extends StatelessWidget {
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: () => _handleBroadcast(context),
-              icon: const Icon(Icons.campaign),
-              label: const Text('ANUNCIO GLOBAL'),
+              icon: const Icon(Icons.campaign, size: 16),
+              label: const Text(
+                'ANUNCIO GLOBAL',
+                style: TextStyle(fontSize: 10),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1976D2),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                minimumSize: const Size(0, 36),
               ),
             ),
           ),

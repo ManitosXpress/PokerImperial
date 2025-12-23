@@ -180,8 +180,31 @@ class _CashTablesViewState extends State<CashTablesView> with AutomaticKeepAlive
                   
                   final isPublicRaw = data['isPublic'];
                   final isPublic = isPublicRaw == true || isPublicRaw == 'true';
+                  if (!isPublic) return false;
 
-                  return isPublic; 
+                  // 3. Filter by Blinds (New Logic)
+                  if (_selectedTier != null) {
+                    final bigBlind = data['bigBlind'] is int 
+                        ? data['bigBlind'] as int 
+                        : (int.tryParse(data['bigBlind']?.toString() ?? '0') ?? 0);
+                    
+                    switch (_selectedTier!) {
+                      case BlindTier.micro:
+                        if (bigBlind > 20) return false;
+                        break;
+                      case BlindTier.low:
+                        if (bigBlind <= 20 || bigBlind > 100) return false;
+                        break;
+                      case BlindTier.medium:
+                        if (bigBlind <= 100 || bigBlind > 500) return false;
+                        break;
+                      case BlindTier.high:
+                        if (bigBlind <= 500) return false;
+                        break;
+                    }
+                  }
+
+                  return true; 
                 }).toList();
 
                 // Sort: Active first, then Waiting

@@ -134,6 +134,17 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions write here
     }
     
+    // Settlement and Cashout Triggers (Backend → Cloud Functions)
+    match /_trigger_settlement/{docId} {
+      allow create: if request.auth != null;
+      allow read, delete: if false; // Only Cloud Functions access
+    }
+    
+    match /_trigger_cashout/{docId} {
+      allow create: if request.auth != null;
+      allow read, delete: if false; // Only Cloud Functions access
+    }
+    
     match /{document=**} {
       allow read, write: if false;
     }

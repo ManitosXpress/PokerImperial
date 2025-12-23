@@ -68,12 +68,15 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
           print('🚀 Torneo iniciado. Redirigiendo automáticamente a mesa: $activeTableId');
           
           // Navigate to the game screen
+          final isCreator = data['createdBy'] == currentUserId;
+          
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (_) => GameScreen(
                 roomId: activeTableId,
                 isTournamentMode: true,
+                autoStart: isCreator, // Host auto-starts the game
               ),
             ),
           );
@@ -223,36 +226,50 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
               SafeArea(
                 child: Column(
                   children: [
-                    // Tournament Header
-                    _buildTournamentHeader(tournament, widget.isAdminMode),
-                    
-                    // God Mode Admin Panel (only for admins)
-                    if (widget.isAdminMode)
-                      GodModeAdminPanel(
-                        tournament: tournament,
-                        tournamentId: widget.tournamentId,
-                      ),
-                    
-                    // Main Content Area
                     Expanded(
-                      child: Row(
-                        children: [
-                          // Left Panel: Registered Players
-                          Expanded(
-                            flex: 1,
-                            child: _buildPlayersList(widget.tournamentId, tournament['createdBy']),
+                      child: CustomScrollView(
+                        slivers: [
+                          // Tournament Header
+                          SliverToBoxAdapter(
+                            child: _buildTournamentHeader(tournament, widget.isAdminMode),
                           ),
                           
-                          // Right Panel: Chat
-                          Expanded(
-                            flex: 2,
-                            child: _buildChatArea(tournament['chatRoomId']),
+                          // God Mode Admin Panel (only for admins)
+                          if (widget.isAdminMode)
+                            SliverToBoxAdapter(
+                              child: GodModeAdminPanel(
+                                tournament: tournament,
+                                tournamentId: widget.tournamentId,
+                              ),
+                            ),
+                          
+                          // Main Content Area (Players & Chat)
+                          SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: SizedBox(
+                              height: 600, // Fixed minimal height to ensure chat is usable
+                              child: Row(
+                                children: [
+                                  // Left Panel: Registered Players
+                                  Expanded(
+                                    flex: 1,
+                                    child: _buildPlayersList(widget.tournamentId, tournament['createdBy']),
+                                  ),
+                                  
+                                  // Right Panel: Chat
+                                  Expanded(
+                                    flex: 2,
+                                    child: _buildChatArea(tournament['chatRoomId']),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
                       ),
                     ),
 
-                    // Bottom Action Bar
+                    // Bottom Action Bar (Sticky)
                     _buildActionBar(isRegistered, canRegister, tournamentStatus, 
                         tournament['createdBy'] == currentUser?.uid, registeredPlayerIds.length, activeTableId),
                   ],
@@ -267,205 +284,218 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
 
   Widget _buildTournamentHeader(Map<String, dynamic> tournament, bool isAdminMode) {
     return Container(
+      width: double.infinity,
       margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isAdminMode
-              ? [
-                  const Color(0xFFB71C1C), // Deep Red for God Mode
-                  const Color(0xFFD4AF37), // Gold
-                ]
-              : [
-                  const Color(0xFFD4AF37).withOpacity(0.2), // Normal mode
-                  const Color(0xFFFFD700).withOpacity(0.1),
-                ],
-        ),
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.black.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: isAdminMode ? const Color(0xFFB71C1C) : const Color(0xFFD4AF37),
-          width: 2,
+          color: const Color(0xFFD4AF37).withOpacity(0.5),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.5),
+            blurRadius: 20,
+            spreadRadius: 0,
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Title Section
+          Column(
+            children: [
+              if (isAdminMode)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFB71C1C).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFB71C1C), width: 1),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.admin_panel_settings, color: Color(0xFFB71C1C), size: 12),
+                      SizedBox(width: 4),
+                      Text(
+                        'GOD MODE ACTIVADO',
+                        style: TextStyle(
+                          color: Color(0xFFB71C1C),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              Text(
+                (tournament['name'] ?? 'Torneo').toUpperCase(),
+                style: const TextStyle(
+                  color: Color(0xFFD4AF37),
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                  shadows: [
+                    Shadow(
+                      color: Color(0x66D4AF37),
+                      blurRadius: 20,
+                    ),
+                  ],
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          
+          // Stats Row
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildModernStatCard(
+                  'BUY-IN',
+                  ImperialCurrency(
+                    amount: tournament['buyIn'],
+                    style: const TextStyle(
+                      color: Colors.white, 
+                      fontSize: 18, 
+                      fontWeight: FontWeight.bold
+                    ),
+                    iconSize: 16,
+                  ),
+                  Icons.monetization_on_outlined,
+                ),
+                const SizedBox(width: 12),
+                _buildModernStatCard(
+                  'PREMIO',
+                  ImperialCurrency(
+                    amount: tournament['prizePool'] ?? 0,
+                    style: const TextStyle(
+                      color: Color(0xFFFFD700),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                    iconSize: 16,
+                  ),
+                  Icons.emoji_events_outlined,
+                  isHighLight: true,
+                ),
+                const SizedBox(width: 12),
+                _buildModernStatCard(
+                  'JUGADORES',
+                   Text(
+                    '${(tournament['registeredPlayerIds'] as List).length}/${tournament['estimatedPlayers']}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Icons.people_outline,
+                ),
+                if (tournament['type'] != null) ...[
+                  const SizedBox(width: 12),
+                  _buildTypeTag(tournament['type']),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModernStatCard(String label, Widget value, IconData icon, {bool isHighLight = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        color: isHighLight 
+            ? const Color(0xFFD4AF37).withOpacity(0.1) 
+            : Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isHighLight 
+              ? const Color(0xFFD4AF37).withOpacity(0.5) 
+              : Colors.white.withOpacity(0.1),
         ),
       ),
       child: Column(
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: Text(
-                  tournament['name'] ?? 'Torneo',
-                  style: TextStyle(
-                    color: isAdminMode ? Colors.white : const Color(0xFFD4AF37),
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+              Icon(
+                icon, 
+                size: 14, 
+                color: isHighLight ? const Color(0xFFD4AF37) : Colors.white54
               ),
-              if (isAdminMode)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD4AF37),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    'GOD MODE',
-                    style: TextStyle(
-                      color: Color(0xFFB71C1C),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 10,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              Column(
-                children: [
-                  _buildDetailRow(
-                      Icons.attach_money,
-                      'Buy-in',
-                      ImperialCurrency(
-                          amount: tournament['buyIn'],
-                          style: const TextStyle(color: Colors.white, fontSize: 16))),
-                  _buildDetailRow(
-                      Icons.emoji_events,
-                      'Premio',
-                      ImperialCurrency(
-                          amount: tournament['prizePool'] ?? 0,
-                          style: const TextStyle(
-                              color: Color(0xFFD4AF37),
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold))),
-                  _buildStatChip(
-                    Icons.people,
-                    'Jugadores',
-                    '${(tournament['registeredPlayerIds'] as List).length}/${tournament['estimatedPlayers']}',
-                    Colors.blue,
-                  ),
-                ],
-              ),
-              if (tournament['settings'] != null)
-                _buildTournamentTypeBadge(tournament['type'], tournament['settings']),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatChip(IconData icon, String label, String value, Color color) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.7),
-            fontSize: 12,
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            color: color,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDetailRow(IconData icon, String label, Widget valueWidget) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: Colors.white54, size: 20),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Text(
                 label,
-                style: const TextStyle(
-                  color: Colors.white54,
-                  fontSize: 16,
+                style: TextStyle(
+                  color: isHighLight ? const Color(0xFFD4AF37) : Colors.white54,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
                 ),
               ),
             ],
           ),
-          valueWidget,
+          const SizedBox(height: 4),
+          value,
         ],
       ),
     );
   }
-  
-  Widget _buildTournamentTypeBadge(String type, Map<String, dynamic>? settings) {
-    String emoji = '';
-    String label = '';
-    Color color = Colors.white;
 
+  Widget _buildTypeTag(String type) {
+    String label = type;
+    IconData icon = Icons.label;
+    
     switch (type) {
-      case 'FREEZEOUT':
-        emoji = '🧊';
-        label = 'Freezeout';
-        color = Colors.cyan;
-        break;
-      case 'REBUY':
-        emoji = '🔄';
-        label = 'Rebuy';
-        color = Colors.blue;
-        break;
-      case 'BOUNTY':
-        emoji = '🥊';
-        label = 'Bounty';
-        color = Colors.orange;
-        break;
-      case 'TURBO':
-        emoji = '⚡';
-        label = 'Turbo';
-        color = Colors.yellow;
-        break;
+      case 'FREEZEOUT': label = 'Freezeout'; icon = Icons.ac_unit; break;
+      case 'REBUY': label = 'Rebuy'; icon = Icons.refresh; break;
+      case 'BOUNTY': label = 'Bounty'; icon = Icons.gps_fixed; break;
+      case 'TURBO': label = 'Turbo'; icon = Icons.flash_on; break;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color, width: 2),
+        color: Colors.blue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.blue.withOpacity(0.3)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Column(
         children: [
-          Text(emoji, style: const TextStyle(fontSize: 20)),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
-          ),
-          if (settings != null) ...[
-            const SizedBox(width: 8),
-            Text(
-              '• ${settings['blindSpeed']}',
-              style: TextStyle(
-                color: color.withOpacity(0.8),
-                fontSize: 14,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+               Icon(icon, size: 14, color: Colors.blue),
+               const SizedBox(width: 6),
+               const Text(
+                'MODO',
+                style: TextStyle(
+                  color: Colors.blue,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          ),
         ],
       ),
     );
@@ -475,47 +505,34 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
     return Container(
       margin: const EdgeInsets.only(left: 16, right: 8, bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(16),
+        color: Colors.black.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: Colors.white.withOpacity(0.1),
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFD4AF37).withOpacity(0.1),
+              color: const Color(0xFFD4AF37).withOpacity(0.05),
               borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(16),
-                topRight: Radius.circular(16),
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
               ),
+              border: Border(bottom: BorderSide(color: const Color(0xFFD4AF37).withOpacity(0.1))),
             ),
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('tournaments')
-                  .doc(tournamentId)
-                  .collection('participants')
-                  .snapshots(),
-              builder: (context, snapshot) {
-                final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
-                return Row(
-                  children: [
-                    const Icon(Icons.people, color: Color(0xFFD4AF37)),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Jugadores Inscritos ($count)',
-                      style: const TextStyle(
-                        color: Color(0xFFD4AF37),
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                );
-              },
+            child: const Text(
+              'JUGADORES INSCRITOS',
+              style: TextStyle(
+                color: Color(0xFFD4AF37),
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+              ),
+              textAlign: TextAlign.center,
             ),
           ),
           Expanded(
@@ -527,13 +544,8 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                   .orderBy('joinedAt', descending: false)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
-                }
-
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                if (snapshot.hasError) return const SizedBox();
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
                 final participants = snapshot.data!.docs;
 
@@ -542,121 +554,49 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
-                          Icons.person_add,
-                          size: 64,
-                          color: Colors.white.withOpacity(0.3),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Aún no hay jugadores',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
-                            fontSize: 16,
-                          ),
-                        ),
+                        Icon(Icons.people_outline, size: 48, color: Colors.white.withOpacity(0.1)),
                         const SizedBox(height: 8),
-                        Text(
-                          '¡Sé el primero en unirte!',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.3),
-                            fontSize: 14,
-                          ),
-                        ),
+                        Text('Esperando jugadores...', style: TextStyle(color: Colors.white.withOpacity(0.3))),
                       ],
                     ),
                   );
                 }
 
                 return ListView.builder(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(12),
                   itemCount: participants.length,
                   itemBuilder: (context, index) {
-                    final participant = participants[index].data() as Map<String, dynamic>;
-                    final uid = participant['uid'];
-                    final displayName = participant['displayName'] ?? 'Jugador';
-                    final photoURL = participant['photoURL'];
-                    final isHost = uid == hostId;
+                    final p = participants[index].data() as Map<String, dynamic>;
+                    final isHost = p['uid'] == hostId;
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.white.withOpacity(0.1),
-                            Colors.white.withOpacity(0.05),
-                          ],
-                        ),
+                        color: Colors.white.withOpacity(0.03),
                         borderRadius: BorderRadius.circular(12),
-                        border: isHost 
-                            ? Border.all(color: const Color(0xFFD4AF37).withOpacity(0.5))
-                            : null,
+                        border: Border.all(color: Colors.white.withOpacity(0.05)),
                       ),
                       child: Row(
                         children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
+                           Container(
+                            width: 32, height: 32,
+                            decoration: const BoxDecoration(
                               shape: BoxShape.circle,
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFFD4AF37), Color(0xFFFFD700)],
-                              ),
+                              gradient: LinearGradient(colors: [Color(0xFFD4AF37), Color(0xFFF7E68F)]),
                             ),
-                            child: photoURL != null
-                                ? ClipOval(
-                                    child: Image.network(
-                                      photoURL,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                        Icons.person,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  )
-                                : const Icon(Icons.person, color: Colors.white),
+                            child: const Icon(Icons.person, size: 20, color: Colors.black),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  displayName,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                if (isHost)
-                                  Text(
-                                    'Organizador',
-                                    style: TextStyle(
-                                      color: const Color(0xFFD4AF37).withOpacity(0.8),
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                              ],
+                            child: Text(
+                              p['displayName'] ?? 'Jugador',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           if (isHost)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFD4AF37),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Text(
-                                'HOST',
-                                style: TextStyle(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ),
+                            const Icon(Icons.star, color: Color(0xFFD4AF37), size: 16),
                         ],
                       ),
                     );
@@ -678,29 +618,39 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
     return Container(
       margin: const EdgeInsets.only(left: 8, right: 16, bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(16),
+        color: Colors.black.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white.withOpacity(0.1)),
       ),
       child: Column(
         children: [
-          // Header
-          Container(
+           Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF00D4FF).withOpacity(0.1),
-              borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+             decoration: BoxDecoration(
+              color: const Color(0xFFD4AF37).withOpacity(0.05),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+              ),
+              border: Border(bottom: BorderSide(color: const Color(0xFFD4AF37).withOpacity(0.1))),
             ),
             child: Row(
               children: const [
-                Icon(Icons.chat, color: Color(0xFF00D4FF)),
+                Icon(Icons.chat_bubble_outline, color: Color(0xFFD4AF37), size: 18),
                 SizedBox(width: 8),
-                Text('Chat del Lobby', style: TextStyle(color: Color(0xFF00D4FF), fontSize: 18, fontWeight: FontWeight.bold)),
+                Text(
+                  'CHAT DEL LOBBY',
+                  style: TextStyle(
+                    color: Color(0xFFD4AF37),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                  ),
+                ),
               ],
             ),
           ),
           
-          // Messages List
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -711,26 +661,15 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                   .limit(50)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'Error: ${snapshot.error}',
-                      style: const TextStyle(color: Colors.red),
-                      textAlign: TextAlign.center,
-                    ),
-                  );
-                }
-
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                if (snapshot.hasError) return const SizedBox();
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
                 final messages = snapshot.data!.docs;
 
                 if (messages.isEmpty) {
                   return Center(
                     child: Text(
-                      '¡Sé el primero en escribir!',
+                      'Di hola a todos 👋',
                       style: TextStyle(color: Colors.white.withOpacity(0.3)),
                     ),
                   );
@@ -749,23 +688,36 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                       child: Container(
                         margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
-                          color: isMe ? const Color(0xFF00D4FF).withOpacity(0.2) : Colors.white.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: isMe ? const Color(0xFF00D4FF).withOpacity(0.5) : Colors.white10),
+                          color: isMe 
+                              ? const Color(0xFFD4AF37) 
+                              : Colors.white.withOpacity(0.1),
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(16),
+                            topRight: const Radius.circular(16),
+                            bottomLeft: Radius.circular(isMe ? 16 : 0),
+                            bottomRight: Radius.circular(isMe ? 0 : 16),
+                          ),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (!isMe)
                               Text(
-                                msg['senderName'] ?? 'Unknown',
-                                style: const TextStyle(color: Color(0xFF00D4FF), fontSize: 10, fontWeight: FontWeight.bold),
+                                msg['senderName'] ?? 'Anon',
+                                style: const TextStyle(
+                                  color: Color(0xFFD4AF37),
+                                  fontSize: 10, 
+                                  fontWeight: FontWeight.bold
+                                ),
                               ),
                             Text(
                               msg['content'] ?? '',
-                              style: const TextStyle(color: Colors.white),
+                              style: TextStyle(
+                                color: isMe ? Colors.black : Colors.white,
+                                fontWeight: isMe ? FontWeight.w600 : FontWeight.normal,
+                              ),
                             ),
                           ],
                         ),
@@ -777,12 +729,14 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
             ),
           ),
 
-          // Input Area
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.3),
-              border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1))),
+              color: Colors.black.withOpacity(0.2),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(20),
+                bottomRight: Radius.circular(20),
+              ),
             ),
             child: Row(
               children: [
@@ -791,23 +745,27 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                     controller: _messageController,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: 'Escribe un mensaje...',
+                      hintText: 'Escribe aquí...',
                       hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(30),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
                       fillColor: Colors.white.withOpacity(0.05),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      isDense: true,
                     ),
                     onSubmitted: (_) => _sendMessage(chatRoomId),
                   ),
                 ),
                 const SizedBox(width: 8),
-                IconButton(
-                  onPressed: () => _sendMessage(chatRoomId),
-                  icon: const Icon(Icons.send, color: Color(0xFF00D4FF)),
+                CircleAvatar(
+                  backgroundColor: const Color(0xFFD4AF37),
+                  child: IconButton(
+                    icon: const Icon(Icons.send, color: Colors.black, size: 18),
+                    onPressed: () => _sendMessage(chatRoomId),
+                  ),
                 ),
               ],
             ),
@@ -871,7 +829,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                         );
                       },
                       icon: const Icon(Icons.play_arrow),
-                      label: const Text('JUGAR AHORA'),
+                      label: const Text('VOLVER A LA MESA'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
@@ -881,43 +839,32 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                         ),
                       ),
                     )
-                  : isSpectator
-                      ? ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => GameScreen(
-                                  roomId: activeTableId,
-                                  isSpectatorMode: true,
-                                  isTournamentMode: true,
-                                ),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.remove_red_eye),
-                          label: const Text('OBSERVAR MESA'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFD4AF37),
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                  : ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => GameScreen(
+                              roomId: activeTableId,
+                              isTournamentMode: true,
+                              isSpectatorMode: true,
                             ),
                           ),
-                        )
-                      : Container(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[800],
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Text(
-                            'Torneo en Progreso',
-                            style: TextStyle(color: Colors.white54),
-                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.remove_red_eye),
+                      label: const Text('ESPECTAR'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFD4AF37),
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
+                        elevation: 5,
+                        shadowColor: const Color(0xFFD4AF37).withOpacity(0.5),
+                      ),
+                    ),
             ),
           ],
         ),
@@ -949,10 +896,10 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
               flex: 2,
               child: ElevatedButton.icon(
                 onPressed: () {
-                  if (playerCount < 4) {
+                  if (playerCount < 2) { // Changed min players to 2 for testing, normally 4
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Mínimo se necesitan 4 jugadores para iniciar el torneo'),
+                        content: Text('Mínimo se necesitan 2 jugadores para iniciar'),
                         backgroundColor: Colors.orange,
                         duration: Duration(seconds: 2),
                       ),
@@ -964,7 +911,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                 icon: const Icon(Icons.play_arrow, color: Colors.white),
                 label: const Text('INICIAR TORNEO'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: playerCount >= 4 ? Colors.redAccent : Colors.grey[800],
+                  backgroundColor: playerCount >= 2 ? Colors.redAccent : Colors.grey[800],
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
@@ -990,9 +937,9 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                               ),
                             )
                           : const Icon(Icons.exit_to_app),
-                      label: const Text('Cancelar Inscripción'),
+                      label: const Text('CANCELAR INSCRIPCIÓN'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
+                        backgroundColor: Colors.redAccent.withOpacity(0.8),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
@@ -1007,7 +954,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                               width: 20,
                               height: 20,
                               child: CircularProgressIndicator(
-                                color: Colors.white,
+                                color: Colors.black,
                                 strokeWidth: 2,
                               ),
                             )
@@ -1020,6 +967,8 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
+                        elevation: 5,
+                        shadowColor: const Color(0xFFD4AF37).withOpacity(0.4),
                       ),
                     ),
             ),
@@ -1051,28 +1000,74 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
     String label = '';
     Color color = Colors.white;
     IconData icon = Icons.info;
+    
+    // Custom styles
+    bool isPremium = true; 
 
     switch (status) {
       case 'REGISTERING':
-        label = 'ABIERTO';
-        color = Colors.green;
-        icon = Icons.check_circle;
+        label = 'REGISTRO ABIERTO';
+        color = const Color(0xFF00E676); // Premium Neon Green
+        icon = Icons.how_to_reg;
         break;
       case 'LATE_REG':
         label = 'REGISTRO TARDÍO';
-        color = Colors.orange;
-        icon = Icons.access_time;
+        color = const Color(0xFFFF9100);
+        icon = Icons.access_time_filled;
         break;
       case 'RUNNING':
         label = 'EN CURSO';
-        color = Colors.blue;
-        icon = Icons.play_circle;
+        color = const Color(0xFFD4AF37); // Gold
+        icon = Icons.play_circle_filled;
         break;
       case 'FINISHED':
         label = 'FINALIZADO';
         color = Colors.grey;
         icon = Icons.flag;
+        isPremium = false;
         break;
+    }
+
+    if (isPremium) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              color.withOpacity(0.2),
+              color.withOpacity(0.05),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color, width: 1.5),
+           boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.15),
+              blurRadius: 10,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                letterSpacing: 1.5,
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     return Container(
@@ -1084,6 +1079,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(width: 8),

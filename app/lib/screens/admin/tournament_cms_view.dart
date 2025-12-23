@@ -3,6 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../widgets/imperial_currency.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../widgets/poker_loading_indicator.dart';
+import '../../widgets/poker_loading_indicator.dart';
+import '../game_screen.dart';
+import '../tournament/create_tournament_screen.dart';
+import '../tournament/tournament_lobby_screen.dart';
 
 class TournamentCMSView extends StatefulWidget {
   const TournamentCMSView({super.key});
@@ -14,19 +18,19 @@ class TournamentCMSView extends StatefulWidget {
 class _TournamentCMSViewState extends State<TournamentCMSView> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   
-  void _showCreateDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => const _CreateTournamentDialog(),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton(
-        onPressed: _showCreateDialog,
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+               builder: (context) => const CreateTournamentScreen(userRole: 'admin'),
+            ),
+          );
+        },
         backgroundColor: Colors.amber,
         child: const Icon(Icons.add, color: Colors.black),
       ),
@@ -51,41 +55,168 @@ class _TournamentCMSViewState extends State<TournamentCMSView> {
               final tournamentId = docs[index].id;
               final status = data['status'] ?? '';
               final showGodModeButton = status == 'RUNNING' || status == 'REGISTERING';
+              
+              // Determine status color
+              Color statusColor = Colors.grey;
+              if (status == 'RUNNING') statusColor = Colors.greenAccent;
+              if (status == 'REGISTERING') statusColor = Colors.amberAccent;
+              if (status == 'FINISHED') statusColor = Colors.redAccent;
 
-              return Card(
-                color: Colors.white10,
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: ListTile(
-                  title: Text(data['name'] ?? 'Sin Nombre', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Buy-In: ', style: TextStyle(color: Colors.white70)),
-                      ImperialCurrency(amount: data['buyIn'], style: const TextStyle(color: Colors.white70), iconSize: 14),
-                      Text(' | Tipo: ${data['type']} | Estado: ${data['status']}', style: const TextStyle(color: Colors.white70)),
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), // Reduced vertical margin
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.white.withOpacity(0.08),
+                      Colors.white.withOpacity(0.03),
                     ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  trailing: showGodModeButton
-                      ? ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pushNamed(
-                              context,
-                              '/tournament-lobby',
-                              arguments: {
-                                'tournamentId': tournamentId,
-                                'isAdminMode': true,
-                              },
-                            );
-                          },
-                          icon: const Icon(Icons.bolt, size: 18),
-                          label: const Text('GESTIONAR'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFB71C1C), // Deep Red
-                            foregroundColor: const Color(0xFFD4AF37), // Gold
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: status == 'RUNNING' 
+                        ? const Color(0xFF00FF88).withOpacity(0.3) 
+                        : const Color(0xFFFFD700).withOpacity(0.3),
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 10,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), // Reduced internal padding
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header: Icon + Name
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.emoji_events,
+                            color: Color(0xFFFFD700),
+                            size: 24, // Slightly smaller icon
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              data['name'] ?? 'Sin Nombre',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16, // Slightly smaller text
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10), // Reduced spacing
+                      
+                      // Info Badges Row 1: BuyIn + Type
+                      Row(
+                        children: [
+                          _buildInfoChip(
+                            Icons.attach_money,
+                            'Buy-in',
+                            ImperialCurrency(
+                              amount: data['buyIn'], 
+                              style: const TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.bold),
+                              iconSize: 12,
+                            ),
+                            const Color(0xFFD4AF37),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildInfoChip(
+                            Icons.category,
+                            'Tipo',
+                            Text(
+                              data['type'] ?? 'Open',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
+                            ),
+                            Colors.blueAccent,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6), // Reduced spacing
+                      
+                      // Info Badges Row 2: Status
+                       Row(
+                        children: [
+                          _buildInfoChip(
+                            Icons.info_outline,
+                            'Estado',
+                            Text(
+                              status,
+                              style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 10),
+                            ),
+                            statusColor,
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 12), // Reduced spacing
+                      
+                      // Action Button (Full Width)
+                      if (showGodModeButton)
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => TournamentLobbyScreen(
+                                    tournamentId: tournamentId,
+                                    isAdminMode: true,
+                                  ),
+                                ),
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF00C851),
+                              padding: const EdgeInsets.symmetric(vertical: 10), // Reduced vertical padding
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 4,
+                            ),
+                            child: const Text(
+                              'GESTIONAR',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 14, // Slightly smaller font
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
                           ),
                         )
-                      : const Icon(Icons.chevron_right, color: Colors.white54),
+                      else
+                        // Non-actionable state or view details
+                         Container(
+                           width: double.infinity,
+                           padding: const EdgeInsets.symmetric(vertical: 8), // Reduced padding
+                           decoration: BoxDecoration(
+                             color: Colors.white.withOpacity(0.05),
+                             borderRadius: BorderRadius.circular(10),
+                           ),
+                           alignment: Alignment.center,
+                           child: Text(
+                             'TORNEO ${status}',
+                             style: const TextStyle(
+                               color: Colors.white38,
+                               fontWeight: FontWeight.bold,
+                               letterSpacing: 1.0,
+                               fontSize: 12,
+                             ),
+                           ),
+                         ),
+                    ],
+                  ),
                 ),
               );
             },
@@ -94,103 +225,31 @@ class _TournamentCMSViewState extends State<TournamentCMSView> {
       ),
     );
   }
-}
-
-class _CreateTournamentDialog extends StatefulWidget {
-  const _CreateTournamentDialog();
-
-  @override
-  State<_CreateTournamentDialog> createState() => _CreateTournamentDialogState();
-}
-
-class _CreateTournamentDialogState extends State<_CreateTournamentDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _buyInController = TextEditingController();
-  String _type = 'Open';
-  bool _isLoading = false;
-
-  Future<void> _create() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      await FirebaseFunctions.instance.httpsCallable('createTournamentFunction').call({
-        'name': _nameController.text,
-        'buyIn': int.parse(_buyInController.text),
-        'type': _type,
-        // No clubId needed for admin/official tournaments
-      });
-
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Torneo creado correctamente')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: const Color(0xFF1A1A2E),
-      title: const Text('Crear Torneo Oficial', style: TextStyle(color: Colors.white)),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _nameController,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(labelText: 'Nombre del Torneo', labelStyle: TextStyle(color: Colors.white70)),
-              validator: (v) => v?.isEmpty == true ? 'Requerido' : null,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _buyInController,
-              style: const TextStyle(color: Colors.white),
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Buy-In', labelStyle: TextStyle(color: Colors.white70)),
-              validator: (v) => v?.isEmpty == true ? 'Requerido' : null,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _type,
-              dropdownColor: const Color(0xFF16213E),
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(labelText: 'Tipo', labelStyle: TextStyle(color: Colors.white70)),
-              items: const [
-                DropdownMenuItem(value: 'Open', child: Text('Abierto')),
-                DropdownMenuItem(value: 'Inter-club', child: Text('Inter-club')),
-              ],
-              onChanged: (v) => setState(() => _type = v!),
-            ),
-          ],
-        ),
+  Widget _buildInfoChip(IconData icon, String label, Widget content, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _create,
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
-          child: _isLoading 
-            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
-            : const Text('Crear'),
-        ),
-      ],
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            '$label: ',
+            style: TextStyle(
+              color: color.withOpacity(0.8),
+              fontSize: 10,
+            ),
+          ),
+          content,
+        ],
+      ),
     );
   }
 }
+
+
