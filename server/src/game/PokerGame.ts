@@ -787,12 +787,26 @@ export class PokerGame {
         netPot: number,
         distribution: { platform: number, club: number, seller: number }
     } {
-        const RAKE_PERCENTAGE = 0.08;
-        const MAX_RAKE_CAP = 500; // Tope máximo de comisión por mano (ajustable)
-        let totalRake = Math.floor(pot * RAKE_PERCENTAGE);
-        if (totalRake > MAX_RAKE_CAP) totalRake = MAX_RAKE_CAP;
+        // CONFIGURACIÓN DE RAKE
+        const RAKE_PERCENTAGE = 0.08; // 8% (Updated)
+        const MAX_RAKE_CAP = 500;     // Max 500 fichas por mano (Updated)
+
+        let totalRake = 0;
+
+        // REGLA: No Flop, No Drop (No Rake)
+        // Si la mano termina en pre-flop, no se cobra comisión
+        if (this.round === 'pre-flop') {
+            totalRake = 0;
+            console.log('🚫 [RAKE] No Flop, No Drop. Rake = 0');
+        } else {
+            totalRake = Math.floor(pot * RAKE_PERCENTAGE);
+            if (totalRake > MAX_RAKE_CAP) totalRake = MAX_RAKE_CAP;
+        }
 
         const netPot = pot - totalRake;
+
+        // LOG SOLICITADO
+        console.log(`💰 [RAKE] Pot: ${pot} | Rake: ${totalRake} | Winner Gets: ${netPot}`);
 
         let distribution = {
             platform: 0,
@@ -800,18 +814,11 @@ export class PokerGame {
             seller: 0
         };
 
-        if (!this.isPublicRoom) {
-            // Private Table: 100% Platform (as per new rules)
+        // NOTA: La distribución exacta se calcula en gameEconomy.ts usando los datos del usuario (Club/Seller).
+        // Aquí asignamos todo a platform temporalmente para el evento, o mantenemos la lógica aproximada.
+        // Para evitar confusión, asignamos todo a platform en este objeto, ya que el backend es la autoridad.
+        if (totalRake > 0) {
             distribution.platform = totalRake;
-        } else {
-            // Public Table: 50/30/20 (as per new rules)
-            distribution.platform = Math.floor(totalRake * 0.50);
-            distribution.club = Math.floor(totalRake * 0.30);
-            distribution.seller = Math.floor(totalRake * 0.20);
-
-            const distributed = distribution.platform + distribution.club + distribution.seller;
-            const remainder = totalRake - distributed;
-            if (remainder > 0) distribution.platform += remainder;
         }
 
         return { totalRake, netPot, distribution };

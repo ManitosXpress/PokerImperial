@@ -375,22 +375,10 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
                 console.log(`[ECONOMY] ✅ Synced ${uid}: ${finalChips} chips`);
             }
 
-            // 3. Distribución del Rake (Inmediata)
+            // 3. Distribución del Rake (Revenue Share)
             let platformShare = 0;
             let clubShare = 0;
             let sellerShare = 0;
-
-            if (!isPublic) {
-                // Privada: 100% Plataforma
-                platformShare = rakeAmount;
-            } else {
-                // Pública: 50% Plataforma, 30% Club, 20% Seller
-                platformShare = Math.floor(rakeAmount * 0.50);
-                clubShare = Math.floor(rakeAmount * 0.30);
-                sellerShare = Math.floor(rakeAmount * 0.20);
-                // Ajuste por redondeo
-                platformShare += (rakeAmount - (platformShare + clubShare + sellerShare));
-            }
 
             // Leer datos del ganador para atribución
             const winnerRef = db.collection('users').doc(winnerUid);
@@ -398,6 +386,34 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
             const winnerData = winnerDoc.data();
             const winnerClubId = winnerData?.clubId;
             const winnerSellerId = winnerData?.sellerId;
+
+            if (!isPublic) {
+                // Privada: 100% Plataforma (según reglas actuales, o podría ser diferente pero no se especificó cambio para privadas)
+                platformShare = rakeAmount;
+            } else {
+                // PÚBLICA: Depende de si el ganador tiene Club
+                if (winnerClubId) {
+                    // REGLA 50/30/20
+                    clubShare = Math.floor(rakeAmount * 0.30);
+                    const potentialSellerShare = Math.floor(rakeAmount * 0.20);
+
+                    // Asignar Seller Share solo si existe sellerId
+                    if (winnerSellerId) {
+                        sellerShare = potentialSellerShare;
+                    } else {
+                        // Si no hay seller, el 20% va a la plataforma (según asunción lógica y prompt "sino a Platform")
+                        // Entonces Platform = 50% + 20% = 70%
+                        // Pero calculamos platform como el remanente para asegurar que sume 100%
+                    }
+
+                    // Platform se lleva el resto (50% base + lo que no se asignó a seller)
+                    platformShare = rakeAmount - clubShare - sellerShare;
+
+                } else {
+                    // Independiente (Sin Club): 100% Plataforma
+                    platformShare = rakeAmount;
+                }
+            }
 
             // A. Plataforma
             if (platformShare > 0) {
@@ -411,35 +427,21 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
             }
 
             // B. Club
-            if (clubShare > 0) {
-                if (winnerClubId) {
-                    transaction.update(db.collection('clubs').doc(winnerClubId), {
-                        walletBalance: admin.firestore.FieldValue.increment(clubShare)
-                    });
-                } else {
-                    // Fallback a plataforma
-                    transaction.set(db.collection('system_stats').doc('economy'), {
-                        accumulated_rake: admin.firestore.FieldValue.increment(clubShare),
-                        total_volume: admin.firestore.FieldValue.increment(potTotal),
-                        hands_played: admin.firestore.FieldValue.increment(1)
-                    }, { merge: true });
-                }
+            if (clubShare > 0 && winnerClubId) {
+                // Actualizar wallet del club
+                transaction.update(db.collection('clubs').doc(winnerClubId), {
+                    walletBalance: admin.firestore.FieldValue.increment(clubShare),
+                    totalRakeEarned: admin.firestore.FieldValue.increment(clubShare)
+                });
             }
 
             // C. Seller
-            if (sellerShare > 0) {
-                if (winnerSellerId) {
-                    transaction.update(db.collection('users').doc(winnerSellerId), {
-                        credit: admin.firestore.FieldValue.increment(sellerShare)
-                    });
-                } else {
-                    // Fallback a plataforma (simplificado)
-                    transaction.set(db.collection('system_stats').doc('economy'), {
-                        accumulated_rake: admin.firestore.FieldValue.increment(sellerShare),
-                        total_volume: admin.firestore.FieldValue.increment(potTotal),
-                        hands_played: admin.firestore.FieldValue.increment(1)
-                    }, { merge: true });
-                }
+            if (sellerShare > 0 && winnerSellerId) {
+                // Actualizar wallet/créditos del seller
+                transaction.update(db.collection('users').doc(winnerSellerId), {
+                    credit: admin.firestore.FieldValue.increment(sellerShare),
+                    commissionEarned: admin.firestore.FieldValue.increment(sellerShare)
+                });
             }
 
             // 4. Ledger (RAKE_COLLECTED)
@@ -463,8 +465,9 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
                 dateKey,
                 totalVolume: admin.firestore.FieldValue.increment(potTotal),
                 dailyGGR: admin.firestore.FieldValue.increment(rakeAmount),
-                totalRake: admin.firestore.FieldValue.increment(rakeAmount),
-                handsPlayed: admin.firestore.FieldValue.increment(1)
+                totalRake: admin.firestore.FieldValue.increment(rakeAmount), // <--- ESTO FALTA (Added)
+                handsPlayed: admin.firestore.FieldValue.increment(1),
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
 
         });
