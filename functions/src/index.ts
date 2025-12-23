@@ -3,10 +3,11 @@ import * as admin from 'firebase-admin';
 import { addCredits, deductCredits, withdrawCredits, adminWithdrawCredits } from "./functions/credits";
 import { settleGameRound, joinTable, processCashOut, universalTableSettlement } from "./functions/gameEconomy";
 import { createClub, joinClub, leaveClub, ownerCreateMember, sellerCreatePlayer } from './functions/club';
-import { createTournament, registerForTournament, unregisterFromTournament, startTournament } from './functions/tournament';
+import { createTournament, registerForTournament, unregisterFromTournament, startTournament, openTournamentTables } from './functions/tournament';
 import { adminPauseTournament, adminResumeTournament, adminForceBlindLevel, adminBroadcastMessage } from './functions/tournamentAdmin';
 import { sendTournamentMessage } from './functions/chat';
 import { onTournamentFinish } from './functions/tournamentTriggers';
+
 import { getClubLeaderboard } from './functions/leaderboard';
 import { ownerTransferCredit, sellerTransferCredit } from './functions/clubWallet';
 import { createClubInvite, completeInvitationRegistration } from './functions/invitations';
@@ -46,6 +47,7 @@ export const createTournamentFunction = functions.https.onCall(createTournament)
 export const registerForTournamentFunction = functions.https.onCall(registerForTournament);
 export const unregisterFromTournamentFunction = functions.https.onCall(unregisterFromTournament);
 export const startTournamentFunction = functions.https.onCall(startTournament);
+export const openTournamentTablesFunction = functions.https.onCall(openTournamentTables);
 export const sendTournamentMessageFunction = functions.https.onCall(sendTournamentMessage);
 export const onTournamentFinishFunction = onTournamentFinish;
 

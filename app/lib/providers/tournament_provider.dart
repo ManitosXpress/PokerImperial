@@ -59,7 +59,7 @@ class TournamentProvider with ChangeNotifier {
     required String type, // FREEZEOUT, REBUY, BOUNTY, TURBO
     required Map<String, dynamic> settings, // { rebuyAllowed, bountyAmount, blindSpeed }
     String? clubId,
-    int? estimatedPlayers,
+    int? numberOfTables, // 🆕 Changed from estimatedPlayers
     String? finalTableMusic,
     String? finalTableTheme,
   }) async {
@@ -74,7 +74,7 @@ class TournamentProvider with ChangeNotifier {
         'type': type,
         'settings': settings,
         'clubId': clubId,
-        'estimatedPlayers': estimatedPlayers ?? 10,
+        'numberOfTables': numberOfTables ?? 1, // 🆕 Sending numberOfTables
         'finalTableMusic': finalTableMusic,
         'finalTableTheme': finalTableTheme,
       });
@@ -156,6 +156,18 @@ class TournamentProvider with ChangeNotifier {
       });
     } catch (e) {
       print('Error starting tournament: $e');
+      rethrow;
+    }
+  }
+
+  /// Open tournament tables for registration (Host only)
+  Future<void> openTournamentTables(String tournamentId) async {
+    try {
+      await _functions.httpsCallable('openTournamentTablesFunction').call({
+        'tournamentId': tournamentId,
+      });
+    } catch (e) {
+      print('Error opening tournament tables: $e');
       rethrow;
     }
   }

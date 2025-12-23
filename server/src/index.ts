@@ -441,10 +441,11 @@ io.on('connection', (socket) => {
                             const firestoreHostId = roomData.hostId || 'unknown';
                             const hostName = roomData.hostName || 'Host';
                             const isPublic = roomData.isPublic !== undefined ? roomData.isPublic : true;
+                            const isTournament = roomData.isTournament === true;
 
                             if (!roomManager.getRoom(roomId)) {
                                 try {
-                                    const tempRoom = roomManager.createRoom('temp-host', hostName, undefined, entryFee, roomId, { addHostAsPlayer: false, isPublic });
+                                    const tempRoom = roomManager.createRoom('temp-host', hostName, undefined, entryFee, roomId, { addHostAsPlayer: false, isPublic, isTournament });
                                     tempRoom.hostId = firestoreHostId;
                                 } catch (err: any) {
                                     console.log(`Room ${roomId} created concurrently during hydration.`);

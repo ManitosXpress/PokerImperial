@@ -250,10 +250,10 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                               height: 600, // Fixed minimal height to ensure chat is usable
                               child: Row(
                                 children: [
-                                  // Left Panel: Registered Players
+                                  // Left Panel: Tournament Tables
                                   Expanded(
                                     flex: 1,
-                                    child: _buildPlayersList(widget.tournamentId, tournament['createdBy']),
+                                    child: _buildTablesGrid(widget.tournamentId, tournament['createdBy']),
                                   ),
                                   
                                   // Right Panel: Chat
@@ -501,479 +501,198 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
     );
   }
 
-  Widget _buildPlayersList(String tournamentId, String? hostId) {
-    return Container(
-      margin: const EdgeInsets.only(left: 16, right: 8, bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.1),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFD4AF37).withOpacity(0.05),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(20),
-                topRight: Radius.circular(20),
-              ),
-              border: Border(bottom: BorderSide(color: const Color(0xFFD4AF37).withOpacity(0.1))),
+  Widget _buildTablesGrid(String tournamentId, String? creatorId) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('poker_tables')
+          .where('tournamentId', isEqualTo: tournamentId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final tables = snapshot.data!.docs;
+
+        if (tables.isEmpty) {
+          return const Center(
+            child: Text(
+              'No hay mesas disponibles',
+              style: TextStyle(color: Colors.white54),
             ),
-            child: const Text(
-              'JUGADORES INSCRITOS',
-              style: TextStyle(
-                color: Color(0xFFD4AF37),
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
-              ),
-              textAlign: TextAlign.center,
-            ),
+          );
+        }
+
+        return GridView.builder(
+          padding: const EdgeInsets.all(16),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 1.5,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
           ),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('tournaments')
-                  .doc(tournamentId)
-                  .collection('participants')
-                  .orderBy('joinedAt', descending: false)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) return const SizedBox();
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          itemCount: tables.length,
+          itemBuilder: (context, index) {
+            final table = tables[index].data() as Map<String, dynamic>;
+            final tableId = tables[index].id;
+            final tableName = table['tableName'] ?? 'Mesa ${index + 1}';
+            final players = (table['players'] as List?) ?? [];
+            final status = table['status'] ?? 'pending';
+            final isActive = status == 'active' || status == 'open_for_registration';
 
-                final participants = snapshot.data!.docs;
-
-                if (participants.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.people_outline, size: 48, color: Colors.white.withOpacity(0.1)),
-                        const SizedBox(height: 8),
-                        Text('Esperando jugadores...', style: TextStyle(color: Colors.white.withOpacity(0.3))),
-                      ],
+            return GestureDetector(
+              onTap: isActive ? () => _joinTable(tableId) : null,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isActive ? const Color(0xFF16213E) : Colors.black45,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isActive ? const Color(0xFFD4AF37) : Colors.white10,
+                    width: isActive ? 2 : 1,
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.table_restaurant,
+                      color: isActive ? const Color(0xFFD4AF37) : Colors.white24,
+                      size: 32,
                     ),
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: participants.length,
-                  itemBuilder: (context, index) {
-                    final p = participants[index].data() as Map<String, dynamic>;
-                    final isHost = p['uid'] == hostId;
-
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.03),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    const SizedBox(height: 8),
+                    Text(
+                      tableName,
+                      style: TextStyle(
+                        color: isActive ? Colors.white : Colors.white54,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
-                      child: Row(
-                        children: [
-                           Container(
-                            width: 32, height: 32,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(colors: [Color(0xFFD4AF37), Color(0xFFF7E68F)]),
-                            ),
-                            child: const Icon(Icons.person, size: 20, color: Colors.black),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              p['displayName'] ?? 'Jugador',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (isHost)
-                            const Icon(Icons.star, color: Color(0xFFD4AF37), size: 16),
-                        ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${players.length}/9',
+                      style: TextStyle(
+                        color: isActive ? Colors.white70 : Colors.white24,
+                        fontSize: 14,
                       ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _joinTable(String tableId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GameScreen(
+          roomId: tableId,
+          isTournamentMode: true,
+        ),
       ),
     );
   }
 
   Widget _buildChatArea(String? chatRoomId) {
-    if (chatRoomId == null) {
-      return const Center(child: Text('Chat no disponible', style: TextStyle(color: Colors.white54)));
-    }
-
+    // Placeholder for chat area
     return Container(
-      margin: const EdgeInsets.only(left: 8, right: 16, bottom: 16),
+      margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        color: Colors.black.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white10),
       ),
-      child: Column(
-        children: [
-           Container(
-            padding: const EdgeInsets.all(16),
-             decoration: BoxDecoration(
-              color: const Color(0xFFD4AF37).withOpacity(0.05),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(20),
-                topRight: Radius.circular(20),
-              ),
-              border: Border(bottom: BorderSide(color: const Color(0xFFD4AF37).withOpacity(0.1))),
-            ),
-            child: Row(
-              children: const [
-                Icon(Icons.chat_bubble_outline, color: Color(0xFFD4AF37), size: 18),
-                SizedBox(width: 8),
-                Text(
-                  'CHAT DEL LOBBY',
-                  style: TextStyle(
-                    color: Color(0xFFD4AF37),
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('tournaments')
-                  .doc(widget.tournamentId)
-                  .collection('messages')
-                  .orderBy('timestamp', descending: true)
-                  .limit(50)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) return const SizedBox();
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-
-                final messages = snapshot.data!.docs;
-
-                if (messages.isEmpty) {
-                  return Center(
-                    child: Text(
-                      'Di hola a todos 👋',
-                      style: TextStyle(color: Colors.white.withOpacity(0.3)),
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  reverse: true,
-                  controller: _scrollController,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final msg = messages[index].data() as Map<String, dynamic>;
-                    final isMe = msg['senderId'] == FirebaseAuth.instance.currentUser?.uid;
-                    
-                    return Align(
-                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: isMe 
-                              ? const Color(0xFFD4AF37) 
-                              : Colors.white.withOpacity(0.1),
-                          borderRadius: BorderRadius.only(
-                            topLeft: const Radius.circular(16),
-                            topRight: const Radius.circular(16),
-                            bottomLeft: Radius.circular(isMe ? 16 : 0),
-                            bottomRight: Radius.circular(isMe ? 0 : 16),
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (!isMe)
-                              Text(
-                                msg['senderName'] ?? 'Anon',
-                                style: const TextStyle(
-                                  color: Color(0xFFD4AF37),
-                                  fontSize: 10, 
-                                  fontWeight: FontWeight.bold
-                                ),
-                              ),
-                            Text(
-                              msg['content'] ?? '',
-                              style: TextStyle(
-                                color: isMe ? Colors.black : Colors.white,
-                                fontWeight: isMe ? FontWeight.w600 : FontWeight.normal,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.2),
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(20),
-                bottomRight: Radius.circular(20),
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Escribe aquí...',
-                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide.none,
-                      ),
-                      filled: true,
-                      fillColor: Colors.white.withOpacity(0.05),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      isDense: true,
-                    ),
-                    onSubmitted: (_) => _sendMessage(chatRoomId),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                CircleAvatar(
-                  backgroundColor: const Color(0xFFD4AF37),
-                  child: IconButton(
-                    icon: const Icon(Icons.send, color: Colors.black, size: 18),
-                    onPressed: () => _sendMessage(chatRoomId),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+      child: const Center(
+        child: Text(
+          'Chat del Torneo',
+          style: TextStyle(color: Colors.white54),
+        ),
       ),
     );
   }
 
-  Future<void> _sendMessage(String chatRoomId) async {
-    final text = _messageController.text.trim();
-    if (text.isEmpty) return;
-
-    _messageController.clear();
-
-    try {
-      await Provider.of<TournamentProvider>(context, listen: false)
-          .sendMessage(widget.tournamentId, text);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al enviar mensaje: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  Widget _buildActionBar(bool isRegistered, bool canRegister, String status, bool isHost, int playerCount, String? activeTableId) {
-    // Check for spectator role
-    final clubProvider = Provider.of<ClubProvider>(context);
-    final userRole = clubProvider.currentUserRole;
-    final isSpectator = userRole == 'admin' || userRole == 'club' || userRole == 'seller' || isHost;
-
-    if (status == 'RUNNING' && activeTableId != null) {
-       return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.3),
-          border: Border(
-            top: BorderSide(
-              color: Colors.white.withOpacity(0.1),
-              width: 1,
-            ),
-          ),
-        ),
-        child: Row(
-          children: [
-            Expanded(child: _buildStatusIndicator(status)),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 2,
-              child: isRegistered
-                  ? ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => GameScreen(
-                              roomId: activeTableId,
-                              isTournamentMode: true,
-                            ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('VOLVER A LA MESA'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    )
-                  : ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => GameScreen(
-                              roomId: activeTableId,
-                              isTournamentMode: true,
-                              isSpectatorMode: true,
-                            ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.remove_red_eye),
-                      label: const Text('ESPECTAR'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD4AF37),
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 5,
-                        shadowColor: const Color(0xFFD4AF37).withOpacity(0.5),
-                      ),
-                    ),
-            ),
-          ],
-        ),
-      );
-    }
-
+  Widget _buildActionBar(bool isRegistered, bool canRegister, String tournamentStatus, bool isCreator, int playerCount, String? activeTableId) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.3),
-        border: Border(
-          top: BorderSide(
-            color: Colors.white.withOpacity(0.1),
-            width: 1,
-          ),
-        ),
+        color: const Color(0xFF1A1A2E),
+        border: Border.symmetric(horizontal: BorderSide(color: Colors.white.withOpacity(0.1))),
       ),
-      child: Row(
-        children: [
-          // Status Indicator
-          Expanded(
-            child: _buildStatusIndicator(status),
-          ),
-          const SizedBox(width: 16),
-          
-          // Host Start Button
-          if (isHost && (status == 'REGISTERING' || status == 'LATE_REG')) ...[
-            Expanded(
-              flex: 2,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  if (playerCount < 2) { // Changed min players to 2 for testing, normally 4
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Mínimo se necesitan 2 jugadores para iniciar'),
-                        backgroundColor: Colors.orange,
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                    return;
-                  }
-                  _startTournament();
-                },
-                icon: const Icon(Icons.play_arrow, color: Colors.white),
-                label: const Text('INICIAR TORNEO'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: playerCount >= 2 ? Colors.redAccent : Colors.grey[800],
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+      child: SafeArea(
+        child: Row(
+          children: [
+            if (isCreator && tournamentStatus == 'REGISTERING')
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _startTournament,
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('COMENZAR TORNEO'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+              )
+            else if (isRegistered)
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isUnregistering ? null : _unregisterFromTournament,
+                  icon: _isUnregistering
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.exit_to_app),
+                  label: const Text('CANCELAR INSCRIPCIÓN'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent.withOpacity(0.8),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              )
+            else if (canRegister)
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isRegistering ? null : _registerForTournament,
+                  icon: _isRegistering
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.black,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.person_add),
+                  label: const Text('UNIRSE AL TORNEO'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD4AF37),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 5,
+                    shadowColor: const Color(0xFFD4AF37).withOpacity(0.4),
                   ),
                 ),
               ),
-            ),
-          ] else if (canRegister) ...[
-             // Player Action Button
-            Expanded(
-              flex: 2,
-              child: isRegistered
-                  ? ElevatedButton.icon(
-                      onPressed: _isUnregistering ? null : _unregisterFromTournament,
-                      icon: _isUnregistering
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : const Icon(Icons.exit_to_app),
-                      label: const Text('CANCELAR INSCRIPCIÓN'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.redAccent.withOpacity(0.8),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    )
-                  : ElevatedButton.icon(
-                      onPressed: _isRegistering ? null : _registerForTournament,
-                      icon: _isRegistering
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                color: Colors.black,
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : const Icon(Icons.person_add),
-                      label: const Text('UNIRSE AL TORNEO'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD4AF37),
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 5,
-                        shadowColor: const Color(0xFFD4AF37).withOpacity(0.4),
-                      ),
-                    ),
-            ),
           ],
-        ],
+        ),
       ),
     );
   }

@@ -22,7 +22,7 @@ export const createTournament = async (data: any, context: functions.https.Calla
         type,
         settings,
         clubId,
-        estimatedPlayers,
+        numberOfTables, // 🆕 Recibimos numberOfTables
         finalTableMusic,
         finalTableTheme,
         description
@@ -86,7 +86,47 @@ export const createTournament = async (data: any, context: functions.https.Calla
     const tournamentId = db.collection('tournaments').doc().id;
     const chatRoomId = db.collection('chats').doc().id; // Generar ID para chat room
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
-    const estimatedPlayerCount = estimatedPlayers || 10;
+
+    // 🆕 Calcular estimatedPlayers basado en mesas (9-max por defecto)
+    const tablesCount = numberOfTables || 1;
+    const estimatedPlayerCount = tablesCount * 9;
+
+    // 🆕 Pre-generar mesas
+    const tableIds: string[] = [];
+    const batch = db.batch();
+
+    for (let i = 0; i < tablesCount; i++) {
+        const tableId = db.collection('poker_tables').doc().id;
+        tableIds.push(tableId);
+
+        const newTable = {
+            id: tableId,
+            tournamentId: tournamentId,
+            name: `Mesa ${i + 1} - Torneo ${name}`,
+            smallBlind: 50, // TODO: Get from blind structure Level 1
+            bigBlind: 100,
+            minBuyIn: 0,
+            maxBuyIn: 0,
+            createdByClubId: clubId || null,
+            createdByName: 'Tournament System',
+            isPublic: false,
+            isTournament: true,
+            status: 'pending_tournament_start', // 🆕 Nuevo estado
+            players: [],
+            spectators: [],
+            createdAt: timestamp,
+            currentRound: null,
+            pot: 0,
+            communityCards: [],
+            deck: [],
+            dealerIndex: 0,
+            currentTurnIndex: 0,
+            lastActionTime: timestamp
+        };
+
+        const tableRef = db.collection('poker_tables').doc(tableId);
+        batch.set(tableRef, newTable);
+    }
 
     const newTournament: any = {
         id: tournamentId,
@@ -100,14 +140,16 @@ export const createTournament = async (data: any, context: functions.https.Calla
             bountyAmount: settings.bountyAmount || 0,
             blindSpeed: settings.blindSpeed
         },
-        prizePool: Number(buyIn) * estimatedPlayerCount,
+        prizePool: Number(buyIn) * estimatedPlayerCount, // Estimado inicial
         estimatedPlayers: estimatedPlayerCount,
+        numberOfTables: tablesCount, // 🆕 Guardamos el número de mesas
+        tableIds: tableIds, // 🆕 Guardamos los IDs de las mesas
         createdBy: context.auth.uid,
-        status: 'REGISTERING', // Nuevo status
+        status: 'REGISTERING',
         createdAt: timestamp,
         startTime: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
-        registeredPlayerIds: [], // Nuevo campo
-        chatRoomId: chatRoomId, // Nuevo campo
+        registeredPlayerIds: [],
+        chatRoomId: chatRoomId,
         // God Mode tracking fields
         isPaused: false,
         currentBlindLevel: 1,
@@ -126,10 +168,14 @@ export const createTournament = async (data: any, context: functions.https.Calla
         newTournament.finalTableTheme = finalTableTheme;
     }
 
-    await db.collection('tournaments').doc(tournamentId).set(newTournament);
+    const tournamentRef = db.collection('tournaments').doc(tournamentId);
+    batch.set(tournamentRef, newTournament);
 
-    // Inicializar chat room si es necesario (opcional, dependiendo de cómo funcione el chat)
-    // await db.collection('chats').doc(chatRoomId).set({ tournamentId, messages: [] });
+    // Inicializar chat room si es necesario (opcional)
+    // const chatRef = db.collection('chats').doc(chatRoomId);
+    // batch.set(chatRef, { tournamentId, messages: [] });
+
+    await batch.commit();
 
     return { success: true, tournamentId };
 };
@@ -560,5 +606,82 @@ export const startTournament = async (data: any, context: functions.https.Callab
         success: true,
         message: 'Tournament started successfully',
         tableIds: tableIds
+    };
+};
+
+/**
+ * openTournamentTables
+ * Opens all tables in a tournament for registration.
+ * Changes status from 'pending_tournament_start' to 'active'.
+ */
+export const openTournamentTables = async (data: any, context: functions.https.CallableContext) => {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
+    const db = admin.firestore();
+
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
+    }
+
+    const { tournamentId } = data;
+    const uid = context.auth.uid;
+
+    if (!tournamentId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Tournament ID is required.');
+    }
+
+    // 1. Get Tournament Data
+    const tournamentRef = db.collection('tournaments').doc(tournamentId);
+    const tournamentDoc = await tournamentRef.get();
+
+    if (!tournamentDoc.exists) {
+        throw new functions.https.HttpsError('not-found', 'Tournament not found.');
+    }
+
+    const tournament = tournamentDoc.data();
+
+    // 2. Validate Permissions (Host/Owner/Admin)
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userData = userDoc.data();
+    const userRole = context.auth.token.role || userData?.role;
+    const isAdmin = userRole === 'admin';
+    const isOwner = tournament?.createdBy === uid;
+
+    if (!isAdmin && !isOwner) {
+        throw new functions.https.HttpsError('permission-denied', 'Only the tournament host can open tables.');
+    }
+
+    // 3. Fetch Tables
+    const tablesSnapshot = await db.collection('poker_tables')
+        .where('tournamentId', '==', tournamentId)
+        .get();
+
+    if (tablesSnapshot.empty) {
+        throw new functions.https.HttpsError('not-found', 'No tables found for this tournament.');
+    }
+
+    // 4. Batch Update
+    const batch = db.batch();
+
+    tablesSnapshot.docs.forEach(doc => {
+        batch.update(doc.ref, {
+            status: 'active', // Open for players to join
+            isPrivate: false // Make sure they are visible/accessible if needed, or keep private but accessible via lobby
+        });
+    });
+
+    // Update Tournament Status
+    batch.update(tournamentRef, {
+        status: 'RUNNING', // Or 'active'
+        startTime: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    return {
+        success: true,
+        message: 'Tables opened successfully',
+        tablesCount: tablesSnapshot.size
     };
 };

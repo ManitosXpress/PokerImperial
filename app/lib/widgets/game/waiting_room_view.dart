@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/language_provider.dart';
+import '../../services/socket_service.dart';
 
-class WaitingRoomView extends StatelessWidget {
+class WaitingRoomView extends StatefulWidget {
   final String roomId;
   final Map<String, dynamic>? roomState;
   final VoidCallback onStartGame;
-  final VoidCallback? onCloseRoom; // New callback
+  final VoidCallback? onCloseRoom;
   final String? userRole;
   final bool isHost;
   final bool isPublic;
   final bool isClubLeader;
   final String? currentUserId;
+  final bool isTournament; // New flag
 
   const WaitingRoomView({
     super.key,
@@ -24,16 +26,74 @@ class WaitingRoomView extends StatelessWidget {
     this.isPublic = true,
     this.isClubLeader = false,
     this.currentUserId,
+    this.isTournament = false,
   });
+
+  @override
+  State<WaitingRoomView> createState() => _WaitingRoomViewState();
+}
+
+class _WaitingRoomViewState extends State<WaitingRoomView> {
+  int? _autoStartSeconds;
+  Timer? _localTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupSocketListeners();
+  }
+
+  @override
+  void dispose() {
+    _localTimer?.cancel();
+    super.dispose();
+  }
+
+  void _setupSocketListeners() {
+    final socketService = Provider.of<SocketService>(context, listen: false);
+    
+    socketService.socket.on('tournament_countdown', (data) {
+      if (mounted) {
+        setState(() {
+          _autoStartSeconds = data['seconds'];
+        });
+        _startLocalCountdown();
+      }
+    });
+
+    socketService.socket.on('countdown_cancelled', (_) {
+      if (mounted) {
+        setState(() {
+          _autoStartSeconds = null;
+        });
+        _localTimer?.cancel();
+      }
+    });
+  }
+
+  void _startLocalCountdown() {
+    _localTimer?.cancel();
+    _localTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          if (_autoStartSeconds != null && _autoStartSeconds! > 0) {
+            _autoStartSeconds = _autoStartSeconds! - 1;
+          } else {
+            timer.cancel();
+          }
+        });
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final languageProvider = Provider.of<LanguageProvider>(context);
-    final players = (roomState?['players'] as List?) ?? [];
+    final players = (widget.roomState?['players'] as List?) ?? [];
     final playerCount = players.length;
-    final maxPlayers = roomState?['maxPlayers'] ?? 8;
+    final maxPlayers = widget.roomState?['maxPlayers'] ?? 8;
     
-    final showStartButton = isHost; 
+    final showStartButton = widget.isHost && !widget.isTournament; // Hide start button for tournaments
     final canStartAction = playerCount >= 2;
 
     return SingleChildScrollView(
@@ -68,7 +128,7 @@ class WaitingRoomView extends StatelessWidget {
                     const Icon(Icons.table_restaurant, color: Color(0xFFE94560), size: 48),
                     const SizedBox(height: 12),
                     Text(
-                      'Sala: $roomId',
+                      'Sala: ${widget.roomId}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 28,
@@ -124,7 +184,7 @@ class WaitingRoomView extends StatelessWidget {
                         final playerId = player['id'];
                         
                         // Check if this player is the club leader
-                        final isThisPlayerClubLeader = isClubLeader && playerId == currentUserId;
+                        final isThisPlayerClubLeader = widget.isClubLeader && playerId == widget.currentUserId;
                         
                         return Container(
                           decoration: BoxDecoration(
@@ -271,7 +331,7 @@ class WaitingRoomView extends StatelessWidget {
                           : null,
                     ),
                     child: ElevatedButton(
-                      onPressed: canStartAction ? onStartGame : null,
+                      onPressed: canStartAction ? widget.onStartGame : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.transparent,
                         shadowColor: Colors.transparent,
@@ -309,7 +369,7 @@ class WaitingRoomView extends StatelessWidget {
                             TextButton(
                               onPressed: () {
                                 Navigator.pop(context);
-                                if (onCloseRoom != null) onCloseRoom!();
+                                if (widget.onCloseRoom != null) widget.onCloseRoom!();
                               },
                               style: TextButton.styleFrom(foregroundColor: Colors.red),
                               child: const Text('Cerrar Sala'),
@@ -338,17 +398,21 @@ class WaitingRoomView extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      isClubLeader ? Icons.visibility : Icons.hourglass_empty, 
-                      color: isClubLeader ? const Color(0xFFFFD700) : Colors.white70,
+                      _autoStartSeconds != null ? Icons.timer : (widget.isClubLeader ? Icons.visibility : Icons.hourglass_empty), 
+                      color: _autoStartSeconds != null ? const Color(0xFFFFD700) : (widget.isClubLeader ? const Color(0xFFFFD700) : Colors.white70),
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      isClubLeader 
-                          ? '👀 OBSERVANDO MESA' 
-                          : 'Esperando confirmación para iniciar...',
+                      _autoStartSeconds != null
+                          ? 'EL TORNEO COMIENZA EN ${_autoStartSeconds}s'
+                          : (widget.isClubLeader 
+                              ? '👀 OBSERVANDO MESA' 
+                              : (widget.isTournament 
+                                  ? 'Esperando jugadores para iniciar (${players.length}/4)...' 
+                                  : 'Esperando confirmación para iniciar...')),
                       style: TextStyle(
-                        color: isClubLeader ? const Color(0xFFFFD700) : Colors.white70,
-                        fontSize: 16,
+                        color: _autoStartSeconds != null ? const Color(0xFFFFD700) : (widget.isClubLeader ? const Color(0xFFFFD700) : Colors.white70),
+                        fontSize: _autoStartSeconds != null ? 20 : 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),

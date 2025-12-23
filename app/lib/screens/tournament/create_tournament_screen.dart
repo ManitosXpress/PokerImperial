@@ -29,7 +29,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
   int _bountyAmount = 0; // Para torneos BOUNTY
   final _nameController = TextEditingController();
   final _buyInController = TextEditingController(text: '100');
-  int _estimatedPlayers = 10;
+  int _numberOfTables = 1; // 🆕 Changed from estimatedPlayers
   
   bool _isCreating = false;
 
@@ -114,7 +114,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
         type: _selectedType,
         settings: settings,
         clubId: _selectedScope == 'CLUB' ? widget.clubId : null,
-        estimatedPlayers: _estimatedPlayers,
+        numberOfTables: _numberOfTables, // 🆕 Sending numberOfTables
       );
 
       if (mounted) {
@@ -296,7 +296,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                   colors: [Color(0xFFD4AF37), Color(0xFFFFD700)],
                 )
               : null,
-          color: isActive ? null : Colors.white.withOpacity(0.1),
+              color: isActive ? null : Colors.white.withOpacity(0.1),
         ),
       ),
     );
@@ -574,9 +574,9 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          // Estimated Players Slider
+          // 🆕 Number of Tables Slider
           const Text(
-            'Jugadores Estimados',
+            'Cantidad de Mesas',
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -598,28 +598,35 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Icon(Icons.people, color: Color(0xFFD4AF37)),
+                    const Icon(Icons.table_restaurant, color: Color(0xFFD4AF37)),
                     Text(
-                      '$_estimatedPlayers jugadores',
+                      '$_numberOfTables mesas',
                       style: const TextStyle(
                         color: Color(0xFFD4AF37),
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const Icon(Icons.people, color: Color(0xFFD4AF37)),
+                    const Icon(Icons.table_restaurant, color: Color(0xFFD4AF37)),
                   ],
                 ),
                 Slider(
-                  value: _estimatedPlayers.toDouble(),
-                  min: 2,
-                  max: 100,
-                  divisions: 98,
+                  value: _numberOfTables.toDouble(),
+                  min: 1,
+                  max: 20,
+                  divisions: 19,
                   activeColor: const Color(0xFFD4AF37),
                   inactiveColor: Colors.white.withOpacity(0.2),
                   onChanged: (value) {
-                    setState(() => _estimatedPlayers = value.toInt());
+                    setState(() => _numberOfTables = value.toInt());
                   },
+                ),
+                Text(
+                  'Capacidad aprox: ${_numberOfTables * 9} jugadores',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 14,
+                  ),
                 ),
               ],
             ),
@@ -628,7 +635,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
           // Prize Pool Calculator
           PrizePoolCalculator(
             buyIn: double.tryParse(_buyInController.text) ?? 0,
-            estimatedPlayers: _estimatedPlayers,
+            estimatedPlayers: _numberOfTables * 9, // Estimate based on tables
           ),
         ],
       ),
@@ -701,11 +708,11 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                 if (_selectedType == 'REBUY') _buildSummaryRow('Rebuy', _rebuyAllowed ? '✅ Permitido' : '❌ No permitido'),
                 if (_selectedType == 'BOUNTY') _buildSummaryWidgetRow('Bounty', ImperialCurrency(amount: _bountyAmount, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
                 _buildSummaryWidgetRow('Buy-in', ImperialCurrency(amount: _buyInController.text, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
-                _buildSummaryRow('Jugadores Estimados', '$_estimatedPlayers'),
+                _buildSummaryRow('Cantidad de Mesas', '$_numberOfTables'), // 🆕 Updated label
                 const Divider(color: Colors.white24, height: 32),
                 PrizePoolCalculator(
                   buyIn: double.tryParse(_buyInController.text) ?? 0,
-                  estimatedPlayers: _estimatedPlayers,
+                  estimatedPlayers: _numberOfTables * 9,
                 ),
               ],
             ),

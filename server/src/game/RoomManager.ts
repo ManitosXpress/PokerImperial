@@ -199,9 +199,9 @@ export class RoomManager {
         return room;
     }
 
-    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string } = {}): Room {
+    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean } = {}): Room {
         const roomId = customRoomId || this.generateRoomId();
-        const { addHostAsPlayer = true, isPublic = true, hostUid } = options;
+        const { addHostAsPlayer = true, isPublic = true, hostUid, isTournament = false } = options;
 
         if (this.rooms.has(roomId)) {
             throw new Error(`Room ${roomId} already exists`);
@@ -232,7 +232,9 @@ export class RoomManager {
             currentTurn: players.length > 0 ? players[0].id : '',
             dealerId: players.length > 0 ? players[0].id : '',
             isPublic: isPublic,
-            hostId: hostUid || hostId
+            hostId: hostUid || hostId,
+            isTournament: isTournament,
+            autoStartTimer: null
         };
 
         this.rooms.set(roomId, newRoom);
@@ -270,6 +272,44 @@ export class RoomManager {
         };
 
         room.players.push(newPlayer);
+
+        // ✅ AUTO-START LOGIC
+        if (room.isTournament && room.gameState === 'waiting') {
+            const playerCount = room.players.length;
+            if (playerCount >= 4 && !room.autoStartTimer) {
+                console.log(`⏳ Iniciando cuenta regresiva de 30s para sala ${room.id}`);
+
+                // 1. Avisar al Frontend
+                if (this.emitCallback) {
+                    this.emitCallback(room.id, 'tournament_countdown', { seconds: 30 });
+                }
+
+                // 2. Iniciar Timer
+                room.autoStartTimer = setTimeout(() => {
+                    console.log(`🚀 EJECUTANDO AUTO-START en sala ${room.id}`);
+                    try {
+                        if (room.players.length >= 2) { // Doble check
+                            this.startGame(room.id, room.players[0].id, (data) => {
+                                if (this.emitCallback) {
+                                    if (data.type === 'hand_winner') {
+                                        this.emitCallback!(room.id, 'hand_winner', data);
+                                    } else {
+                                        this.emitCallback!(room.id, 'game_update', data);
+                                    }
+                                }
+                            });
+                            if (this.emitCallback) {
+                                this.emitCallback(room.id, 'game_started', { ...this.getGameState(room.id), roomId: room.id });
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`Failed to auto-start tournament game for room ${room.id}:`, e);
+                    }
+                    room.autoStartTimer = null;
+                }, 30000); // 30 segundos
+            }
+        }
+
         return room;
     }
 
@@ -378,6 +418,17 @@ export class RoomManager {
                 }
 
                 room.players.splice(index, 1);
+
+                // ✅ CANCEL AUTO-START LOGIC
+                if (room.isTournament && room.autoStartTimer && room.players.length < 4) {
+                    console.log(`🛑 Cancelando auto-start en sala ${roomId} (Jugadores insuficientes: ${room.players.length})`);
+                    clearTimeout(room.autoStartTimer);
+                    room.autoStartTimer = null;
+
+                    if (this.emitCallback) {
+                        this.emitCallback(roomId, 'countdown_cancelled', {});
+                    }
+                }
 
                 // Also remove from game instance if exists
                 const game = this.games.get(roomId);

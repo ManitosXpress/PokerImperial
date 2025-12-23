@@ -27,4 +27,6 @@ export interface Room {
     dealerId: string;
     isPublic?: boolean;
     hostId?: string;
+    isTournament?: boolean;
+    autoStartTimer?: NodeJS.Timeout | null;
 }
