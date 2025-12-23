@@ -276,7 +276,7 @@ export class RoomManager {
         // ✅ AUTO-START LOGIC
         if (room.isTournament && room.gameState === 'waiting') {
             const playerCount = room.players.length;
-            if (playerCount >= 4 && !room.autoStartTimer) {
+            if (playerCount >= 2 && !room.autoStartTimer) {
                 console.log(`⏳ Iniciando cuenta regresiva de 30s para sala ${room.id}`);
 
                 // 1. Avisar al Frontend
@@ -420,7 +420,7 @@ export class RoomManager {
                 room.players.splice(index, 1);
 
                 // ✅ CANCEL AUTO-START LOGIC
-                if (room.isTournament && room.autoStartTimer && room.players.length < 4) {
+                if (room.isTournament && room.autoStartTimer && room.players.length < 2) {
                     console.log(`🛑 Cancelando auto-start en sala ${roomId} (Jugadores insuficientes: ${room.players.length})`);
                     clearTimeout(room.autoStartTimer);
                     room.autoStartTimer = null;

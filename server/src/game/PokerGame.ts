@@ -123,8 +123,18 @@ export class PokerGame {
 
         // Blinds logic (simplified for dynamic player count)
         const dealerActiveIndex = 0;
-        const sbIndex = (dealerActiveIndex + 1) % this.activePlayers.length;
-        const bbIndex = (dealerActiveIndex + 2) % this.activePlayers.length;
+        let sbIndex: number;
+        let bbIndex: number;
+
+        if (this.activePlayers.length === 2) {
+            // HEADS-UP RULES: Dealer is Small Blind, Other is Big Blind
+            sbIndex = dealerActiveIndex;
+            bbIndex = (dealerActiveIndex + 1) % this.activePlayers.length;
+        } else {
+            // STANDARD RULES (3+ Players): SB is left of Dealer, BB is left of SB
+            sbIndex = (dealerActiveIndex + 1) % this.activePlayers.length;
+            bbIndex = (dealerActiveIndex + 2) % this.activePlayers.length;
+        }
 
         this.placeBet(this.activePlayers[sbIndex], this.smallBlindAmount);
         this.placeBet(this.activePlayers[bbIndex], this.bigBlindAmount);

@@ -408,7 +408,7 @@ class _WaitingRoomViewState extends State<WaitingRoomView> {
                           : (widget.isClubLeader 
                               ? '👀 OBSERVANDO MESA' 
                               : (widget.isTournament 
-                                  ? 'Esperando jugadores para iniciar (${players.length}/4)...' 
+                                  ? 'Esperando jugadores para iniciar (${players.length}/2)...' 
                                   : 'Esperando confirmación para iniciar...')),
                       style: TextStyle(
                         color: _autoStartSeconds != null ? const Color(0xFFFFD700) : (widget.isClubLeader ? const Color(0xFFFFD700) : Colors.white70),
