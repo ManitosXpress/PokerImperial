@@ -232,8 +232,8 @@ io.on('connection', (socket) => {
             room.hostId = uid;
             socket.join(room.id);
 
-            const roomResponse = { ...room, isPublic, hostId: uid };
-            socket.emit('room_created', roomResponse);
+            // room is already sanitized from roomManager.createRoom
+            socket.emit('room_created', room);
             console.log(`Room created: ${room.id} by ${playerName} (UID: ${uid})`);
         } catch (e: any) {
             socket.emit('error', e.message);
@@ -473,9 +473,9 @@ io.on('connection', (socket) => {
                 }
 
                 socket.join(roomId);
-                const roomWithFlags = { ...room, isPublic: room.isPublic ?? false, hostId: room.hostId };
-                io.to(roomId).emit('player_joined', roomWithFlags);
-                socket.emit('room_joined', roomWithFlags);
+                // room is already sanitized from roomManager.joinRoom
+                io.to(roomId).emit('player_joined', room);
+                socket.emit('room_joined', room);
                 console.log(`${playerName} joined room ${roomId}`);
             } else {
                 console.error(`[JOIN_ROOM] ❌ Room no encontrada: ${roomId}`);
@@ -547,8 +547,8 @@ io.on('connection', (socket) => {
         try {
             const room = roomManager.toggleReady(roomId, socket.id, isReady);
             if (room) {
-                const roomWithFlags = { ...room, isPublic: room.isPublic ?? false, hostId: room.hostId };
-                io.to(roomId).emit('room_update', roomWithFlags);
+                // room is already sanitized from roomManager.toggleReady
+                io.to(roomId).emit('room_update', room);
             }
         } catch (e: any) {
             socket.emit('error', e.message);
@@ -665,8 +665,22 @@ io.on('connection', (socket) => {
 
             const room = roomManager.getRoom(roomId);
             if (room) {
-                const roomWithFlags = { ...room, isPublic: room.isPublic ?? false, hostId: room.hostId };
-                io.to(roomId).emit('player_left', roomWithFlags);
+                // Create sanitized room data
+                const roomSafe = {
+                    id: room.id,
+                    players: room.players.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        chips: p.chips,
+                        isFolded: p.isFolded,
+                        currentBet: p.currentBet,
+                        status: p.status
+                    })),
+                    gameState: room.gameState,
+                    isPublic: room.isPublic ?? false,
+                    hostId: room.hostId
+                };
+                io.to(roomId).emit('player_left', roomSafe);
             }
         }
     });

@@ -103,6 +103,39 @@ export class RoomManager {
         }
     }
 
+    /**
+     * Creates a safe, serializable version of the Room object for socket emits
+     * Prevents "Maximum call stack size exceeded" crashes from circular references
+     */
+    private getPublicRoomState(room: Room) {
+        return {
+            id: room.id,
+            players: room.players.map(p => ({
+                id: p.id,
+                uid: p.uid,
+                name: p.name,
+                chips: p.chips,
+                isFolded: p.isFolded,
+                currentBet: p.currentBet,
+                isBot: p.isBot,
+                isReady: p.isReady,
+                status: p.status,
+                isAllIn: p.isAllIn
+            })),
+            maxPlayers: room.maxPlayers,
+            gameState: room.gameState,
+            pot: room.pot,
+            communityCards: room.communityCards,
+            currentTurn: room.currentTurn,
+            dealerId: room.dealerId,
+            isPublic: room.isPublic ?? false,
+            hostId: room.hostId,
+            isTournament: room.isTournament
+            // NOTE: Explicitly excluded autoStartTimer to prevent circular refs
+        };
+    }
+
+
     // ... (existing methods like toggleReady, createRoom, etc. - we need to keep them)
     // To save context tokens, I will only output the NEW methods and modified logic if possible, 
     // but standard tool requires full file overwrite. 
@@ -117,7 +150,7 @@ export class RoomManager {
             player.isReady = isReady;
             this.checkAndStartCountdown(roomId);
         }
-        return room;
+        return this.getPublicRoomState(room) as any; // Return sanitized DTO
     }
 
     private checkAndStartCountdown(roomId: string) {
@@ -181,7 +214,11 @@ export class RoomManager {
     }
 
     public createPracticeRoom(hostId: string, hostName: string): Room {
-        const room = this.createRoom(hostId, hostName, undefined, 1000, undefined, { addHostAsPlayer: true, isPublic: true });
+        const roomDto = this.createRoom(hostId, hostName, undefined, 1000, undefined, { addHostAsPlayer: true, isPublic: true });
+
+        // Get the actual Room object from the map (not the sanitized DTO)
+        const room = this.rooms.get(roomDto.id);
+        if (!room) throw new Error('Failed to create practice room');
 
         for (let i = 1; i <= 7; i++) {
             const bot: Player = {
@@ -196,7 +233,8 @@ export class RoomManager {
             room.players.push(bot);
         }
 
-        return room;
+        console.log(`✅ Practice room created: ${room.id}`);
+        return this.getPublicRoomState(room) as any; // Return sanitized DTO
     }
 
     public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean } = {}): Room {
@@ -240,7 +278,8 @@ export class RoomManager {
         this.rooms.set(roomId, newRoom);
         this.games.set(roomId, new PokerGame());
 
-        return newRoom;
+        console.log(`✅ Room created: ${roomId}`);
+        return this.getPublicRoomState(newRoom) as any; // Return sanitized DTO
     }
 
     public joinRoom(roomId: string, playerId: string, playerName: string, sessionId?: string, buyInAmount: number = 1000): Room | null {
@@ -250,7 +289,8 @@ export class RoomManager {
         const existingPlayer = room.players.find(p => p.id === playerId);
         if (existingPlayer) {
             if (sessionId) existingPlayer.pokerSessionId = sessionId;
-            return room;
+            console.log(`Player ${playerId} rejoined room ${roomId}`);
+            return this.getPublicRoomState(room) as any; // Return sanitized DTO
         }
 
         if (room.players.length >= room.maxPlayers) {
@@ -306,7 +346,8 @@ export class RoomManager {
             }
         }
 
-        return room;
+        console.log(`✅ Player ${playerId} joined room ${roomId}`);
+        return this.getPublicRoomState(room) as any; // Return sanitized DTO
     }
 
     public getRoom(roomId: string): Room | undefined {
