@@ -459,9 +459,10 @@ export const startTournament = async (data: any, context: functions.https.Callab
     }
 
     // 4. Validate Player Count
+    const MIN_PLAYERS = 2;
     const registeredPlayerIds = tournament?.registeredPlayerIds || [];
-    if (registeredPlayerIds.length < 4) {
-        throw new functions.https.HttpsError('failed-precondition', 'Minimum 4 players required to start.');
+    if (registeredPlayerIds.length < MIN_PLAYERS) {
+        throw new functions.https.HttpsError('failed-precondition', `Minimum ${MIN_PLAYERS} players required to start.`);
     }
 
     // 5. Create Tables and Distribute Players

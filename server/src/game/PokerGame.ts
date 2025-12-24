@@ -316,39 +316,40 @@ export class PokerGame {
     }
 
     public getPublicState(requestingPlayerId?: string): any {
-        const minRaise = this.currentBet + Math.max(this.bigBlindAmount, this.currentBet);
-        const currentTurn = this.currentTurnIndex === -1 ? undefined : this.activePlayers[this.currentTurnIndex]?.id;
-
         return {
-            tableId: this.roomId, // Use roomId
+            tableId: this.roomId, // ID string only
             pot: this.pot,
             communityCards: this.communityCards,
-            currentTurn: currentTurn,
-            dealerId: this.players[this.dealerIndex]?.id,
-            round: this.round,
-            currentBet: this.currentBet,
-            minBet: minRaise,
-            // Sanitize Players
+            stage: this.round.toUpperCase(), // PREFLOP, FLOP, etc.
+            dealerIndex: this.dealerIndex,
+            currentTurnIndex: this.currentTurnIndex,
+            // SAFE PLAYER MAPPING
             players: this.players.map(p => ({
                 id: p.id,
-                uid: p.uid,
+                uid: p.uid, // Required for RoomManager settlement
                 name: p.name,
                 chips: p.chips,
-                currentBet: p.currentBet,
+                bet: p.currentBet, // Mapping currentBet to 'bet' as requested
                 isFolded: p.isFolded,
-                isBot: p.isBot,
-                isSitOut: p.isSitOut,
-                status: p.status,
                 isAllIn: p.isAllIn || (p.chips === 0 && p.currentBet > 0),
-                avatar: (p as any).avatar, // Include avatar if it exists
-                // Card Security: Only show cards if it's the requesting player OR showdown
-                hand: (p.id === requestingPlayerId || this.round === 'showdown') ? p.hand : null,
-                // IMPORTANT: No circular links (room, game) here!
+                seatIndex: (p as any).seatIndex, // Ensure seatIndex is passed if available
+                avatar: (p as any).avatar,
+                // SECURITY: Only show cards if it's the requesting player OR showdown
+                cards: (requestingPlayerId === p.id || this.round === 'showdown') ? p.hand : null
             })),
-            // Stats & Info
+            // EXCLUDE: this.room, this.tournament, p.socket
+
+            // Keeping these for backward compatibility if needed, but the user requested specific fields above.
+            // We can add them as extra fields if they don't cause issues, or stick strictly to the request.
+            // The user said "ADD THIS METHOD", implying replacement or addition.
+            // I will include the critical ones from the previous implementation that might be needed by the frontend
+            // just in case, but prioritize the requested structure.
+            currentTurn: this.currentTurnIndex === -1 ? undefined : this.activePlayers[this.currentTurnIndex]?.id,
+            dealerId: this.players[this.dealerIndex]?.id,
+            currentBet: this.currentBet,
+            minBet: this.currentBet + Math.max(this.bigBlindAmount, this.currentBet),
             smallBlind: this.smallBlindAmount,
             bigBlind: this.bigBlindAmount,
-            dealerIndex: this.dealerIndex,
             activePlayerIds: this.activePlayers.map(p => p.id)
         };
     }

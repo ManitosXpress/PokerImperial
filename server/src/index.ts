@@ -53,13 +53,13 @@ function persistGameStateAsync(roomId: string, gameState: any) {
                 communityCards: gameState.communityCards,
                 currentTurn: gameState.currentTurn,
                 dealerId: gameState.dealerId,
-                round: gameState.round,
+                round: gameState.round || gameState.stage,
                 currentBet: gameState.currentBet,
                 players: gameState.players?.map((p: any) => ({
                     id: p.id,
                     name: p.name,
                     chips: p.chips,
-                    currentBet: p.currentBet,
+                    currentBet: p.currentBet !== undefined ? p.currentBet : p.bet,
                     isFolded: p.isFolded,
                     isAllIn: p.isAllIn,
                     status: p.status
