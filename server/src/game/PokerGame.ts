@@ -315,13 +315,12 @@ export class PokerGame {
         }
     }
 
-    public getGameState() {
+    public getPublicState(requestingPlayerId?: string): any {
         const minRaise = this.currentBet + Math.max(this.bigBlindAmount, this.currentBet);
-
-        // Si currentTurnIndex es -1, significa que la mano terminó y no hay turno activo
         const currentTurn = this.currentTurnIndex === -1 ? undefined : this.activePlayers[this.currentTurnIndex]?.id;
 
         return {
+            tableId: this.roomId, // Use roomId
             pot: this.pot,
             communityCards: this.communityCards,
             currentTurn: currentTurn,
@@ -329,20 +328,34 @@ export class PokerGame {
             round: this.round,
             currentBet: this.currentBet,
             minBet: minRaise,
+            // Sanitize Players
             players: this.players.map(p => ({
                 id: p.id,
-                uid: p.uid, // CRÍTICO: Exponer UID para que el frontend identifique al usuario
+                uid: p.uid,
                 name: p.name,
                 chips: p.chips,
                 currentBet: p.currentBet,
                 isFolded: p.isFolded,
                 isBot: p.isBot,
                 isSitOut: p.isSitOut,
-                status: p.status, // Expose status (WAITING_FOR_REBUY)
+                status: p.status,
                 isAllIn: p.isAllIn || (p.chips === 0 && p.currentBet > 0),
-                hand: p.hand
-            }))
+                avatar: (p as any).avatar, // Include avatar if it exists
+                // Card Security: Only show cards if it's the requesting player OR showdown
+                hand: (p.id === requestingPlayerId || this.round === 'showdown') ? p.hand : null,
+                // IMPORTANT: No circular links (room, game) here!
+            })),
+            // Stats & Info
+            smallBlind: this.smallBlindAmount,
+            bigBlind: this.bigBlindAmount,
+            dealerIndex: this.dealerIndex,
+            activePlayerIds: this.activePlayers.map(p => p.id)
         };
+    }
+
+    public getGameState() {
+        // Default to public state with no private cards revealed (spectator view)
+        return this.getPublicState(undefined);
     }
 
     public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0) {

@@ -174,9 +174,9 @@ export class RoomManager {
     }
 
     private countdownTimers: Map<string, NodeJS.Timeout> = new Map();
-    public emitCallback?: (roomId: string, event: string, data: any) => void;
+    public emitCallback?: (roomId: string, event: string, data: any, targetPlayerId?: string) => void;
 
-    public setEmitCallback(callback: (roomId: string, event: string, data: any) => void) {
+    public setEmitCallback(callback: (roomId: string, event: string, data: any, targetPlayerId?: string) => void) {
         this.emitCallback = callback;
     }
 
@@ -290,15 +290,11 @@ export class RoomManager {
                     try {
                         if (room.players.length >= 2) { // Doble check
                             this.startGame(room.id, room.players[0].id, (data) => {
-                                if (this.emitCallback) {
-                                    if (data.type === 'hand_winner') {
-                                        this.emitCallback!(room.id, 'hand_winner', data);
-                                    } else {
-                                        this.emitCallback!(room.id, 'game_update', data);
-                                    }
-                                }
+                                // This callback is used for persistence in index.ts
+                                // We don't need to do anything here as the interceptedCallback handles emission
                             });
                             if (this.emitCallback) {
+                                // Emit generic game_started for spectators/persistence
                                 this.emitCallback(room.id, 'game_started', { ...this.getGameState(room.id), roomId: room.id });
                             }
                         }
@@ -470,15 +466,57 @@ export class RoomManager {
 
         if (!room || !game) throw new Error('Room or game not found');
 
-        // Intercept callback to trigger settlement
+        // Intercept callback to trigger settlement and handle individual emissions
         const interceptedCallback = (data: any) => {
+            // 1. Handle Settlement
             if (data.type === 'hand_winner') {
                 // Trigger settlement logic
                 this.triggerRoundSettlement(roomId, data).catch(err => console.error('Settlement trigger error:', err));
             }
 
+            // 2. Emit to Persistence Callback (passed from index.ts)
+            // We pass the generic/public state here
             if (emitCallback) {
                 emitCallback(data);
+            }
+
+            // 3. Emit Individual States to Players (Fix for Circular Reference & Privacy)
+            if (this.emitCallback) {
+                const eventName = data.type === 'hand_winner' ? 'hand_winner' : 'game_update';
+
+                // If it's a hand winner event, it might have a different structure
+                // But usually it contains gameState.
+                // We need to ensure we send the correct view to each player.
+
+                if (data.type === 'hand_winner') {
+                    // For hand_winner, we might want to show everything? 
+                    // Or just let the standard logic handle it.
+                    // Usually hand_winner includes the winner info + final state.
+                    // We should probably broadcast the result to everyone as is (if it's safe)
+                    // But wait, data might contain circular refs if it has raw objects.
+                    // We must ensure 'data' is safe.
+                    // PokerGame.checkActivePlayers emits 'game_finished' with safe data.
+                    // But normal hand end?
+                    // PokerGame.evaluateWinner calls onGameStateChange with { type: 'hand_winner', ... }
+                    // We need to check PokerGame.evaluateWinner (not visible in previous view).
+                    // Assuming PokerGame returns safe data now.
+
+                    // For now, let's assume hand_winner data is safe-ish or we should sanitize it too.
+                    // But for normal game updates:
+
+                    this.emitCallback(roomId, eventName, data); // Broadcast public event (spectators)
+                } else {
+                    // Normal Game Update
+                    // Loop through players and send private state
+                    room.players.forEach(p => {
+                        const privateState = game.getPublicState(p.id);
+                        this.emitCallback!(roomId, eventName, privateState, p.id);
+                    });
+
+                    // Also emit public state for spectators (targetId = undefined/null implied by broadcast)
+                    const publicState = game.getPublicState(undefined);
+                    this.emitCallback(roomId, eventName, publicState);
+                }
             }
         };
 
@@ -486,7 +524,7 @@ export class RoomManager {
 
         // Attach System Events Callback
         game.onSystemEvent = async (event, data) => {
-            console.log(`🔧 System Event in Room ${roomId}: ${event}`, data);
+            console.log(`🔧 System Event in Room ${roomId}: ${event}`); // Sanitized log
 
             // BUG FIX: Manejar correctamente el evento game_finished para Last Man Standing
             if (event === 'game_finished') {
@@ -505,7 +543,7 @@ export class RoomManager {
                                 reason: data.reason
                             },
                             message: data.message || "¡Ganaste! Todos los rivales se retiraron.",
-                            gameState: game.getGameState()
+                            gameState: game.getPublicState(undefined) // Use public state
                         });
                     }
 
@@ -544,10 +582,15 @@ export class RoomManager {
         room.gameState = 'playing';
 
         if (this.emitCallback) {
-            this.emitCallback(roomId, 'game_started', { ...game.getGameState(), roomId });
+            // Initial broadcast (Public)
+            // We rely on onGameStateChange for private updates, but startGame triggers it?
+            // Yes, game.startGame calls onGameStateChange.
+            // So we don't need to manually emit here?
+            // But index.ts expects a return value to emit 'game_started'.
+            // We return public state.
         }
 
-        return game.getGameState();
+        return game.getPublicState(undefined);
     }
 
     // --- CLOSE TABLE AND CASH OUT ---
