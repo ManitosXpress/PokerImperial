@@ -1375,6 +1375,26 @@ export class PokerGame {
             });
         }
 
+        // 🎯 EVENTO EXPLÍCITO: GAME_ENDED - Para integración con Firestore
+        // Este evento señala al RoomManager que debe llamar a settleGameRound
+        if (this.onSystemEvent) {
+            const playersInvolved = this.players
+                .filter(p => p.uid) // Solo jugadores con UID registrado
+                .map(p => p.uid!);
+
+            this.onSystemEvent('GAME_ENDED', {
+                tableId: this.roomId,
+                gameId: `hand_${Date.now()}`,
+                potTotal: (finalAmount || 0) + rakeAmount,
+                rakeTaken: rakeAmount,
+                winnerUid: winner.uid,
+                playersInvolved: playersInvolved,
+                authPayload: payloadString,
+                signature: signature
+            });
+            console.log(`🎯 [GAME_ENDED] Event emitted - Pot: ${(finalAmount || 0) + rakeAmount}, Rake: ${rakeAmount}`);
+        }
+
         console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
 
         setTimeout(() => {
@@ -1418,6 +1438,19 @@ export class PokerGame {
 
         const timer = setTimeout(() => {
             console.log(`⏰ Rebuy timeout for ${player.name}. Kicking.`);
+
+            // 🎯 EVENTO EXPLÍCITO: PLAYER_EXIT - Para liberar moneyInPlay en Firestore
+            if (this.onSystemEvent) {
+                this.onSystemEvent('PLAYER_EXIT', {
+                    uid: player.uid,
+                    playerId: player.id,
+                    finalChips: player.chips,
+                    reason: 'TIMEOUT'
+                });
+                console.log(`🎯 [PLAYER_EXIT] Event emitted for ${player.name} - Chips: ${player.chips}`);
+            }
+
+            // Mantener evento legacy para compatibilidad
             if (this.onSystemEvent) {
                 this.onSystemEvent('kick_player', { playerId: player.id, reason: 'rebuy_timeout' });
             }

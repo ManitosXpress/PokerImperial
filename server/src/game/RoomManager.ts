@@ -567,6 +567,56 @@ export class RoomManager {
         game.onSystemEvent = async (event, data) => {
             console.log(`🔧 System Event in Room ${roomId}: ${event}`); // Sanitized log
 
+            // 🎯 NUEVO: GAME_ENDED - Trigger settlement with real pot data
+            if (event === 'GAME_ENDED') {
+                console.log(`🎯 [GAME_ENDED] Triggering settlement for ${roomId}`);
+
+                // Validate pot total before triggering
+                if (data.potTotal && data.potTotal > 0) {
+                    try {
+                        await this.triggerRoundSettlement(roomId, {
+                            authPayload: data.authPayload,
+                            securitySignature: data.signature,
+                            winner: { uid: data.winnerUid },
+                            gameState: {
+                                pot: data.potTotal,
+                                players: room.players.map(p => ({
+                                    uid: p.uid,
+                                    chips: p.chips
+                                }))
+                            }
+                        });
+                        console.log(`✅ Settlement triggered successfully for ${roomId} - Pot: ${data.potTotal}, Rake: ${data.rakeTaken}`);
+                    } catch (error) {
+                        console.error(`❌ Failed to trigger settlement for ${roomId}:`, error);
+                    }
+                } else {
+                    console.warn(`⚠️ Skipping settlement for ${roomId} - Pot is 0 (pre-flop fold)`);
+                }
+            }
+
+            // 🎯 NUEVO: PLAYER_EXIT - Trigger cashout to release moneyInPlay
+            if (event === 'PLAYER_EXIT') {
+                console.log(`🎯 [PLAYER_EXIT] Triggering cashout for player exit`);
+
+                const { uid, finalChips, reason } = data;
+                if (uid) {
+                    try {
+                        await this.triggerSecureCashout(
+                            uid,
+                            roomId,
+                            finalChips || 0,
+                            reason || 'EXIT'
+                        );
+                        console.log(`✅ Cashout triggered for ${uid} - Chips: ${finalChips}, Reason: ${reason}`);
+                    } catch (error) {
+                        console.error(`❌ Failed to trigger cashout for ${uid}:`, error);
+                    }
+                } else {
+                    console.warn(`⚠️ Cannot trigger cashout - Player UID missing in PLAYER_EXIT event`);
+                }
+            }
+
             // BUG FIX: Manejar correctamente el evento game_finished para Last Man Standing
             if (event === 'game_finished') {
                 if (data.reason === 'last_man_standing' || data.reason === 'walkover') {
