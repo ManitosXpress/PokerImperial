@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as crypto from "crypto";
 import { SettleRoundRequest } from "../types";
+import { logToLiveFeed, FeedEventPayload } from "../utils/liveFeed";
 
 // 🔐 Cargar variables de entorno desde .env SOLO EN DESARROLLO LOCAL
 // En producción, usar functions.config() o environment variables de Firebase
@@ -469,6 +470,20 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
                 handsPlayed: admin.firestore.FieldValue.increment(1),
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
+
+            // 6. LIVE FEED (BIG POT)
+            const bigBlind = Number(tableData?.bigBlind) || 20;
+            if (potTotal >= bigBlind * 50) {
+                const winnerName = winnerData?.name || 'Player';
+                const feedPayload: FeedEventPayload = {
+                    type: 'BIG_POT',
+                    title: `${winnerName} ganó un bote de ${potTotal}`,
+                    subtitle: `Mesa ${tableData?.name || 'Poker'} - Big Win`,
+                    amount: potTotal,
+                    clubId: (!isPublic && tableData?.clubId) ? tableData.clubId : undefined
+                };
+                await logToLiveFeed(feedPayload, transaction);
+            }
 
         });
 

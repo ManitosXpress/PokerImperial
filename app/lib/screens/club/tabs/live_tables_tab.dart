@@ -17,7 +17,9 @@ class LiveTablesTab extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('poker_tables')
           .where('clubId', isEqualTo: clubId)
-          .where('status', whereIn: ['active', 'waiting'])
+          .where('status', whereIn: ['waiting', 'active'])
+          .where('isPrivate', isEqualTo: false)
+          .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

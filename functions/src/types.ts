@@ -95,3 +95,21 @@ export interface ClubStats {
     topPlayerUid?: string; // Jugador con más victorias
     topPlayerWins?: number;
 }
+
+export enum FeedEventType {
+    DEPOSIT = 'DEPOSIT', // 🟢
+    WITHDRAWAL = 'WITHDRAWAL', // 🔴
+    GAME_BIG_WIN = 'GAME_BIG_WIN', // 💰 (Potes > 500 créditos)
+    SECURITY_ALERT = 'SECURITY_ALERT', // 🟠
+    NEW_USER = 'NEW_USER' // 🔵
+}
+
+export interface SystemFeedItem {
+    id?: string;
+    type: FeedEventType;
+    message: string;
+    amount?: number; // Opcional, para transacciones
+    metadata?: any; // { userId, tableId, etc }
+    timestamp: any; // ServerTimestamp
+    severity: 'low' | 'medium' | 'high';
+}

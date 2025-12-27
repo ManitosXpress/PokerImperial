@@ -56,6 +56,7 @@ class _GameScreenState extends State<GameScreen> {
   bool _isJoining = false; 
   Timer? _retryJoinTimer;
   bool _socketReady = false; // Track socket connection state
+  bool _isProcessingAction = false; // Prevent race conditions
 
   // Practice Mode Controller
   PracticeGameController? _practiceController;
@@ -327,11 +328,16 @@ class _GameScreenState extends State<GameScreen> {
     socketService.socket.on('game_started', (data) {
       print('🎮 GAME_STARTED received!');
       if (mounted) {
-        setState(() {
-          roomState = null;
-          gameState = data;
-        });
-        _checkTurnTimer();
+        if (data != null && data is Map<String, dynamic>) {
+           setState(() {
+             gameState = data;
+             // Only clear roomState if we have valid game state
+             roomState = null;
+           });
+           _checkTurnTimer();
+        } else {
+           print('⚠️ Received null or invalid data for game_started');
+        }
       }
     });
 
@@ -789,9 +795,9 @@ class _GameScreenState extends State<GameScreen> {
 
   void _handleTimeout() {
     _stopTurnTimer();
-    if (gameState == null) return;
+    if (gameState == null || _isProcessingAction) return;
     
-    final int currentBet = gameState!['currentBet'] ?? 0;
+    final int currentBet = gameState?['currentBet'] ?? 0;
     final socketService = Provider.of<SocketService>(context, listen: false);
     final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
     
@@ -878,13 +884,9 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ... (Keep existing build method exactly as is)
-    // For brevity, I will assume the tool handles replacement correctly if I provide the whole file content.
-    // However, the file is long. I will copy the build method content.
-    // NOTE: To avoid risk of truncation or error in the build method copy-paste,
-    // I will return the full file content including the build method from previous read.
-    // Please assume the build method is unchanged from the read file, just wrapped in the new class structure.
-    
+    // Capture gameState safely at the start of build
+    final state = gameState;
+
     final socketService = Provider.of<SocketService>(context);
     final languageProvider = Provider.of<LanguageProvider>(context);
     final clubProvider = Provider.of<ClubProvider>(context);
@@ -894,19 +896,19 @@ class _GameScreenState extends State<GameScreen> {
     final userRole = clubProvider.currentUserRole ?? 'player';
     
     bool isTurn = false;
-    if (gameState != null && gameState!['currentTurn'] != null) {
-      isTurn = gameState!['currentTurn'] == myId;
+    if (state != null && state['currentTurn'] != null) {
+      isTurn = state['currentTurn'] == myId;
     }
 
     // Dynamic Spectator Detection
     bool isPlayerInGame = false;
-    if (gameState != null && gameState!['players'] != null) {
-      final players = gameState!['players'] as List;
+    if (state != null && state['players'] != null) {
+      final players = state['players'] as List;
       isPlayerInGame = players.any((p) => p['id'] == myId);
     }
     
     // Effective Spectator Mode: Explicitly set OR implicitly detected (not in players list)
-    final bool effectiveSpectatorMode = widget.isSpectatorMode || (gameState != null && !isPlayerInGame);
+    final bool effectiveSpectatorMode = widget.isSpectatorMode || (state != null && !isPlayerInGame);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -960,7 +962,7 @@ class _GameScreenState extends State<GameScreen> {
               ],
             ),
           ),
-          child: gameState == null
+          child: state == null
               ? Builder(
                   builder: (context) {
                     // Si es modo torneo, saltamos la sala de espera y mostramos un loader
@@ -1352,8 +1354,8 @@ class _GameScreenState extends State<GameScreen> {
                                     ),
                                   ),
                                   // Community Cards
-                                  if (gameState!['communityCards'] != null &&
-                                      (gameState!['communityCards'] as List)
+                                  if (state['communityCards'] != null &&
+                                      (state['communityCards'] as List)
                                           .isNotEmpty)
                                     Center(
                                       child: Container(
@@ -1371,7 +1373,7 @@ class _GameScreenState extends State<GameScreen> {
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
                                           children:
-                                              (gameState!['communityCards']
+                                              (state['communityCards']
                                                       as List)
                                                   .map((card) {
                                             return Padding(
@@ -1430,7 +1432,7 @@ class _GameScreenState extends State<GameScreen> {
                                                     height: 16),
                                                 const SizedBox(width: 4),
                                                 Text(
-                                                  '${gameState!['pot'] ?? 0}',
+                                                  '${state['pot'] ?? 0}',
                                                   style: const TextStyle(
                                                     color: Colors.white,
                                                     fontSize: 16,
@@ -1453,12 +1455,12 @@ class _GameScreenState extends State<GameScreen> {
                     ),
 
                     // Players
-                    if (gameState!['players'] != null)
-                      ...((gameState!['players'] as List)
+                    if (state['players'] != null)
+                      ...((state['players'] as List)
                           .asMap()
                           .entries
                           .map((entry) {
-                        final playersList = gameState!['players'] as List;
+                        final playersList = state['players'] as List;
                         final myIndex =
                             playersList.indexWhere((p) => p['id'] == myId);
                         // If I am not in the game (spectator), offset is 0 (neutral view)
@@ -1499,15 +1501,15 @@ class _GameScreenState extends State<GameScreen> {
                         final y = centerY + (rY * math.sin(angle)) - 45;
 
                         bool isActive =
-                            player['id'] == gameState!['currentTurn'];
+                            player['id'] == state['currentTurn'];
                         bool isFolded = player['isFolded'] ?? false;
                         bool isMe = player['id'] == myId;
-                        bool isDealer = player['id'] == gameState!['dealerId'];
+                        bool isDealer = player['id'] == state['dealerId'];
 
                         List<String>? cards;
                         final bool isShowdown =
-                            (gameState!['status'] == 'finished' ||
-                                gameState!['stage'] == 'showdown');
+                            (state['status'] == 'finished' ||
+                                state['stage'] == 'showdown');
 
                         if (isMe && !isFolded) {
                           final handList = player['hand'] as List?;
@@ -1521,7 +1523,7 @@ class _GameScreenState extends State<GameScreen> {
                         bool isWinner = false;
                         if (isShowdown && !isFolded) {
                           handRank = player['handRank'] as String?;
-                          final winners = gameState?['winners'];
+                          final winners = state['winners'];
                           if (winners != null && winners['winners'] != null) {
                             final winnersList = winners['winners'] as List;
                             isWinner = winnersList
@@ -1602,9 +1604,9 @@ class _GameScreenState extends State<GameScreen> {
                     ActionControls(
                       isTurn: isTurn,
                       isSpectatorMode: effectiveSpectatorMode,
-                      currentBet: gameState?['currentBet'] ?? 0,
+                      currentBet: state['currentBet'] ?? 0,
                       myCurrentBet: () {
-                        final players = gameState?['players'] as List?;
+                        final players = state['players'] as List?;
                         if (players == null) return 0;
                         final idx = players.indexWhere((p) => p['id'] == myId);
                         return idx >= 0 ? (players[idx]['currentBet'] ?? 0) : 0;

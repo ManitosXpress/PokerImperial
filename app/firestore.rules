@@ -79,7 +79,13 @@ service cloud.firestore {
 
     // Poker Tables
     match /poker_tables/{tableId} {
-      allow read: if request.auth != null;
+      allow list: if request.auth != null 
+                  && resource.data.status in ['waiting', 'active']
+                  && resource.data.isPrivate == false;
+                  
+      allow get: if request.auth != null 
+                 && (resource.data.isPrivate == false || resource.data.players[request.auth.uid] != null);
+
       // Allow users to update 'players' array (join/leave) and 'readyPlayers' status
       allow update: if request.auth != null && (
         // Allow joining/leaving (modifying players array)

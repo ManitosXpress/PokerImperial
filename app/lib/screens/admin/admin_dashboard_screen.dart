@@ -6,6 +6,7 @@ import 'user_management_view.dart';
 import 'economy_view.dart';
 import 'finance_history_view.dart';
 import 'tournament_cms_view.dart';
+import '../../widgets/live_feed/live_activity_feed.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -65,7 +66,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               EconomyView(),
               FinanceHistoryView(),
               TournamentCMSView(),
-              Center(child: Text('Live Feed (Coming Soon)', style: TextStyle(color: Colors.white))),
+              LiveActivityFeed(),
             ],
           ),
         ),

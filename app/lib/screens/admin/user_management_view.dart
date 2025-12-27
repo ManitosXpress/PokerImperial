@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../widgets/imperial_currency.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../widgets/poker_loading_indicator.dart';
+import '../../widgets/user_detail_modal.dart';
 
 class UserManagementView extends StatefulWidget {
   const UserManagementView({super.key});
@@ -153,6 +154,13 @@ class _UserManagementViewState extends State<UserManagementView> {
       color: Colors.white10,
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
+        onTap: () {
+          showDialog(
+            context: context,
+            barrierColor: Colors.black.withOpacity(0.8),
+            builder: (context) => UserDetailModal(uid: uid, userData: data),
+          );
+        },
         leading: CircleAvatar(
           backgroundColor: roleColor.withOpacity(0.2),
           child: Icon(Icons.person, color: roleColor),

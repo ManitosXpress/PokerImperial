@@ -54,18 +54,19 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
 
       final data = snapshot.data() as Map<String, dynamic>;
       final status = data['status'] ?? 'REGISTERING';
-      final activeTableId = data['activeTableId'] as String?;
+      
+      // Check if tournament is active (using 'active' as set by backend, or 'RUNNING' for compatibility)
+      final isRunning = status == 'active' || status == 'RUNNING' || status == 'started';
 
-      // Check if tournament is running and has an active table
-      final isRunning = status == 'RUNNING' || status == 'active' || status == 'started';
-
-      if (isRunning && activeTableId != null && !_hasRedirected) {
-        // Check if the current user is a registered participant
-        final registeredPlayerIds = List<String>.from(data['registeredPlayerIds'] ?? []);
+      if (isRunning && !_hasRedirected) {
+        // Deterministic Redirection using playerTableMap
+        final playerTableMap = data['playerTableMap'] as Map<String, dynamic>?;
         
-        if (registeredPlayerIds.contains(currentUserId)) {
+        if (playerTableMap != null && playerTableMap.containsKey(currentUserId)) {
+          final myTableId = playerTableMap[currentUserId] as String;
+          
           _hasRedirected = true;
-          print('🚀 Torneo iniciado. Redirigiendo automáticamente a mesa: $activeTableId');
+          print('🚀 Torneo iniciado. Redirigiendo automáticamente a mi mesa asignada: $myTableId');
           
           // Navigate to the game screen
           final isCreator = data['createdBy'] == currentUserId;
@@ -74,7 +75,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
             context,
             MaterialPageRoute(
               builder: (_) => GameScreen(
-                roomId: activeTableId,
+                roomId: myTableId,
                 isTournamentMode: true,
                 autoStart: isCreator, // Host auto-starts the game
               ),
