@@ -23,6 +23,11 @@ import '../widgets/game/action_controls.dart';
 import '../widgets/game/rebuy_dialog.dart'; // Import RebuyDialog
 import '../widgets/game/wallet_badge.dart'; // Import WalletBadge
 
+// REFACTORED: New null-safe game components
+import '../widgets/game_components/community_cards_widget.dart';
+import '../widgets/game_components/pot_display_widget.dart';
+import '../widgets/game_components/poker_table_layout.dart';
+
 class GameScreen extends StatefulWidget {
   final String roomId;
   final Map<String, dynamic>? initialGameState;
@@ -1353,98 +1358,16 @@ class _GameScreenState extends State<GameScreen> {
                                       ),
                                     ),
                                   ),
-                                  // Community Cards
-                                  if (state['communityCards'] != null &&
-                                      (state['communityCards'] as List)
-                                          .isNotEmpty)
-                                    Center(
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 20, vertical: 10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.2),
-                                          borderRadius:
-                                              BorderRadius.circular(50),
-                                          border: Border.all(
-                                              color: Colors.white10, width: 1),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children:
-                                              (state['communityCards']
-                                                      as List)
-                                                  .map((card) {
-                                            return Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 4.0),
-                                              child: PokerCard(
-                                                cardCode: card.toString(),
-                                                width: ResponsiveUtils.scale(
-                                                    context,
-                                                    isMobile
-                                                        ? 50
-                                                        : 45), // Larger cards on mobile
-                                              ),
-                                            );
-                                          }).toList(),
-                                        ),
-                                      ),
-                                    ),
+                                  // REFACTORED: Community Cards (null-safe)
+                                  CommunityCardsWidget(
+                                    communityCards: state['communityCards'] as List<dynamic>?,
+                                    isMobile: isMobile,
+                                  ),
 
-                                  // Pot
-                                  Positioned(
-                                    top: tableHeight * 0.25,
-                                    left: 0,
-                                    right: 0,
-                                    child: Center(
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 16, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.6),
-                                          borderRadius:
-                                              BorderRadius.circular(20),
-                                          border: Border.all(
-                                              color: const Color(0xFFFFD700)
-                                                  .withOpacity(0.5)),
-                                        ),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Text(
-                                              'POT',
-                                              style: TextStyle(
-                                                color: Color(0xFFFFD700),
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                                letterSpacing: 1.5,
-                                              ),
-                                            ),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Image.asset(
-                                                    'assets/images/coin.png',
-                                                    width: 16,
-                                                    height: 16),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  '${state['pot'] ?? 0}',
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
+                                  // REFACTORED: Pot Display (null-safe)
+                                  PotDisplayWidget(
+                                    pot: state['pot'] as int?,
+                                    tableHeight: tableHeight,
                                   ),
                                 ],
                               ),

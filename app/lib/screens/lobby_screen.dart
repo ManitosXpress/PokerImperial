@@ -198,7 +198,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           // Admin Button (Only visible if admin)
                           Consumer<ClubProvider>(
                             builder: (context, clubProvider, _) {
-                              if (clubProvider.currentUserRole == 'admin') {
+                              if (clubProvider.currentUserRole?.toLowerCase() == 'admin') {
                                 return IconButton(
                                   onPressed: () {
                                     Navigator.push(
@@ -413,7 +413,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                   // Admin Button
                                   Consumer<ClubProvider>(
                                     builder: (context, clubProvider, _) {
-                                      if (clubProvider.currentUserRole == 'admin') {
+                                      if (clubProvider.currentUserRole?.toLowerCase() == 'admin') {
                                         return Padding(
                                           padding: const EdgeInsets.only(left: 20),
                                           child: _buildFeatureButton(

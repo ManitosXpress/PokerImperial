@@ -253,12 +253,19 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
       if (mounted) {
         print('Game Started by Server! Navigating...');
         _cancelCountdown();
+        
+        // Determine if user is spectator based on role
+        final clubProvider = Provider.of<ClubProvider>(context, listen: false);
+        final userRole = clubProvider.currentUserRole ?? 'player';
+        final bool isSpectator = userRole != 'player'; // admin, club, seller are spectators
+        
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => GameScreen(
               roomId: widget.tableId,
               initialGameState: data,
+              isSpectatorMode: isSpectator, // Pass spectator flag
             ),
           ),
         );
@@ -354,10 +361,18 @@ class _TableLobbyScreenState extends State<TableLobbyScreen> {
               // Check status - if active, navigate to game
               if (tableData['status'] == 'active') {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
+                  // Determine if user is spectator based on role
+                  final clubProvider = Provider.of<ClubProvider>(context, listen: false);
+                  final userRole = clubProvider.currentUserRole ?? 'player';
+                  final bool isSpectator = userRole != 'player';
+                  
                   Navigator.pushReplacement(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => GameScreen(roomId: widget.tableId),
+                      builder: (context) => GameScreen(
+                        roomId: widget.tableId,
+                        isSpectatorMode: isSpectator,
+                      ),
                     ),
                   );
                 });

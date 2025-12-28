@@ -89,22 +89,29 @@ service cloud.firestore {
 
     }
 
-    // Poker Tables - Public read for all authenticated users, including admins as spectators
+    // Helper function to check if user is club owner
+    function isClubOwner() {
+      let currentUser = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return currentUser.role == 'club';
+    }
+
+    // Poker Tables - Global visibility, strict management
     match /poker_tables/{tableId} {
-      // All authenticated users can read tables (for listing and spectating)
-      // Admins can read ALL tables regardless of who created them
+      // 1. VISIBILITY: Allow ANY authenticated user to see the table list
       allow read: if request.auth != null;
-      
-      // Allow users to update 'players' array (join/leave) and 'readyPlayers' status
-      allow update: if request.auth != null && (
-        // Allow joining/leaving (modifying players array)
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players']) ||
-        // Allow toggling ready status
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readyPlayers']) ||
-        // Allow both
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'readyPlayers'])
-      );
-      allow create: if false; // Only via Cloud Functions
+
+      // 2. MANAGEMENT: Only Admin/ClubOwner can create/update table settings
+      allow create: if request.auth != null && (isAdmin() || isClubOwner());
+      allow update: if request.auth != null && (isAdmin() || isClubOwner());
+
+      // 3. PLAYERS SUBCOLLECTION (Sitting Logic)
+      match /players/{seatId} {
+        allow read: if request.auth != null;
+        // CRITICAL: Only users with role 'player' can write their own seat
+        // Admins/others CANNOT occupy a seat
+        allow write: if request.auth.uid == seatId 
+                     && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'player';
+      }
     }
     
     // Live Feed - Public read for all authenticated users
@@ -122,15 +129,15 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions
     }
     
-    // System Stats - Super Admin Dashboard metrics
-    match /system_stats/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
+    // System Stats - Super Admin Dashboard metrics (Critical for Dashboard)
+    match /system_stats/{statId} {
+      allow read: if isAdmin();
       allow write: if false; // Only Cloud Functions write here
     }
     
     // Stats Daily - For admin dashboard graphs
     match /stats_daily/{docId} {
-      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow read: if isAdmin();
       allow write: if false; // Only Cloud Functions write here
     }
     
