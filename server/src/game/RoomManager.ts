@@ -554,9 +554,13 @@ export class RoomManager {
                         this.emitCallback!(roomId, eventName, privateState, p.id);
                     });
 
-                    // Also emit public state for spectators (targetId = undefined/null implied by broadcast)
-                    const publicState = game.getPublicState(undefined);
-                    this.emitCallback(roomId, eventName, publicState);
+                    // CRITICAL FIX: DO NOT broadcast public state to all
+                    // This was overwriting the private states sent to each player
+                    // causing cards to flash and disappear
+                    // Spectators receive updates via other events (game_started, player_joined)
+
+                    // const publicState = game.getPublicState(undefined);
+                    // this.emitCallback(roomId, eventName, publicState);
                 }
             }
         };
