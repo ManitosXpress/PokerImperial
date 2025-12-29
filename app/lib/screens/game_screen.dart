@@ -27,6 +27,7 @@ import '../widgets/game/wallet_badge.dart'; // Import WalletBadge
 import '../widgets/game_components/community_cards_widget.dart';
 import '../widgets/game_components/pot_display_widget.dart';
 import '../widgets/game_components/poker_table_layout.dart';
+import '../widgets/game_components/players_seat_grid.dart';
 
 class GameScreen extends StatefulWidget {
   final String roomId;
@@ -889,8 +890,28 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Capture gameState safely at the start of build
-    final state = gameState;
+    // --- LAYOUT CALCULATIONS (LIFTED) ---
+    double screenW = ResponsiveUtils.screenWidth(context);
+    double screenH = ResponsiveUtils.screenHeight(context);
+    bool isMobile = screenW < 600;
+
+    double tableWidth = isMobile ? screenW * 0.65 : screenW * 0.9;
+    double tableHeight = isMobile ? screenH * 0.60 : screenH * 0.55;
+
+    if (tableWidth / tableHeight > 2.0) {
+      tableWidth = tableHeight * 2.0;
+    }
+    // -------------------------------------
+    // GUARDIAN PATTERN: Ensure safe defaults before UI building
+    final safeGameState = gameState ?? {};
+    final playersList = safeGameState['players'] as List? ?? [];
+    final communityCards = safeGameState['communityCards'] as List? ?? [];
+    final pot = safeGameState['pot'] as int? ?? 0;
+    final currentTurn = safeGameState['currentTurn'];
+    final dealerId = safeGameState['dealerId'];
+    final stage = safeGameState['stage']?.toString() ?? 'waiting';
+    final status = safeGameState['status']?.toString() ?? 'waiting';
+    final winners = safeGameState['winners'] as Map<String, dynamic>?;
 
     final socketService = Provider.of<SocketService>(context);
     final languageProvider = Provider.of<LanguageProvider>(context);
@@ -901,19 +922,18 @@ class _GameScreenState extends State<GameScreen> {
     final userRole = clubProvider.currentUserRole ?? 'player';
     
     bool isTurn = false;
-    if (state != null && state['currentTurn'] != null) {
-      isTurn = state['currentTurn'] == myId;
+    if (currentTurn != null) {
+      isTurn = currentTurn == myId;
     }
 
     // Dynamic Spectator Detection
     bool isPlayerInGame = false;
-    if (state != null && state['players'] != null) {
-      final players = state['players'] as List;
-      isPlayerInGame = players.any((p) => p['id'] == myId);
+    if (playersList.isNotEmpty) {
+      isPlayerInGame = playersList.any((p) => p?['id'] == myId);
     }
     
     // Effective Spectator Mode: Explicitly set OR implicitly detected (not in players list)
-    final bool effectiveSpectatorMode = widget.isSpectatorMode || (state != null && !isPlayerInGame);
+    final bool effectiveSpectatorMode = widget.isSpectatorMode || (gameState != null && !isPlayerInGame);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -967,7 +987,7 @@ class _GameScreenState extends State<GameScreen> {
               ],
             ),
           ),
-          child: state == null
+          child: gameState == null
               ? Builder(
                   builder: (context) {
                     // Si es modo torneo, saltamos la sala de espera y mostramos un loader
@@ -1273,247 +1293,95 @@ class _GameScreenState extends State<GameScreen> {
                     );
                   },
                 )
-              : Stack(
+                            : Stack(
                   children: [
                     // Table
                     Positioned(
-                      top: ResponsiveUtils.screenHeight(context) * (ResponsiveUtils.screenWidth(context) < 600 ? 0.35 : 0.4) -
-                          ((ResponsiveUtils.screenWidth(context) < 600 ? ResponsiveUtils.screenHeight(context) * 0.45 : ResponsiveUtils.screenHeight(context) * 0.55) / 2),
+                      top: screenH * (isMobile ? 0.35 : 0.4) -
+                          ((isMobile ? screenH * 0.45 : screenH * 0.55) / 2),
                       left: 0,
                       right: 0,
                       child: Center(
-                        child: Builder(
-                          builder: (context) {
-                            double screenW =
-                                ResponsiveUtils.screenWidth(context);
-                            double screenH =
-                                ResponsiveUtils.screenHeight(context);
-                            bool isMobile = screenW < 600;
-
-                            double tableWidth =
-                                isMobile ? screenW * 0.65 : screenW * 0.9;
-                            double tableHeight =
-                                isMobile ? screenH * 0.60 : screenH * 0.55;
-
-                            if (tableWidth / tableHeight > 2.0) {
-                              tableWidth = tableHeight * 2.0;
-                            }
-
-                            return Container(
-                              width: tableWidth,
-                              height: tableHeight,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(150),
-                                border: Border.all(
-                                    color: const Color(0xFF3E2723),
-                                    width: isMobile
-                                        ? 15
-                                        : 25), // Thinner rail on mobile
-                                gradient: const RadialGradient(
-                                  colors: [
-                                    Color(
-                                        0xFFFFF8E1), // Light center (Spotlight)
-                                    Color(0xFF5D4037), // Darker edge (Vignette)
-                                  ],
-                                  stops: [0.2, 1.0],
-                                  center: Alignment.center,
-                                  radius: 0.8,
+                        child: Container(
+                          width: tableWidth,
+                          height: tableHeight,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(150),
+                            border: Border.all(
+                                color: const Color(0xFF3E2723),
+                                width: isMobile ? 15 : 25), // Thinner rail on mobile
+                            gradient: const RadialGradient(
+                              colors: [
+                                Color(0xFFFFF8E1), // Light center (Spotlight)
+                                Color(0xFF5D4037), // Darker edge (Vignette)
+                              ],
+                              stops: [0.2, 1.0],
+                              center: Alignment.center,
+                              radius: 0.8,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.9),
+                                blurRadius: 40,
+                                spreadRadius: 10,
+                              ),
+                            ],
+                          ),
+                          child: Stack(
+                            children: [
+                              // Racetrack / Thin Line
+                              Positioned.fill(
+                                child: Container(
+                                  margin: EdgeInsets.all(isMobile ? 10 : 15),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(130),
+                                    border: Border.all(
+                                        color: const Color(0xFF1C1C1C),
+                                        width: 2), // Black Inner Line
+                                  ),
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.9),
-                                    blurRadius: 40,
-                                    spreadRadius: 10,
-                                  ),
-                                ],
                               ),
-                              child: Stack(
-                                children: [
-                                  // Racetrack / Thin Line
-                                  Positioned.fill(
-                                    child: Container(
-                                      margin:
-                                          EdgeInsets.all(isMobile ? 10 : 15),
-                                      decoration: BoxDecoration(
-                                        borderRadius:
-                                            BorderRadius.circular(130),
-                                        border: Border.all(
-                                            color: const Color(0xFF1C1C1C),
-                                            width: 2), // Black Inner Line
-                                      ),
-                                    ),
+                              // Table Logo (Background)
+                              Center(
+                                child: Opacity(
+                                  opacity: 0.5, // Increased opacity as requested
+                                  child: Image.asset(
+                                    'assets/images/table_logo_imperial.png',
+                                    width: tableWidth * (isMobile ? 0.5 : 0.4), // Larger logo on mobile
+                                    fit: BoxFit.contain,
                                   ),
-                                  // Table Logo (Background)
-                                  Center(
-                                    child: Opacity(
-                                      opacity:
-                                          0.5, // Increased opacity as requested
-                                      child: Image.asset(
-                                        'assets/images/table_logo_imperial.png',
-                                        width: tableWidth *
-                                            (isMobile
-                                                ? 0.5
-                                                : 0.4), // Larger logo on mobile
-                                        fit: BoxFit.contain,
-                                      ),
-                                    ),
-                                  ),
-                                  // REFACTORED: Community Cards (null-safe)
-                                  CommunityCardsWidget(
-                                    communityCards: state['communityCards'] as List<dynamic>?,
-                                    isMobile: isMobile,
-                                  ),
+                                ),
+                              ),
+                              // REFACTORED: Community Cards (null-safe)
+                              CommunityCardsWidget(
+                                communityCards: communityCards,
+                                isMobile: isMobile,
+                              ),
 
-                                  // REFACTORED: Pot Display (null-safe)
-                                  PotDisplayWidget(
-                                    pot: state['pot'] as int?,
-                                    tableHeight: tableHeight,
-                                  ),
-                                ],
+                              // REFACTORED: Pot Display (null-safe)
+                              PotDisplayWidget(
+                                pot: pot,
+                                tableHeight: tableHeight,
                               ),
-                            );
-                          },
+                            ],
+                          ),
                         ),
                       ),
                     ),
 
-                    // Players
-                    if (state['players'] != null)
-                      ...((state['players'] as List)
-                          .asMap()
-                          .entries
-                          .map((entry) {
-                        final playersList = state['players'] as List;
-                        final myIndex =
-                            playersList.indexWhere((p) => p['id'] == myId);
-                        // If I am not in the game (spectator), offset is 0 (neutral view)
-                        final int offset = myIndex != -1 ? myIndex : 0;
-
-                        int index = entry.key;
-                        Map<String, dynamic> player = entry.value;
-                        int totalPlayers = playersList.length;
-                        int visualIndex =
-                            (index - offset + totalPlayers) % totalPlayers;
-
-                        double screenW = ResponsiveUtils.screenWidth(context);
-                        double screenH = ResponsiveUtils.screenHeight(context);
-                        bool isMobile = screenW < 600;
-
-                        double tableH =
-                            isMobile ? screenH * 0.60 : screenH * 0.55;
-                        double tableW =
-                            isMobile ? screenW * 0.65 : screenW * 0.9;
-                        if (tableW / tableH > 2.0) {
-                          tableW = tableH * 2.0;
-                        }
-
-                        final double centerX = screenW / 2;
-                        final double centerY = screenH * (isMobile ? 0.38 : 0.4);
-
-                        double angleStep = 2 * math.pi / totalPlayers;
-                        double startAngle = math.pi / 2;
-                        double angle = startAngle + (visualIndex * angleStep);
-
-                        final rX = tableW / 2 +
-                            ResponsiveUtils.scale(
-                                context, isMobile ? 15 : 45); // Tighter radius
-                        final rY = tableH / 2 +
-                            ResponsiveUtils.scale(context, isMobile ? 15 : 25);
-
-                        final x = centerX + (rX * math.cos(angle)) - 40;
-                        final y = centerY + (rY * math.sin(angle)) - 45;
-
-                        bool isActive =
-                            player['id'] == state['currentTurn'];
-                        bool isFolded = player['isFolded'] ?? false;
-                        bool isMe = player['id'] == myId;
-                        bool isDealer = player['id'] == state['dealerId'];
-
-                        List<String>? cards;
-                        final bool isShowdown =
-                            (state['status'] == 'finished' ||
-                                state['stage'] == 'showdown');
-
-                        if (isMe && !isFolded) {
-                          final handList = player['hand'] as List?;
-                          cards = handList?.map((e) => e.toString()).toList();
-                        } else if (!isFolded && isShowdown) {
-                          final handList = player['hand'] as List?;
-                          cards = handList?.map((e) => e.toString()).toList();
-                        }
-
-                        String? handRank;
-                        bool isWinner = false;
-                        if (isShowdown && !isFolded) {
-                          handRank = player['handRank'] as String?;
-                          final winners = state['winners'];
-                          if (winners != null && winners['winners'] != null) {
-                            final winnersList = winners['winners'] as List;
-                            isWinner = winnersList
-                                .any((w) => w['playerId'] == player['id']);
-                          }
-                        }
-
-                        final betX =
-                            centerX + ((rX - (isMobile ? 35 : 90)) * math.cos(angle)) - 10;
-                        final betY =
-                            centerY + ((rY - (isMobile ? 35 : 90)) * math.sin(angle)) - 20;
-
-                        double finalY = y;
-                        if (isMe) {
-                          finalY = ResponsiveUtils.screenHeight(context) -
-                              ResponsiveUtils.scaleHeight(
-                                  context, isMobile ? 240 : 280);
-                        }
-
-                        return Stack(
-                          children: [
-                            Positioned(
-                              left: isMe
-                                  ? (ResponsiveUtils.screenWidth(context) / 2) -
-                                      40
-                                  : x,
-                              top: finalY,
-                              child: PlayerSeat(
-                                name: player['name'],
-                                chips: (player['chips'] is int) ? player['chips'] : int.tryParse(player['chips'].toString()) ?? 0,
-                                isActive: isActive,
-                                isMe: isMe,
-                                isDealer: isDealer,
-                                isFolded: isFolded,
-                                cards: cards,
-                                handRank: handRank,
-                                isWinner: isWinner,
-                              ),
-                            ),
-                            if (player['currentBet'] > 0)
-                              Positioned(
-                                left: betX,
-                                top: betY,
-                                child: Column(
-                                  children: [
-                                    ChipStack(amount: player['currentBet']),
-                                    const SizedBox(height: 2),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 4, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black54,
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        '${player['currentBet']}',
-                                        style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: isMobile ? 12 : 10),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        );
-                      }).toList()),
+                    // REFACTORED: Players Seat Grid (null-safe)
+                    PlayersSeatGrid(
+                      players: playersList,
+                      myId: myId,
+                      currentTurn: currentTurn,
+                      dealerId: dealerId,
+                      winners: winners,
+                      tableWidth: tableWidth,
+                      tableHeight: tableHeight,
+                      screenWidth: screenW,
+                      screenHeight: screenH,
+                      isMobile: isMobile,
+                    ),
 
                     // Top Right Credits - Premium Wallet Badge
                     const Positioned(
@@ -1527,12 +1395,11 @@ class _GameScreenState extends State<GameScreen> {
                     ActionControls(
                       isTurn: isTurn,
                       isSpectatorMode: effectiveSpectatorMode,
-                      currentBet: state['currentBet'] ?? 0,
+                      currentBet: safeGameState['currentBet'] ?? 0,
                       myCurrentBet: () {
-                        final players = state['players'] as List?;
-                        if (players == null) return 0;
-                        final idx = players.indexWhere((p) => p['id'] == myId);
-                        return idx >= 0 ? (players[idx]['currentBet'] ?? 0) : 0;
+                        if (playersList.isEmpty) return 0;
+                        final idx = playersList.indexWhere((p) => p?['id'] == myId);
+                        return idx >= 0 ? (playersList[idx]?['currentBet'] ?? 0) : 0;
                       }(),
                       secondsRemaining: _secondsRemaining,
                       onAction: _sendAction,
@@ -1555,8 +1422,8 @@ class _GameScreenState extends State<GameScreen> {
                       ),
                   ],
                 ),
+          ),
         ),
-      ),
-    );
+      );
   }
 }
