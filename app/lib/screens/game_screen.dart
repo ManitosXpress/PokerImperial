@@ -1369,6 +1369,27 @@ class _GameScreenState extends State<GameScreen> {
                       ),
                     ),
 
+                    // DEBUG: Log player data before rendering
+                    Builder(
+                      builder: (context) {
+                        print('🎴 DEBUG PlayersSeatGrid Data:');
+                        print('   myId: $myId');
+                        print('   playersList length: ${playersList.length}');
+                        for (var i = 0; i < playersList.length; i++) {
+                          final p = playersList[i];
+                          print('   Player $i: {');
+                          print('      id: ${p['id']}');
+                          print('      name: ${p['name']}');
+                          print('      chips: ${p['chips']}');
+                          print('      hand: ${p['hand']}');
+                          print('      currentBet: ${p['currentBet']}');
+                          print('      isFolded: ${p['isFolded']}');
+                          print('   }');
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+
                     // REFACTORED: Players Seat Grid (null-safe)
                     PlayersSeatGrid(
                       players: playersList,

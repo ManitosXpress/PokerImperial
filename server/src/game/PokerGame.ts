@@ -317,33 +317,32 @@ export class PokerGame {
 
     public getPublicState(requestingPlayerId?: string): any {
         return {
-            tableId: this.roomId, // ID string only
+            tableId: this.roomId,
             pot: this.pot,
             communityCards: this.communityCards,
-            stage: this.round.toUpperCase(), // PREFLOP, FLOP, etc.
+            stage: this.round.toUpperCase(),
             dealerIndex: this.dealerIndex,
             currentTurnIndex: this.currentTurnIndex,
-            // SAFE PLAYER MAPPING
+
+            // CRITICAL FIX: Map players with BOTH field names for frontend compatibility
             players: this.players.map(p => ({
                 id: p.id,
-                uid: p.uid, // Required for RoomManager settlement
+                uid: p.uid,
                 name: p.name,
                 chips: p.chips,
-                bet: p.currentBet, // Mapping currentBet to 'bet' as requested
+                bet: p.currentBet, // Original field name
+                currentBet: p.currentBet, // CRITICAL: Flutter expects this name
                 isFolded: p.isFolded,
                 isAllIn: p.isAllIn || (p.chips === 0 && p.currentBet > 0),
-                seatIndex: (p as any).seatIndex, // Ensure seatIndex is passed if available
+                seatIndex: (p as any).seatIndex,
                 avatar: (p as any).avatar,
-                // SECURITY: Only show cards if it's the requesting player OR showdown
-                cards: (requestingPlayerId === p.id || this.round === 'showdown') ? p.hand : null
+                // CRITICAL: Include both 'cards' and 'hand' for compatibility
+                // Only show if requesting player OR showdown
+                cards: (requestingPlayerId === p.id || this.round === 'showdown') ? p.hand : null,
+                hand: (requestingPlayerId === p.id || this.round === 'showdown') ? p.hand : null
             })),
-            // EXCLUDE: this.room, this.tournament, p.socket
 
-            // Keeping these for backward compatibility if needed, but the user requested specific fields above.
-            // We can add them as extra fields if they don't cause issues, or stick strictly to the request.
-            // The user said "ADD THIS METHOD", implying replacement or addition.
-            // I will include the critical ones from the previous implementation that might be needed by the frontend
-            // just in case, but prioritize the requested structure.
+            // Additional fields for compatibility
             currentTurn: this.currentTurnIndex === -1 ? undefined : this.activePlayers[this.currentTurnIndex]?.id,
             dealerId: this.players[this.dealerIndex]?.id,
             currentBet: this.currentBet,

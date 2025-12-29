@@ -34,113 +34,116 @@ class PlayersSeatGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     if (players == null || players!.isEmpty) return const SizedBox.shrink();
 
-    // 1. Calculate Center & Radius
     final double centerX = screenWidth / 2;
-    // Adjust centerY slightly up to account for bottom controls space
-    final double centerY = screenHeight * (isMobile ? 0.38 : 0.4); 
+    // Move center slightly up to leave space for controls at bottom
+    final double centerY = screenHeight * (isMobile ? 0.40 : 0.45); 
 
     return Stack(
       children: players!.asMap().entries.map((entry) {
         int index = entry.key;
         Map<String, dynamic> player = entry.value;
 
-        // 2. Circular Positioning Logic
+        // --- 1. CIRCULAR POSITIONING ---
         final playersList = players!;
-        final myIndex = playersList.indexWhere((p) => p['id'] == myId);
+        final myIndex = playersList.indexWhere((p) => p['id'].toString() == myId.toString());
         final int offset = myIndex != -1 ? myIndex : 0;
         int totalPlayers = playersList.length;
         
-        // Rotate so "Me" is always at bottom center
+        // Rotate visual index so "Me" is always at bottom (index 0 visual)
         int visualIndex = (index - offset + totalPlayers) % totalPlayers;
 
+        // Angle Logic: Start from 90 degrees (Bottom)
         double angleStep = 2 * math.pi / totalPlayers;
-        double startAngle = math.pi / 2; // Bottom (90 degrees)
+        double startAngle = math.pi / 2; 
         double angle = startAngle + (visualIndex * angleStep);
 
-        // Define elliptical radius based on table size + padding
-        final rX = tableWidth / 2 + ResponsiveUtils.scale(context, isMobile ? 15 : 45);
-        final rY = tableHeight / 2 + ResponsiveUtils.scale(context, isMobile ? 15 : 25);
+        // Elliptical Radius
+        final rX = tableWidth / 2 + (isMobile ? 30 : 60);
+        final rY = tableHeight / 2 + (isMobile ? 30 : 40);
 
-        // Player Position
-        final x = centerX + (rX * math.cos(angle)) - 40; // -40 centers the seat (80px width)
-        final y = centerY + (rY * math.sin(angle)) - 45; // -45 centers the seat (90px height)
+        final playerX = centerX + (rX * math.cos(angle)) - 40; // Center the 80px seat
+        final playerY = centerY + (rY * math.sin(angle)) - 45; // Center the 90px seat
 
-        // Special override for "Me" (Force to bottom center safe area)
-        final bool isMe = player['id'] == myId;
-        double finalY = y;
+        // Override "Me" Position to be perfectly centered at bottom
+        final bool isMe = player['id'].toString() == myId.toString();
+        double finalX = playerX;
+        double finalY = playerY;
+        
         if (isMe) {
-          finalY = screenHeight - ResponsiveUtils.scaleHeight(context, isMobile ? 160 : 180); 
+          finalX = centerX - 40; // Perfect center
+          finalY = screenHeight - (isMobile ? 140 : 180); // Fixed from bottom
         }
 
-        // 3. Data Extraction (Safe Parsing)
+        // --- 2. DATA PREPARATION ---
         bool isActive = player['id'] == currentTurn;
         bool isFolded = player['isFolded'] ?? false;
         bool isDealer = player['id'] == dealerId;
-        bool isWinner = false; // Add winner logic if needed based on `winners` map
-
-        // 4. RESTORE CARD VISIBILITY LOGIC
-        List<String>? cards;
-        if (isMe && player['hand'] != null) {
-          // My Cards
-          cards = (player['hand'] as List).map((e) => e.toString()).toList();
-        } else if (!isFolded && player['hand'] != null && (player['hand'] as List).isNotEmpty) {
-           // Showdown / Open Cards
-           cards = (player['hand'] as List).map((e) => e.toString()).toList();
+        
+        // --- 3. CARD VISIBILITY LOGIC (CRITICAL FIX) ---
+        List<String>? cardsToRender;
+        if (player['hand'] != null && (player['hand'] as List).isNotEmpty) {
+           // Show cards if it's ME or if the hand is revealed (Showdown/FaceUp)
+           // You can add a 'showCards' flag from backend if needed
+           if (isMe || !isFolded /* Add showdown check here if needed */) {
+             cardsToRender = (player['hand'] as List).map((e) => e.toString()).toList();
+           }
         }
 
-        // 5. Bet Position (Slightly inward from player)
-        final betRx = rX - (isMobile ? 50 : 80);
-        final betRy = rY - (isMobile ? 40 : 60);
-        final betX = centerX + (betRx * math.cos(angle)) - 10;
-        final betY = centerY + (betRy * math.sin(angle)) - 20;
-
-        // Force My Bet Position above my cards
-        double finalBetX = betX;
-        double finalBetY = betY;
+        // --- 4. BET POSITIONING (VECTOR MATH) ---
+        // Calculate point 30% towards the center from the player
+        double betX = finalX + (centerX - finalX - 40) * 0.30; 
+        double betY = finalY + (centerY - finalY - 45) * 0.30;
+        
+        // Force my bet to be right above my cards
         if (isMe) {
-           finalBetX = centerX - 10;
-           finalBetY = finalY - 50;
+           betX = centerX - 20; // Slightly centered
+           betY = finalY - 60;
         }
+
+        int currentBet = int.tryParse(player['currentBet']?.toString() ?? '0') ?? 0;
 
         return Stack(
           children: [
-            // A. THE SEAT
+            // LAYER A: The Player Seat
             Positioned(
-              left: isMe ? (screenWidth / 2) - 40 : x,
+              left: finalX,
               top: finalY,
               child: PlayerSeat(
                 name: player['name'] ?? 'Unknown',
-                chips: (player['chips'] is int) 
-                    ? player['chips'] 
-                    : int.tryParse(player['chips']?.toString() ?? '0') ?? 0,
+                chips: player['chips'] ?? 0,
                 isActive: isActive,
                 isMe: isMe,
                 isDealer: isDealer,
                 isFolded: isFolded,
-                cards: cards, // Pass the parsed cards!
+                cards: cardsToRender, // <--- PASSING CARDS HERE
                 handRank: player['handRank'],
-                isWinner: isWinner,
               ),
             ),
 
-            // B. THE BET (CHIPS) - Only if amount > 0
-            if ((player['currentBet'] ?? 0) > 0)
+            // LAYER B: The Bet Chips (Only if > 0)
+            if (currentBet > 0)
               Positioned(
-                left: finalBetX,
-                top: finalBetY,
+                left: betX,
+                top: betY,
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    ChipStack(amount: player['currentBet']),
+                    ChipStack(amount: currentBet, size: 25), // Smaller chips for bets
                     const SizedBox(height: 2),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(4),
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFD4AF37), width: 1),
                       ),
                       child: Text(
-                        '${player['currentBet']}',
-                        style: TextStyle(color: Colors.white, fontSize: isMobile ? 12 : 10),
+                        '$currentBet',
+                        style: const TextStyle(
+                          color: Colors.white, 
+                          fontWeight: FontWeight.bold, 
+                          fontSize: 10
+                        ),
                       ),
                     ),
                   ],
