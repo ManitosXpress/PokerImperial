@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../imperial_currency.dart';
 
 class RiskAnalysisTables extends StatelessWidget {
@@ -11,47 +11,80 @@ class RiskAnalysisTables extends StatelessWidget {
     return Column(
       children: [
         _buildTableSection(
-          title: '🐋 The Whales (Top Holders)',
+          title: 'THE WHALES (TOP HOLDERS)',
           icon: Icons.account_balance_wallet,
-          color: Colors.blueAccent,
+          color: const Color(0xFFFFD700), // Gold
           query: FirebaseFirestore.instance.collection('users').orderBy('credit', descending: true).limit(10),
-          columns: ['Usuario', 'Saldo'],
+          columns: ['USUARIO', 'SALDO'],
           rowBuilder: (data) {
             return [
-              DataCell(Text(data['displayName'] ?? 'Unknown', style: const TextStyle(color: Colors.white))),
-              DataCell(ImperialCurrency(amount: data['credit'] ?? 0, style: const TextStyle(color: Colors.greenAccent), iconSize: 14)),
+              DataCell(
+                Row(
+                  children: [
+                     Container(
+                       width: 32, height: 32,
+                       alignment: Alignment.center,
+                       decoration: BoxDecoration(
+                         color: const Color(0xFFFFD700).withOpacity(0.1),
+                         shape: BoxShape.circle,
+                       ),
+                       child: Text(
+                         (data['displayName'] ?? 'U').toString().substring(0,1).toUpperCase(),
+                         style: GoogleFonts.cinzel(color: const Color(0xFFFFD700), fontWeight: FontWeight.bold),
+                       ),
+                     ),
+                     const SizedBox(width: 12),
+                     Text(data['displayName'] ?? 'Unknown', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w500)),
+                  ],
+                )
+              ),
+              DataCell(ImperialCurrency(
+                  amount: data['credit'] ?? 0, 
+                  style: GoogleFonts.sourceCodePro(color: const Color(0xFFFFD700), fontWeight: FontWeight.bold, fontSize: 14), 
+                  iconSize: 14
+              )),
             ];
           },
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 32),
         _buildTableSection(
-          title: '🦈 The Sharks (Mayores Ganadores 24h)',
+          title: 'THE SHARKS (GANADORES 24H)',
           icon: Icons.trending_up,
-          color: Colors.redAccent,
-          // Obtiene todos los GAME_WIN sin orderBy para evitar necesidad de índice, luego ordena en memoria
+          color: const Color(0xFF00FF88), // Neon Green
           query: FirebaseFirestore.instance.collection('financial_ledger')
               .where('type', isEqualTo: 'GAME_WIN')
-              .limit(500), // Obtener más documentos para luego ordenar por netProfit
-          columns: ['Usuario', 'Ganancia Neta', 'Mesa'],
+              .limit(500),
+          columns: ['USUARIO', 'GANANCIA', 'MESA'],
           rowBuilder: (data) {
             return [
-              DataCell(Text(data['userName'] ?? data['userId'] ?? 'Unknown', style: const TextStyle(color: Colors.white))),
+              DataCell(Text(data['userName'] ?? data['userId'] ?? 'Unknown', style: GoogleFonts.outfit(color: Colors.white))),
               DataCell(Row(
                 children: [
-                  const Text('+', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-                  ImperialCurrency(amount: data['netProfit'] ?? 0, style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold), iconSize: 14),
+                  const Text('+', style: TextStyle(color: Color(0xFF00FF88), fontWeight: FontWeight.bold)),
+                  ImperialCurrency(
+                      amount: data['netProfit'] ?? 0, 
+                      style: GoogleFonts.sourceCodePro(color: const Color(0xFF00FF88), fontWeight: FontWeight.bold, fontSize: 14), 
+                      iconSize: 14
+                  ),
                 ],
               )),
-              DataCell(Text(data['tableId'] ?? '-', style: const TextStyle(color: Colors.white54))),
+              DataCell(
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Text(data['tableId'] ?? '-', style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12)),
+                )
+              ),
             ];
           },
-          // Función personalizada para ordenar los resultados por netProfit después de obtenerlos
-          // También filtra por las últimas 24 horas y toma los top 10
           customSort: (List<QueryDocumentSnapshot> docs) {
             final now = DateTime.now();
             final yesterday = now.subtract(const Duration(hours: 24));
             
-            // Filtrar por últimas 24 horas y ordenar por netProfit
             final filtered = docs.where((doc) {
               final data = doc.data() as Map<String, dynamic>;
               final timestamp = data['timestamp'];
@@ -67,16 +100,15 @@ class RiskAnalysisTables extends StatelessWidget {
               return docTime.isAfter(yesterday);
             }).toList();
             
-            // Ordenar por netProfit descendente
             filtered.sort((a, b) {
               final dataA = a.data() as Map<String, dynamic>;
               final dataB = b.data() as Map<String, dynamic>;
               final profitA = (dataA['netProfit'] as num?)?.toDouble() ?? 0.0;
               final profitB = (dataB['netProfit'] as num?)?.toDouble() ?? 0.0;
-              return profitB.compareTo(profitA); // Descendente
+              return profitB.compareTo(profitA);
             });
             
-            return filtered.take(10).toList(); // Tomar solo los top 10
+            return filtered.take(10).toList();
           },
         ),
       ],
@@ -94,52 +126,114 @@ class RiskAnalysisTables extends StatelessWidget {
   }) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24),
-      padding: const EdgeInsets.all(24),
+      width: double.infinity, // Force full width
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
+        color: const Color(0xFF1E1E2C), // Dark Navy
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(icon, color: color),
-              const SizedBox(width: 12),
-              Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          FutureBuilder<QuerySnapshot>(
-            future: query.get(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.red));
-              }
-              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return const Text('No data available', style: TextStyle(color: Colors.white54));
-              }
-
-              final docs = customSort != null 
-                  ? customSort(snapshot.data!.docs)
-                  : snapshot.data!.docs;
-
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  headingRowColor: MaterialStateProperty.all(Colors.black12),
-                  columns: columns.map((c) => DataColumn(label: Text(c, style: TextStyle(color: color)))).toList(),
-                  rows: docs.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    return DataRow(cells: rowBuilder(data));
-                  }).toList(),
+          // Header
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              border: Border(bottom: BorderSide(color: color.withOpacity(0.1))),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: color, size: 24),
+                const SizedBox(width: 16),
+                Text(
+                    title, 
+                    style: GoogleFonts.outfit(
+                        color: Colors.white, 
+                        fontSize: 16, 
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5
+                    )
                 ),
-              );
-            },
+              ],
+            ),
+          ),
+          
+          // Table
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: FutureBuilder<QuerySnapshot>(
+              future: query.get(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.all(32.0),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                if (snapshot.hasError) {
+                  return Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text('Error loading data', style: TextStyle(color: Colors.redAccent)),
+                  );
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(32.0),
+                    child: Center(child: Text('No data available', style: TextStyle(color: Colors.white54))),
+                  );
+                }
+            
+                final docs = customSort != null 
+                    ? customSort(snapshot.data!.docs)
+                    : snapshot.data!.docs;
+            
+                return SizedBox(
+                  width: double.infinity,
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      dividerColor: Colors.transparent, 
+                      dataTableTheme: DataTableThemeData(
+                        headingRowColor: MaterialStateProperty.all(Colors.transparent),
+                        dataRowColor: MaterialStateProperty.resolveWith<Color?>((Set<MaterialState> states) {
+                              if (states.contains(MaterialState.hovered)) return color.withOpacity(0.05);
+                              return Colors.transparent;
+                        }),
+                      )
+                    ),
+                    child: DataTable(
+                      horizontalMargin: 20,
+                      columnSpacing: 20,
+                      headingTextStyle: GoogleFonts.outfit(color: color.withOpacity(0.7), fontWeight: FontWeight.bold, letterSpacing: 1),
+                      dataTextStyle: GoogleFonts.outfit(color: Colors.white70),
+                      columns: columns.map((c) => DataColumn(label: Text(c))).toList(),
+                      rows: docs.asMap().entries.map((entry) {
+                         final index = entry.key;
+                         final doc = entry.value;
+                         final data = doc.data() as Map<String, dynamic>;
+                         
+                         // Alternate row background for subtlety? No, keep it clean.
+                         return DataRow(
+                           cells: rowBuilder(data),
+                           color: MaterialStateProperty.resolveWith<Color?>((Set<MaterialState> states) {
+                              if (index % 2 == 1) return Colors.white.withOpacity(0.02);
+                              return null;
+                           }),
+                         );
+                      }).toList(),
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),

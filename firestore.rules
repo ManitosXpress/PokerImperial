@@ -120,6 +120,12 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions can create events
     }
     
+    // System Feed - Admin only (for Super Admin Dashboard Live Feed)
+    match /system_feed/{eventId} {
+      allow read: if isAdmin();
+      allow write: if false; // Only Cloud Functions can create events
+    }
+    
     // Poker Sessions (In-Game Balance)
     match /poker_sessions/{sessionId} {
       allow read: if request.auth != null && (

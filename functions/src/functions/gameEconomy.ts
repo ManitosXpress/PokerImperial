@@ -445,14 +445,15 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
                 });
             }
 
-            // 4. Ledger (RAKE_COLLECTED)
+            // 4. Ledger (RAKE)
             const ledgerRef = db.collection('financial_ledger').doc();
             transaction.set(ledgerRef, {
-                type: 'RAKE_COLLECTED',
+                type: 'RAKE',
+                amount: rakeAmount,  // Normalized amount field for queries
                 tableId,
                 handId: gameId,
                 potTotal,
-                rakeAmount,
+                rakeAmount,  // Keep for backward compatibility
                 winnerUid,
                 distribution: { platform: platformShare, club: clubShare, seller: sellerShare },
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),

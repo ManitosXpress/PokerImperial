@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../imperial_currency.dart';
 
 class EconomicKPIs extends StatelessWidget {
@@ -16,112 +17,120 @@ class EconomicKPIs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      padding: const EdgeInsets.symmetric(horizontal: 24.0),
       child: Row(
         children: [
-          _buildKpiCardWithWidget(
-            title: 'Volumen (24h)',
-            valueWidget: ImperialCurrency(
-              amount: volume24h,
-              style: const TextStyle(
-                color: Colors.cyan,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
+          Expanded(
+            child: _buildImperialKpiCard(
+              title: 'VOLUMEN (24h)',
+              valueWidget: ImperialCurrency(
+                amount: volume24h,
+                style: GoogleFonts.outfit(
+                  color: const Color(0xFFFFD700),
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+                iconSize: 20,
               ),
-              iconSize: 22,
+              icon: Icons.bar_chart,
+              borderColor: const Color(0xFFFFD700),
+              subtitle: 'Fichas apostadas',
             ),
-            icon: Icons.show_chart,
-            color: Colors.cyan,
-            subtitle: 'Fichas apostadas',
           ),
           const SizedBox(width: 16),
-          _buildKpiCard(
-            title: 'Turnover (24h)',
-            value: turnover24h.toString(),
-            icon: Icons.loop,
-            color: Colors.purpleAccent,
-            subtitle: 'Manos jugadas',
+          Expanded(
+            child: _buildImperialKpiCard(
+              title: 'TURNOVER (24h)',
+              valueWidget: Text(
+                turnover24h.toString(),
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              icon: Icons.loop,
+              borderColor: Colors.blueAccent, // Secondary metric
+              subtitle: 'Manos jugadas',
+            ),
           ),
           const SizedBox(width: 16),
-          _buildKpiCardWithWidget(
-            title: 'GGR (Hoy)',
-            valueWidget: ImperialCurrency(
-              amount: ggr24h,
-              style: const TextStyle(
-                color: Colors.orangeAccent,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
+          Expanded(
+            child: _buildImperialKpiCard(
+              title: 'GGR (Hoy)',
+              valueWidget: ImperialCurrency(
+                amount: ggr24h,
+                style: GoogleFonts.outfit(
+                  color: const Color(0xFF00FF88),
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+                iconSize: 20,
               ),
-              iconSize: 22,
+              icon: Icons.local_fire_department,
+              borderColor: const Color(0xFF00FF88),
+              subtitle: 'Rake Bruto',
             ),
-            icon: Icons.local_fire_department,
-            color: Colors.orangeAccent,
-            subtitle: 'Rake Bruto',
           ),
         ],
       ),
     );
   }
 
-
-
-  Widget _buildKpiCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color color,
-    required String subtitle,
-  }) {
-    return _buildKpiCardWithWidget(
-      title: title,
-      valueWidget: Text(
-        value,
-        style: TextStyle(
-          color: color,
-          fontSize: 22,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      icon: icon,
-      color: color,
-      subtitle: subtitle,
-    );
-  }
-
-  Widget _buildKpiCardWithWidget({
+  Widget _buildImperialKpiCard({
     required String title,
     required Widget valueWidget,
     required IconData icon,
-    required Color color,
+    required Color borderColor,
     required String subtitle,
   }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          border: Border.all(color: color.withOpacity(0.5)),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(title, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                Icon(icon, color: color, size: 20),
-              ],
-            ),
-            const SizedBox(height: 8),
-            valueWidget,
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(color: Colors.white38, fontSize: 10),
-            ),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E2C), // Dark Navy
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor.withOpacity(0.3), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title, 
+                style: GoogleFonts.outfit(
+                  color: Colors.white54, 
+                  fontSize: 11, 
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5
+                )
+              ),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: borderColor.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: borderColor, size: 16),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          valueWidget,
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: GoogleFonts.outfit(color: Colors.white30, fontSize: 12),
+          ),
+        ],
       ),
     );
   }

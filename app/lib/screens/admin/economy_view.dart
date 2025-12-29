@@ -6,6 +6,7 @@ import 'dart:async';
 import '../../widgets/admin/economic_kpis.dart';
 import '../../widgets/admin/trend_charts.dart';
 import '../../widgets/admin/risk_analysis_tables.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class EconomyView extends StatefulWidget {
   const EconomyView({super.key});
@@ -34,6 +35,9 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadAllData();
   }
 
@@ -47,7 +51,6 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
 
   Future<void> _fetchCurrentStats() async {
     try {
-      // Get basic stats from Cloud Function
       final statsResult = await FirebaseFunctions.instance.httpsCallable('getSystemStatsFunction').call();
       final dynamic resultData = statsResult.data;
       
@@ -58,12 +61,6 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
          };
       }
       
-      // Also fetch today's stats for KPIs (Volume, Turnover, GGR)
-      // We can get this from stats_daily/TODAY if cron ran (it runs at midnight, so it shows yesterday).
-      // For REAL-TIME today stats, we might need to query ledger or just show yesterday's finished stats.
-      // Let's show "Last 24h" which usually implies yesterday's full day or rolling.
-      // For simplicity and performance, let's fetch the latest entry from stats_daily.
-      
       final today = DateTime.now();
       final yesterday = today.subtract(const Duration(days: 1));
       final yStr = "${yesterday.year}-${yesterday.month.toString().padLeft(2,'0')}-${yesterday.day.toString().padLeft(2,'0')}";
@@ -72,10 +69,9 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
       if (dailyDoc.exists) {
           final data = dailyDoc.data()!;
           _currentStats['volume24h'] = data['totalVolume'] ?? 0;
-          _currentStats['turnover24h'] = data['handsPlayed'] ?? 0; // Assuming we added this to cron/index
+          _currentStats['turnover24h'] = data['handsPlayed'] ?? 0; 
           _currentStats['ggr24h'] = data['totalRake'] ?? 0;
       } else {
-          // If no data for yesterday (cron hasn't run or new system), show 0
           _currentStats['volume24h'] = 0;
           _currentStats['turnover24h'] = 0;
           _currentStats['ggr24h'] = 0;
@@ -109,7 +105,6 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
     super.dispose();
   }
 
-  // Search users by name/username
   Future<List<Map<String, dynamic>>> _searchUsers(String query) async {
     if (query.isEmpty) return [];
 
@@ -162,7 +157,7 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
         ScaffoldMessenger.of(context).showSnackBar(
            SnackBar(
              content: Text('Créditos $actionName correctamente'),
-             backgroundColor: isMinting ? Colors.green : Colors.red,
+             backgroundColor: isMinting ? const Color(0xFF00FF88) : const Color(0xFFFF4444),
            ),
         );
         
@@ -185,7 +180,7 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Top Cards (Liquidity & Rake) - Existing
+          // 1. Top Cards (Liquidity & Rake)
           _buildStatsSection(),
           
           // 2. New KPIs (Volume, Turnover, GGR)
@@ -195,270 +190,388 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
               ggr24h: (_currentStats['ggr24h'] ?? 0).toDouble(),
           ),
           
-          const SizedBox(height: 24),
+          const SizedBox(height: 32),
           
           // 3. Trend Charts
-          TrendCharts(dailyStats: _dailyStats),
-          
-          const SizedBox(height: 24),
-
-          // 4. Risk Analysis Tables
-          const RiskAnalysisTables(),
-
-          const SizedBox(height: 32),
-          const Divider(color: Colors.white24),
-          const SizedBox(height: 32),
-
-          // 5. Admin Actions (Mint/Burn) - Existing but styled
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Text('Gestión Monetaria (Banco Central)', style: TextStyle(color: Colors.amber, fontSize: 20, fontWeight: FontWeight.bold)),
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Text(
+              "TENDENCIAS DEL MERCADO",
+               style: GoogleFonts.outfit(color: Colors.white70, letterSpacing: 2, fontWeight: FontWeight.bold, fontSize: 14),
+            ),
           ),
           const SizedBox(height: 16),
+          TrendCharts(dailyStats: _dailyStats),
+          
+          const SizedBox(height: 32),
+
+          // 4. Risk Analysis Tables
+           Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Text(
+              "ANÁLISIS DE RIESGO",
+               style: GoogleFonts.outfit(color: Colors.white70, letterSpacing: 2, fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const RiskAnalysisTables(),
+
+          const SizedBox(height: 48),
+          
+          // 5. Admin Actions (Mint/Burn)
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: const Color(0xFFFFD700).withOpacity(0.5), width: 2)),
+              ),
+              child: Text(
+                'BANCO CENTRAL (GESTIÓN MONETARIA)', 
+                style: GoogleFonts.cinzel(
+                  color: const Color(0xFFFFD700), 
+                  fontSize: 24, 
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2
+                )
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
           _buildMintBurnForm(),
           
-          const SizedBox(height: 50),
+          const SizedBox(height: 80),
         ],
       ),
     );
   }
 
   Widget _buildMintBurnForm() {
+      final isMinting = _tabController.index == 0;
+      final primaryColor = isMinting ? const Color(0xFF00FF88) : const Color(0xFFFF4444);
+
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Card(
-          color: const Color(0xFF1A1A2E),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Tabs
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black26,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: TabBar(
-                      controller: _tabController,
-                      indicator: BoxDecoration(
-                        color: Colors.amber,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      labelColor: Colors.black,
-                      unselectedLabelColor: Colors.white70,
-                      tabs: const [
-                        Tab(text: 'INYECTAR (MINT)', icon: Icon(Icons.add_circle_outline)),
-                        Tab(text: 'RETIRAR (BURN)', icon: Icon(Icons.remove_circle_outline)),
-                      ],
-                      onTap: (index) {
-                        setState(() {}); 
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  Text(
-                    _tabController.index == 0 
-                        ? 'Emisión de Moneda' 
-                        : 'Quema de Moneda',
-                    style: TextStyle(
-                      color: _tabController.index == 0 ? Colors.green : Colors.redAccent, 
-                      fontSize: 18, 
-                      fontWeight: FontWeight.bold
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _tabController.index == 0
-                      ? 'Aumenta el circulante total. Use con precaución.'
-                      : 'Reduce el circulante total. Use para correcciones o cashouts.',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // User Autocomplete
-                  Autocomplete<Map<String, dynamic>>(
-                    optionsBuilder: (TextEditingValue textEditingValue) {
-                      return _searchUsers(textEditingValue.text);
-                    },
-                    displayStringForOption: (option) => '${option['displayName']} (${option['email']})',
-                    onSelected: (Map<String, dynamic> selection) {
-                      setState(() {
-                        _selectedUser = selection;
-                        _uidController.text = selection['uid'];
-                      });
-                    },
-                    fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) {
-                      return TextFormField(
-                        controller: textController,
-                        focusNode: focusNode,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          labelText: 'Buscar Usuario (Nombre)',
-                          labelStyle: const TextStyle(color: Colors.white70),
-                          border: const OutlineInputBorder(),
-                          prefixIcon: const Icon(Icons.search, color: Colors.amber),
-                          helperText: _selectedUser != null 
-                              ? 'UID: ${_selectedUser!['uid']}\nSaldo Actual: \$${_selectedUser!['credits']}' 
-                              : null,
-                          helperStyle: const TextStyle(color: Colors.greenAccent),
-                        ),
-                        validator: (v) {
-                            if (_uidController.text.isEmpty) return 'Debe seleccionar un usuario de la lista';
-                            return null;
-                        },
-                      );
-                    },
-                    optionsViewBuilder: (context, onSelected, options) {
-                      return Align(
-                        alignment: Alignment.topLeft,
-                        child: Material(
-                          elevation: 4.0,
-                          color: const Color(0xFF2A2A3E),
-                          child: SizedBox(
-                            width: 300, 
-                            child: ListView.builder(
-                              padding: EdgeInsets.zero,
-                              shrinkWrap: true,
-                              itemCount: options.length,
-                              itemBuilder: (BuildContext context, int index) {
-                                final option = options.elementAt(index);
-                                return ListTile(
-                                  title: Text(option['displayName'], style: const TextStyle(color: Colors.white)),
-                                  subtitle: Text(option['email'], style: const TextStyle(color: Colors.white54)),
-                                  trailing: ImperialCurrency(amount: option['credits'], style: const TextStyle(color: Colors.amber), iconSize: 14),
-                                  onTap: () => onSelected(option),
-                                );
-                              },
-                            ),
+        child: Container(
+          decoration: BoxDecoration(
+             color: const Color(0xFF1E1E2C),
+             borderRadius: BorderRadius.circular(24),
+             border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.3)),
+             boxShadow: [
+               BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20, spreadRadius: 0),
+             ]
+          ),
+          child: Column(
+            children: [
+               // Custom Tab Bar
+               Container(
+                 margin: const EdgeInsets.all(8),
+                 height: 50,
+                 decoration: BoxDecoration(
+                   color: Colors.black26,
+                   borderRadius: BorderRadius.circular(16),
+                 ),
+                 child: TabBar(
+                   controller: _tabController,
+                   indicator: BoxDecoration(
+                     color: isMinting ? const Color(0xFF00FF88).withOpacity(0.2) : const Color(0xFFFF4444).withOpacity(0.2),
+                     borderRadius: BorderRadius.circular(16),
+                     border: Border.all(color: isMinting ? const Color(0xFF00FF88) : const Color(0xFFFF4444)),
+                   ),
+                   labelColor: Colors.white,
+                   unselectedLabelColor: Colors.white38,
+                   labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+                   overlayColor: MaterialStateProperty.all(Colors.transparent),
+                   tabs: [
+                     Tab(
+                       child: Row(
+                         mainAxisAlignment: MainAxisAlignment.center,
+                         children: const [
+                           Icon(Icons.add_circle, size: 18),
+                           SizedBox(width: 8),
+                           Text('EMISIÓN (MINT)'),
+                         ],
+                       ),
+                     ),
+                     Tab(
+                        child: Row(
+                         mainAxisAlignment: MainAxisAlignment.center,
+                         children: const [
+                           Icon(Icons.remove_circle, size: 18),
+                           SizedBox(width: 8),
+                           Text('QUEMA (BURN)'),
+                         ],
+                       ),
+                     ),
+                   ],
+                 ),
+               ),
+               
+               Padding(
+                 padding: const EdgeInsets.all(32.0),
+                 child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Text(
+                          isMinting 
+                              ? 'AUMENTAR CIRCULANTE TOTAL' 
+                              : 'REDUCIR CIRCULANTE TOTAL',
+                          style: GoogleFonts.outfit(
+                            color: primaryColor, 
+                            fontSize: 16, 
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2
                           ),
                         ),
-                      );
-                    },
-                  ),
-
-                  const SizedBox(height: 16),
-                  
-                  // Amount Field
-                  TextFormField(
-                    controller: _amountController,
-                    style: const TextStyle(color: Colors.white),
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Monto',
-                      labelStyle: TextStyle(color: Colors.white70),
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.attach_money, color: Colors.amber),
-                    ),
-                    validator: (v) {
-                      if (v == null || v.isEmpty) return 'Requerido';
-                      if (int.tryParse(v) == null) return 'Debe ser un número entero';
-                      return null;
-                    },
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Reason Field
-                  TextFormField(
-                    controller: _reasonController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Motivo (Opcional)',
-                      labelStyle: TextStyle(color: Colors.white70),
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.description, color: Colors.amber),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 24),
-                  
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _submitTransaction,
-                      icon: Icon(_tabController.index == 0 ? Icons.add : Icons.remove),
-                      label: _isLoading 
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : Text(_tabController.index == 0 ? 'CONFIRMAR INYECCIÓN' : 'CONFIRMAR RETIRO'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _tabController.index == 0 ? Colors.green : Colors.red,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: Text(
+                          isMinting
+                            ? 'Los créditos serán creados e inyectados a la cuenta del usuario.'
+                            : 'Los créditos serán retirados permanentemente de la economía.',
+                          style: GoogleFonts.outfit(color: Colors.white38, fontSize: 13),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const SizedBox(height: 40),
+            
+                      // User Autocomplete
+                      Autocomplete<Map<String, dynamic>>(
+                        optionsBuilder: (TextEditingValue textEditingValue) {
+                          return _searchUsers(textEditingValue.text);
+                        },
+                        displayStringForOption: (option) => '${option['displayName']} (${option['email']})',
+                        onSelected: (Map<String, dynamic> selection) {
+                          setState(() {
+                            _selectedUser = selection;
+                            _uidController.text = selection['uid'];
+                          });
+                        },
+                        fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) {
+                          return TextFormField(
+                            controller: textController,
+                            focusNode: focusNode,
+                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 16),
+                            decoration: InputDecoration(
+                              labelText: 'BUSCAR USUARIO',
+                              labelStyle: GoogleFonts.outfit(color: Colors.white38, fontSize: 12, letterSpacing: 1),
+                              floatingLabelBehavior: FloatingLabelBehavior.always,
+                              filled: true,
+                              fillColor: Colors.black.withOpacity(0.3),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12), 
+                                borderSide: BorderSide(color: primaryColor.withOpacity(0.5))
+                              ),
+                              prefixIcon: Icon(Icons.search, color: primaryColor),
+                              helperText: _selectedUser != null 
+                                  ? 'Saldo Actual: \$${_selectedUser!['credits']}' 
+                                  : null,
+                              helperStyle: GoogleFonts.outfit(color: const Color(0xFFFFD700)),
+                            ),
+                            validator: (v) {
+                                if (_uidController.text.isEmpty) return 'Debe seleccionar un usuario';
+                                return null;
+                            },
+                          );
+                        },
+                        optionsViewBuilder: (context, onSelected, options) {
+                          return Align(
+                            alignment: Alignment.topLeft,
+                            child: Material(
+                              elevation: 20.0,
+                              color: const Color(0xFF2A2A3E),
+                              borderRadius: BorderRadius.circular(12),
+                              child: SizedBox(
+                                width: 400, 
+                                child: ListView.builder(
+                                  padding: EdgeInsets.zero,
+                                  shrinkWrap: true,
+                                  itemCount: options.length,
+                                  itemBuilder: (BuildContext context, int index) {
+                                    final option = options.elementAt(index);
+                                    return ListTile(
+                                      title: Text(option['displayName'], style: GoogleFonts.outfit(color: Colors.white)),
+                                      subtitle: Text(option['email'], style: GoogleFonts.outfit(color: Colors.white54)),
+                                      trailing: ImperialCurrency(amount: option['credits'], style: GoogleFonts.outfit(color: const Color(0xFFFFD700)), iconSize: 14),
+                                      onTap: () => onSelected(option),
+                                      hoverColor: primaryColor.withOpacity(0.1),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+            
+                      const SizedBox(height: 24),
+                      
+                      // Amount Field
+                      TextFormField(
+                        controller: _amountController,
+                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'MONTO',
+                          labelStyle: GoogleFonts.outfit(color: Colors.white38, fontSize: 12, letterSpacing: 1),
+                          floatingLabelBehavior: FloatingLabelBehavior.always,
+                          filled: true,
+                          fillColor: Colors.black.withOpacity(0.3),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12), 
+                                borderSide: BorderSide(color: primaryColor.withOpacity(0.5))
+                          ),
+                          prefixIcon: Icon(Icons.attach_money, color: primaryColor),
+                        ),
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Requerido';
+                          if (int.tryParse(v) == null) return 'Debe ser un número entero';
+                          return null;
+                        },
+                      ),
+            
+                      const SizedBox(height: 24),
+            
+                      // Reason Field
+                      TextFormField(
+                        controller: _reasonController,
+                        style: GoogleFonts.outfit(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'MOTIVO (OPCIONAL)',
+                          labelStyle: GoogleFonts.outfit(color: Colors.white38, fontSize: 12, letterSpacing: 1),
+                          floatingLabelBehavior: FloatingLabelBehavior.always,
+                          filled: true,
+                          fillColor: Colors.black.withOpacity(0.3),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12), 
+                                borderSide: BorderSide(color: primaryColor.withOpacity(0.5))
+                          ),
+                          prefixIcon: Icon(Icons.description, color: Colors.white30),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 40),
+                      
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _submitTransaction,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            shadowColor: primaryColor.withOpacity(0.5),
+                            elevation: 8,
+                          ),
+                          child: _isLoading 
+                            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                            : Text(
+                                isMinting ? 'CONFIRMAR INYECCIÓN' : 'CONFIRMAR RETIRO',
+                                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1),
+                              ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
+                             ),
+               ),
+            ],
           ),
         ),
       );
   }
 
   Widget _buildStatsSection() {
-        final liquidity = _currentStats['totalCirculation'] ?? 0;
-        final houseRake = _currentStats['accumulatedRake'] ?? 0;
+    final liquidity = _currentStats['totalCirculation'] ?? 0;
+    final houseRake = _currentStats['accumulatedRake'] ?? 0;
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-          child: Row(
-            children: [
-              // Liquidity Card
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    border: Border.all(color: Colors.blue),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.water_drop, color: Colors.blue, size: 32),
-                      const SizedBox(width: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Total Liquidity', style: TextStyle(color: Colors.white70)),
-                          ImperialCurrency(amount: liquidity, style: const TextStyle(color: Colors.blue, fontSize: 24, fontWeight: FontWeight.bold), iconSize: 24),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              // House Revenue Card
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
-                    border: Border.all(color: Colors.green),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.casino, color: Colors.green, size: 32),
-                      const SizedBox(width: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Ganancias Casa (Rake)', style: TextStyle(color: Colors.white70)),
-                          ImperialCurrency(amount: houseRake, style: const TextStyle(color: Colors.green, fontSize: 24, fontWeight: FontWeight.bold), iconSize: 24),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildImperialStatCard(
+              title: 'LIQUIDEZ TOTAL',
+              amount: liquidity,
+              icon: Icons.account_balance,
+              color: Colors.blueAccent, 
+              // Keep blue for liquidity as it's standard, but could be Gold? 
+              // Let's stick to theme: Liquidity = Business Blue/Gold.
+            ),
           ),
-        );
+          const SizedBox(width: 16),
+          Expanded(
+            child: _buildImperialStatCard(
+              title: 'GANANCIAS CASA (RAKE)',
+              amount: houseRake,
+              icon: Icons.diamond,
+              color: const Color(0xFF00FF88), // Profit is Green
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildImperialStatCard({
+      required String title,
+      required dynamic amount,
+      required IconData icon,
+      required Color color,
+  }) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          image: const DecorationImage(
+             image: AssetImage('assets/images/card_bg_overlay.png'), // Subtle texture if available, or just fallback
+             fit: BoxFit.cover,
+             opacity: 0.05,
+          ),
+          gradient: LinearGradient(
+             colors: [const Color(0xFF1E1E2C), const Color(0xFF14141F)],
+             begin: Alignment.topLeft,
+             end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: color.withOpacity(0.3)),
+          boxShadow: [
+             BoxShadow(color: color.withOpacity(0.1), blurRadius: 15, offset: const Offset(0, 4))
+          ]
+        ),
+        child: Row(
+          children: [
+             Container(
+               padding: const EdgeInsets.all(12),
+               decoration: BoxDecoration(
+                 color: color.withOpacity(0.1),
+                 shape: BoxShape.circle,
+               ),
+               child: Icon(icon, color: color, size: 28),
+             ),
+             const SizedBox(width: 20),
+             Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 Text(
+                   title, 
+                   style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)
+                 ),
+                 ImperialCurrency(
+                    amount: amount, 
+                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+                    iconSize: 22,
+                 ),
+               ],
+             ),
+          ],
+        ),
+      );
   }
 }
