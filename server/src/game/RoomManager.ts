@@ -572,6 +572,9 @@ export class RoomManager {
             console.log(`🔧 System Event in Room ${roomId}: ${event}`); // Sanitized log
 
             // 🎯 NUEVO: GAME_ENDED - Trigger settlement with real pot data
+            // ❌ DEPRECATED: Old GAME_ENDED settlement - replaced by distribute_rake
+            // This code is now obsolete and generates errors
+            /*
             if (event === 'GAME_ENDED') {
                 console.log(`🎯 [GAME_ENDED] Triggering settlement for ${roomId}`);
 
@@ -598,6 +601,8 @@ export class RoomManager {
                     console.warn(`⚠️ Skipping settlement for ${roomId} - Pot is 0 (pre-flop fold)`);
                 }
             }
+            */
+
 
             // 🎯 NUEVO: PLAYER_EXIT - Trigger cashout to release moneyInPlay
             if (event === 'PLAYER_EXIT') {
