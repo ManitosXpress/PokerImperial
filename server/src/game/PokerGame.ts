@@ -1055,10 +1055,16 @@ export class PokerGame {
 
             // 💰 SOCKET FIRST, LEDGER LATER: Emitir evento para distribución de rake
             // Extraer IDs de ganadores del Map
+            console.log(`💰 [DEBUG] playerWinnings Map size: ${playerWinnings.size}`);
+            console.log(`💰 [DEBUG] playerWinnings keys:`, Array.from(playerWinnings.keys()));
+
             const winnerIds = Array.from(playerWinnings.keys()).map(playerId => {
                 const player = this.players.find(p => p.id === playerId);
+                console.log(`💰 [DEBUG] Player ${playerId} -> UID: ${player?.uid || 'NOT FOUND'}`);
                 return player?.uid;
             }).filter(uid => uid !== undefined) as string[];
+
+            console.log(`💰 [DEBUG] Extracted winnerIds:`, winnerIds);
 
             // Calcular pot total (incluyendo side pots)
             const totalPotAmount = this.sidePots.reduce((acc, pot) => acc + pot.amount, 0);
