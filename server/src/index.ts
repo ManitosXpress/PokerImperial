@@ -48,24 +48,32 @@ function persistGameStateAsync(roomId: string, gameState: any) {
     setImmediate(async () => {
         try {
             const tableRef = admin.firestore().collection('poker_tables').doc(roomId);
-            await tableRef.set({
-                pot: gameState.pot,
-                communityCards: gameState.communityCards,
-                currentTurn: gameState.currentTurn,
-                dealerId: gameState.dealerId,
-                round: gameState.round || gameState.stage,
-                currentBet: gameState.currentBet,
-                players: gameState.players?.map((p: any) => ({
-                    id: p.id,
-                    name: p.name,
-                    chips: p.chips,
-                    currentBet: p.currentBet !== undefined ? p.currentBet : p.bet,
-                    isFolded: p.isFolded,
-                    isAllIn: p.isAllIn,
-                    status: p.status
-                })),
+
+            // Crear objeto con valores seguros (nunca undefined)
+            const safeGameState: any = {
+                pot: gameState.pot ?? 0,
+                communityCards: gameState.communityCards ?? [],
+                currentTurn: gameState.currentTurn ?? null,
+                dealerId: gameState.dealerId ?? null,
+                round: gameState.round || gameState.stage || 'waiting',
+                currentBet: gameState.currentBet ?? 0,
                 lastActionTime: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+            };
+
+            // Solo incluir players si existe y tiene contenido
+            if (gameState.players && Array.isArray(gameState.players)) {
+                safeGameState.players = gameState.players.map((p: any) => ({
+                    id: p.id ?? '',
+                    name: p.name ?? 'Unknown',
+                    chips: p.chips ?? 0,
+                    currentBet: p.currentBet ?? p.bet ?? 0,
+                    isFolded: p.isFolded ?? false,
+                    isAllIn: p.isAllIn ?? false,
+                    status: p.status ?? 'waiting'
+                }));
+            }
+
+            await tableRef.set(safeGameState, { merge: true });
 
             console.log(`💾 Game state persisted to Firestore for room ${roomId}`);
         } catch (error) {
