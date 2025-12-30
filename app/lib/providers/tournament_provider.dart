@@ -52,6 +52,7 @@ class TournamentProvider with ChangeNotifier {
   }
 
   /// NUEVO: createTournamentPremium - Soporta scope, type y settings
+  /// 🆕 UPDATED: Ahora soporta configuración avanzada de torneos
   Future<void> createTournamentPremium({
     required String name,
     required int buyIn,
@@ -59,25 +60,43 @@ class TournamentProvider with ChangeNotifier {
     required String type, // FREEZEOUT, REBUY, BOUNTY, TURBO
     required Map<String, dynamic> settings, // { rebuyAllowed, bountyAmount, blindSpeed }
     String? clubId,
-    int? numberOfTables, // 🆕 Changed from estimatedPlayers
+    int? numberOfTables,
     String? finalTableMusic,
     String? finalTableTheme,
+    // 🆕 NEW ADVANCED CONFIGURATION PARAMETERS
+    String? tournamentFormat, // 'SNG' or 'MTT'
+    String? blindStructureSpeed, // 'TURBO', 'REGULAR', 'DEEP'
+    int? startingChips, // Default starting chip stack
+    double? guaranteedPrize, // Guaranteed prize pool
+    List<Map<String, dynamic>>? blindStructure, // Complete blind structure
   }) async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      final result = await _functions.httpsCallable('createTournamentFunction').call({
+      // Prepare the data payload for the Cloud Function
+      final Map<String, dynamic> payload = {
         'name': name,
         'buyIn': buyIn,
         'scope': scope,
         'type': type,
         'settings': settings,
-        'clubId': clubId,
-        'numberOfTables': numberOfTables ?? 1, // 🆕 Sending numberOfTables
-        'finalTableMusic': finalTableMusic,
-        'finalTableTheme': finalTableTheme,
-      });
+        'numberOfTables': numberOfTables ?? 1,
+      };
+
+      // Add optional fields
+      if (clubId != null) payload['clubId'] = clubId;
+      if (finalTableMusic != null) payload['finalTableMusic'] = finalTableMusic;
+      if (finalTableTheme != null) payload['finalTableTheme'] = finalTableTheme;
+      
+      // 🆕 Add new advanced configuration fields
+      if (tournamentFormat != null) payload['tournamentFormat'] = tournamentFormat;
+      if (blindStructureSpeed != null) payload['blindStructureSpeed'] = blindStructureSpeed;
+      if (startingChips != null) payload['startingChips'] = startingChips;
+      if (guaranteedPrize != null) payload['guaranteedPrize'] = guaranteedPrize;
+      if (blindStructure != null) payload['blindStructure'] = blindStructure;
+
+      final result = await _functions.httpsCallable('createTournamentFunction').call(payload);
 
       if (result.data['success'] == true) {
         await fetchTournaments(); // Refresh list

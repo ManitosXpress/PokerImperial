@@ -8,6 +8,7 @@ import '../../providers/tournament_provider.dart';
 import '../../providers/club_provider.dart';
 import '../game_screen.dart';
 import '../../widgets/tournament/god_mode_admin_panel.dart';
+import '../../widgets/tournament/tournament_detail_sheet.dart';
 
 class TournamentLobbyScreen extends StatefulWidget {
   final String tournamentId;
@@ -53,10 +54,10 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
       if (!snapshot.exists || !mounted) return;
 
       final data = snapshot.data() as Map<String, dynamic>;
-      final status = data['status'] ?? 'REGISTERING';
+      final status = (data['status'] ?? 'REGISTERING').toString().toUpperCase();
       
       // Check if tournament is active (using 'active' as set by backend, or 'RUNNING' for compatibility)
-      final isRunning = status == 'active' || status == 'RUNNING' || status == 'started';
+      final isRunning = status == 'ACTIVE' || status == 'RUNNING' || status == 'STARTED';
 
       if (isRunning && !_hasRedirected) {
         // Deterministic Redirection using playerTableMap
@@ -204,7 +205,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
           final tournament = snapshot.data!.data() as Map<String, dynamic>;
           final registeredPlayerIds = List<String>.from(tournament['registeredPlayerIds'] ?? []);
           final isRegistered = registeredPlayerIds.contains(currentUser?.uid);
-          final tournamentStatus = tournament['status'] ?? 'REGISTERING';
+          final tournamentStatus = (tournament['status'] ?? 'REGISTERING').toString().toUpperCase();
           final canRegister = tournamentStatus == 'REGISTERING' || tournamentStatus == 'LATE_REG';
           final activeTableId = tournament['activeTableId'];
 
@@ -406,6 +407,52 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
                   _buildTypeTag(tournament['type']),
                 ],
               ],
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Ver Detalles Button
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => TournamentDetailSheet(
+                    tournament: TournamentData(
+                      name: tournament['name'] ?? 'Torneo',
+                      buyIn: (tournament['buyIn'] ?? 0).toDouble(),
+                      fee: (tournament['fee'] ?? 0).toDouble(),
+                      guaranteedPrize: (tournament['prizePool'] ?? 0).toInt(),
+                      currentPlayers: (tournament['registeredPlayerIds'] as List?)?.length ?? 0,
+                      maxPlayers: tournament['estimatedPlayers'] ?? 0,
+                      status: (tournament['status'] ?? 'REGISTERING').toString().toUpperCase(),
+                      blindStructure: (tournament['blindStructure'] as List?)?.map((level) {
+                        return BlindLevel(
+                          level: level['level'] ?? 1,
+                          smallBlind: level['small'] ?? 0,
+                          bigBlind: level['big'] ?? 0,
+                          ante: level['ante'] ?? 0,
+                          duration: level['min'] ?? 10,
+                        );
+                      }).toList() ?? [],
+                      payouts: [], // TODO: Calculate payouts based on prizePool and players
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.info_outline, size: 18),
+              label: const Text('VER DETALLES', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFD4AF37),
+                side: const BorderSide(color: Color(0xFFD4AF37), width: 1.5),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
             ),
           ),
         ],

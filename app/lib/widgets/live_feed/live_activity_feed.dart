@@ -269,7 +269,6 @@ class _LiveActivityFeedState extends State<LiveActivityFeed> {
     );
   }
 
-
   Future<void> _showUserDetail(String uid) async {
     // Show loading
     showDialog(

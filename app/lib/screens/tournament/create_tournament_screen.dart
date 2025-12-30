@@ -31,6 +31,14 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
   final _buyInController = TextEditingController(text: '100');
   int _numberOfTables = 1; // 🆕 Changed from estimatedPlayers
   
+  // 🆕 NEW ADVANCED CONFIGURATION FIELDS
+  String _tournamentFormat = 'MTT'; // 'SNG' (Sit & Go), 'MTT' (Multi-Table Tournament)
+  String _blindStructureSpeed = 'REGULAR'; // 'TURBO', 'REGULAR', 'DEEP'
+  int _startingChips = 10000;
+  double _guaranteedPrize = 0.0;
+  final _startingChipsController = TextEditingController(text: '10000');
+  final _guaranteedPrizeController = TextEditingController(text: '0');
+  
   bool _isCreating = false;
 
   @override
@@ -52,6 +60,8 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
     _pageController.dispose();
     _nameController.dispose();
     _buyInController.dispose();
+    _startingChipsController.dispose();
+    _guaranteedPrizeController.dispose();
     super.dispose();
   }
 
@@ -100,6 +110,27 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
     try {
       final buyIn = int.parse(_buyInController.text);
       
+      // 🆕 1. Determinar duración de niveles según la estructura de ciegas seleccionada
+      int levelDuration = 10; // Default: REGULAR
+      if (_blindStructureSpeed == 'TURBO') levelDuration = 5;
+      if (_blindStructureSpeed == 'DEEP') levelDuration = 15;
+      
+      // 🆕 2. Generar Estructura de Ciegas dinámica
+      List<Map<String, dynamic>> generatedBlindStructure = [
+        {'level': 1, 'small': 50, 'big': 100, 'ante': 0, 'min': levelDuration},
+        {'level': 2, 'small': 100, 'big': 200, 'ante': 0, 'min': levelDuration},
+        {'level': 3, 'small': 150, 'big': 300, 'ante': 25, 'min': levelDuration},
+        {'level': 4, 'small': 200, 'big': 400, 'ante': 50, 'min': levelDuration},
+        {'level': 5, 'small': 300, 'big': 600, 'ante': 75, 'min': levelDuration},
+        {'level': 6, 'small': 400, 'big': 800, 'ante': 100, 'min': levelDuration},
+        {'level': 7, 'small': 500, 'big': 1000, 'ante': 100, 'min': levelDuration},
+        {'level': 8, 'small': 600, 'big': 1200, 'ante': 150, 'min': levelDuration},
+        {'level': 9, 'small': 800, 'big': 1600, 'ante': 200, 'min': levelDuration},
+        {'level': 10, 'small': 1000, 'big': 2000, 'ante': 250, 'min': levelDuration},
+        {'level': 11, 'small': 1500, 'big': 3000, 'ante': 300, 'min': levelDuration},
+        {'level': 12, 'small': 2000, 'big': 4000, 'ante': 500, 'min': levelDuration},
+      ];
+      
       // Construir settings según el tipo de torneo
       final settings = {
         'rebuyAllowed': _rebuyAllowed,
@@ -107,6 +138,26 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
         'blindSpeed': _selectedBlindSpeed,
       };
       
+      // 🆕 3. Crear el mapa de datos final del torneo
+      final tournamentData = {
+        'name': _nameController.text,
+        'buyIn': buyIn,
+        'scope': _selectedScope,
+        'type': _selectedType,
+        'settings': settings,
+        'clubId': _selectedScope == 'CLUB' ? widget.clubId : null,
+        'numberOfTables': _numberOfTables,
+        // 🆕 NUEVOS CAMPOS AVANZADOS
+        'tournamentFormat': _tournamentFormat, // 'SNG' or 'MTT'
+        'blindStructureSpeed': _blindStructureSpeed, // 'TURBO', 'REGULAR', 'DEEP'
+        'startingChips': _startingChips,
+        'guaranteedPrize': _guaranteedPrize,
+        'blindStructure': generatedBlindStructure, // 🔥 CAMPO CLAVE
+        'status': 'registering', // Estado inicial
+      };
+      
+      // Note: You'll need to update your TournamentProvider.createTournamentPremium 
+      // to accept these new fields or create a new method that accepts the full tournamentData map
       await Provider.of<TournamentProvider>(context, listen: false).createTournamentPremium(
         name: _nameController.text,
         buyIn: buyIn,
@@ -114,7 +165,15 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
         type: _selectedType,
         settings: settings,
         clubId: _selectedScope == 'CLUB' ? widget.clubId : null,
-        numberOfTables: _numberOfTables, // 🆕 Sending numberOfTables
+        numberOfTables: _numberOfTables,
+        // 🆕 PASSING NEW ADVANCED CONFIGURATION PARAMETERS
+        tournamentFormat: _tournamentFormat,
+        blindStructureSpeed: _blindStructureSpeed,
+        startingChips: _startingChips,
+        guaranteedPrize: _guaranteedPrize,
+        blindStructure: generatedBlindStructure,
+        // TODO: Pass additional fields to provider - you may need to modify the provider method
+        // For now, the above tournamentData map contains all the data you'll eventually send
       );
 
       if (mounted) {
@@ -574,6 +633,145 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          
+          // 🆕 DROPDOWN: Tipo de Torneo (MTT vs SNG)
+          DropdownButtonFormField<String>(
+            value: _tournamentFormat,
+            dropdownColor: const Color(0xFF1A1A2E),
+            style: const TextStyle(color: Colors.white, fontSize: 18),
+            decoration: InputDecoration(
+              labelText: 'Formato del Torneo',
+              labelStyle: const TextStyle(color: Color(0xFFD4AF37)),
+              prefixIcon: const Icon(Icons.format_list_numbered, color: Color(0xFFD4AF37)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.3), width: 2),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 2),
+              ),
+              filled: true,
+              fillColor: Colors.white.withOpacity(0.05),
+            ),
+            items: const [
+              DropdownMenuItem(value: 'SNG', child: Text('Sit & Go (SNG)')),
+              DropdownMenuItem(value: 'MTT', child: Text('Scheduled (MTT)')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _tournamentFormat = value!;
+              });
+            },
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Por favor selecciona un formato';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 24),
+          
+          // 🆕 DROPDOWN: Estructura de Ciegas
+          DropdownButtonFormField<String>(
+            value: _blindStructureSpeed,
+            dropdownColor: const Color(0xFF1A1A2E),
+            style: const TextStyle(color: Colors.white, fontSize: 18),
+            decoration: InputDecoration(
+              labelText: 'Estructura de Ciegas',
+              labelStyle: const TextStyle(color: Color(0xFFD4AF37)),
+              prefixIcon: const Icon(Icons.speed, color: Color(0xFFD4AF37)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.3), width: 2),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 2),
+              ),
+              filled: true,
+              fillColor: Colors.white.withOpacity(0.05),
+            ),
+            items: const [
+              DropdownMenuItem(value: 'TURBO', child: Text('⚡ Turbo (5 min)')),
+              DropdownMenuItem(value: 'REGULAR', child: Text('⏱️ Regular (10 min)')),
+              DropdownMenuItem(value: 'DEEP', child: Text('🐢 Deep Stack (15 min)')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _blindStructureSpeed = value!;
+              });
+            },
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Por favor selecciona una estructura';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 24),
+          
+          // 🆕 ROW: Stack Inicial + Premio Garantizado
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _startingChipsController,
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) {
+                    setState(() {
+                      _startingChips = int.tryParse(value) ?? 10000;
+                    });
+                  },
+                  decoration: InputDecoration(
+                    labelText: 'Stack Inicial',
+                    labelStyle: const TextStyle(color: Color(0xFFD4AF37)),
+                    prefixIcon: const Icon(Icons.casino, color: Color(0xFFD4AF37)),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.white.withOpacity(0.3), width: 2),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 2),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.05),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextField(
+                  controller: _guaranteedPrizeController,
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) {
+                    setState(() {
+                      _guaranteedPrize = double.tryParse(value) ?? 0.0;
+                    });
+                  },
+                  decoration: InputDecoration(
+                    labelText: 'Garantizado (Opcional)',
+                    labelStyle: const TextStyle(color: Color(0xFFD4AF37)),
+                    prefixIcon: const Icon(Icons.attach_money, color: Color(0xFFD4AF37)),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.white.withOpacity(0.3), width: 2),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFD4AF37), width: 2),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.05),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
           // 🆕 Number of Tables Slider
           const Text(
             'Cantidad de Mesas',
@@ -708,7 +906,12 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                 if (_selectedType == 'REBUY') _buildSummaryRow('Rebuy', _rebuyAllowed ? '✅ Permitido' : '❌ No permitido'),
                 if (_selectedType == 'BOUNTY') _buildSummaryWidgetRow('Bounty', ImperialCurrency(amount: _bountyAmount, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
                 _buildSummaryWidgetRow('Buy-in', ImperialCurrency(amount: _buyInController.text, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
-                _buildSummaryRow('Cantidad de Mesas', '$_numberOfTables'), // 🆕 Updated label
+                // 🆕 NEW ADVANCED FIELDS IN SUMMARY
+                _buildSummaryRow('Formato', _tournamentFormat == 'MTT' ? '📅 Scheduled (MTT)' : '⚡ Sit & Go (SNG)'),
+                _buildSummaryRow('Estructura de Ciegas', _getBlindStructureLabel(_blindStructureSpeed)),
+                _buildSummaryRow('Stack Inicial', '$_startingChips fichas'),
+                if (_guaranteedPrize > 0) _buildSummaryRow('Garantizado', '\$${_guaranteedPrize.toStringAsFixed(0)}'),
+                _buildSummaryRow('Cantidad de Mesas', '$_numberOfTables'),
                 const Divider(color: Colors.white24, height: 32),
                 PrizePoolCalculator(
                   buyIn: double.tryParse(_buyInController.text) ?? 0,
@@ -790,6 +993,19 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
         return '⏱️ Normal';
       case 'TURBO':
         return '⚡ Turbo';
+      default:
+        return speed;
+    }
+  }
+
+  String _getBlindStructureLabel(String speed) {
+    switch (speed) {
+      case 'TURBO':
+        return '⚡ Turbo (5 min)';
+      case 'REGULAR':
+        return '⏱️ Regular (10 min)';
+      case 'DEEP':
+        return '🐢 Deep Stack (15 min)';
       default:
         return speed;
     }

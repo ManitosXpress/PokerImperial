@@ -65,7 +65,12 @@ class TrendCharts extends StatelessWidget {
                 int index = value.toInt();
                 if (index >= 0 && index < dailyStats.length) {
                   // Show simplified date (e.g., "13/12")
-                  String date = dailyStats[index]['date'] ?? '';
+                  final dateValue = dailyStats[index]['date'];
+                  if (dateValue == null) return const Text('');
+                  
+                  String date = dateValue is String ? dateValue : '';
+                  if (date.isEmpty) return const Text('');
+                  
                   List<String> parts = date.split('-');
                   if (parts.length == 3) return Text('${parts[2]}/${parts[1]}', style: const TextStyle(color: Colors.white54, fontSize: 10));
                 }
@@ -131,7 +136,12 @@ class TrendCharts extends StatelessWidget {
               getTitlesWidget: (value, meta) {
                  int index = value.toInt();
                 if (index >= 0 && index < dailyStats.length) {
-                   String date = dailyStats[index]['date'] ?? '';
+                   final dateValue = dailyStats[index]['date'];
+                   if (dateValue == null) return const Text('');
+                   
+                   String date = dateValue is String ? dateValue : '';
+                   if (date.isEmpty) return const Text('');
+                   
                   List<String> parts = date.split('-');
                   if (parts.length == 3) return Text('${parts[2]}', style: const TextStyle(color: Colors.white54, fontSize: 10));
                 }

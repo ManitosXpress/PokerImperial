@@ -230,8 +230,9 @@ export const registerForTournament = async (data: any, context: functions.https.
 
     const tournament = tournamentDoc.data();
 
-    // 4. Validar estado del torneo
-    if (tournament?.status !== 'REGISTERING' && tournament?.status !== 'LATE_REG') {
+    // 4. Validar estado del torneo (case-insensitive)
+    const tournamentStatus = (tournament?.status || '').toString().toUpperCase();
+    if (tournamentStatus !== 'REGISTERING' && tournamentStatus !== 'LATE_REG') {
         throw new functions.https.HttpsError(
             'failed-precondition',
             'Este torneo ya no acepta inscripciones.'
@@ -344,8 +345,9 @@ export const unregisterFromTournament = async (data: any, context: functions.htt
 
     const tournament = tournamentDoc.data();
 
-    // 2. Validar estado del torneo (solo REGISTERING permite cancelar)
-    if (tournament?.status !== 'REGISTERING') {
+    // 2. Validar estado del torneo (solo REGISTERING permite cancelar, case-insensitive)
+    const tournamentStatus = (tournament?.status || '').toString().toUpperCase();
+    if (tournamentStatus !== 'REGISTERING') {
         throw new functions.https.HttpsError(
             'failed-precondition',
             'No puedes cancelar tu inscripción una vez que el torneo ha comenzado.'
@@ -456,8 +458,9 @@ export const startTournament = async (data: any, context: functions.https.Callab
                 throw new functions.https.HttpsError('permission-denied', 'Only the tournament host can start the tournament.');
             }
 
-            // 3. Validate Status
-            if (tournament?.status !== 'REGISTERING' && tournament?.status !== 'LATE_REG') {
+            // 3. Validate Status (case-insensitive)
+            const tournamentStatus = (tournament?.status || '').toString().toUpperCase();
+            if (tournamentStatus !== 'REGISTERING' && tournamentStatus !== 'LATE_REG') {
                 throw new functions.https.HttpsError('failed-precondition', 'Tournament is not in a state to be started.');
             }
 

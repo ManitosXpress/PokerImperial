@@ -19,7 +19,7 @@ class LiveTablesTab extends StatelessWidget {
           .where('clubId', isEqualTo: clubId)
           .where('status', whereIn: ['waiting', 'active'])
           .where('isPrivate', isEqualTo: false)
-          .orderBy('createdAt', descending: true)
+          // Removed orderBy to avoid composite index requirement
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

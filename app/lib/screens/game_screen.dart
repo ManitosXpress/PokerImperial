@@ -22,6 +22,7 @@ import '../widgets/game/victory_overlay.dart';
 import '../widgets/game/action_controls.dart';
 import '../widgets/game/rebuy_dialog.dart'; // Import RebuyDialog
 import '../widgets/game/wallet_badge.dart'; // Import WalletBadge
+import 'package:audioplayers/audioplayers.dart'; // Import AudioPlayers
 
 // REFACTORED: New null-safe game components
 import '../widgets/game_components/community_cards_widget.dart';
@@ -71,6 +72,9 @@ class _GameScreenState extends State<GameScreen> {
   // Victory screen state
   bool _showVictoryScreen = false;
   Map<String, dynamic>? _winnerData;
+
+  // Audio Player
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   // Turn Timer
   Timer? _turnTimer;
@@ -341,6 +345,7 @@ class _GameScreenState extends State<GameScreen> {
              roomState = null;
            });
            _checkTurnTimer();
+           _playDealSound(); // Play sound when game starts
         } else {
            print('⚠️ Received null or invalid data for game_started');
         }
@@ -736,12 +741,100 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     super.dispose();
+    _audioPlayer.dispose();
   }
+
+  Future<void> _playDealSound() async {
+    try {
+      await _audioPlayer.play(AssetSource('audio/card_deal.mp3'));
+    } catch (e) {
+      print('Error playing sound: $e');
+    }
+  }
+
+  // Audio State Tracking
+  String? _previousStage;
+  String? _previousTurnPlayerId;
 
   void _updateState(dynamic data) {
     if (data == null) return;
+    
+    // 1. Detect Hand Start (Deal Cards)
+    final String currentStage = data['stage'] ?? '';
+    // If stage changed to 'preflop' (dealing) or we receive a 'started' status transition
+    // Ideally 'preflop' is the first betting round after deal.
+    if (currentStage == 'preflop' && _previousStage != 'preflop') {
+       _playDealSound();
+    }
+    _previousStage = currentStage;
+    
     setState(() => gameState = data);
     _checkTurnTimer();
+    _checkTurnNotification();
+  }
+  
+  void _checkTurnNotification() {
+    if (gameState == null) return;
+    
+    final socketService = Provider.of<SocketService>(context, listen: false);
+    final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
+    final String currentTurnId = gameState!['currentTurn'] ?? '';
+    
+    print('🔔 DEBUG: Checking Turn Notification');
+    print('   > My Socket ID: $myId');
+    print('   > My User ID: ${widget.currentUserId}');
+    print('   > Current Turn ID: $currentTurnId');
+    print('   > Previous Turn ID: $_previousTurnPlayerId');
+    
+    // Check match with either ID (Socket or Firebase UID)
+    bool isMyTurn = (currentTurnId == myId) || 
+                    (widget.currentUserId != null && currentTurnId == widget.currentUserId);
+
+    // If it's my turn AND it wasn't my turn in the last check (prevents spam)
+    if (isMyTurn && _previousTurnPlayerId != currentTurnId) {
+        print('   ✅ IT IS MY TURN! Triggering sound and message...');
+        _playYourTurnSound();
+    } else {
+        print('   ❌ Not my turn or already notified.');
+    }
+    
+    _previousTurnPlayerId = currentTurnId;
+  }
+
+  Future<void> _playYourTurnSound() async {
+    print('🔊 Attempting to play YOUR TURN sound...');
+    
+    // 1. Show Visual Notification ALWAYS (regardless of sound success)
+    if (mounted) {
+       print('📱 Showing SnackBar...');
+       ScaffoldMessenger.of(context).clearSnackBars(); // Clear previous messages
+       ScaffoldMessenger.of(context).showSnackBar(
+         SnackBar(
+           content: Row(
+             children: const [
+               Icon(Icons.gamepad, color: Colors.white),
+               SizedBox(width: 10),
+               Text("¡Es tu turno!", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+             ],
+           ),
+           backgroundColor: const Color(0xFFD4AF37), // Gold color
+           duration: const Duration(seconds: 3),
+           behavior: SnackBarBehavior.floating,
+           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+         ),
+       );
+    }
+
+    // 2. Attempt to play sound
+    try {
+      // Re-create the player to avoid 'init' issues if possible, or just use the global one.
+      // Using a new instance for single-shot sometimes helps with 'dead' states.
+      await _audioPlayer.stop(); // Stop previous if any
+      await _audioPlayer.play(AssetSource('audio/your_turn.mp3'));
+      print('🔊 Sound playing...');
+    } catch (e) {
+      print('🔴 Error playing turn sound: $e');
+    }
   }
 
   void _checkTurnTimer() {

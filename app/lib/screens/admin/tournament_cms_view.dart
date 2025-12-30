@@ -53,12 +53,12 @@ class _TournamentCMSViewState extends State<TournamentCMSView> {
             itemBuilder: (context, index) {
               final data = docs[index].data() as Map<String, dynamic>;
               final tournamentId = docs[index].id;
-              final status = data['status'] ?? '';
-              final showGodModeButton = status == 'RUNNING' || status == 'REGISTERING';
+              final status = (data['status'] ?? '').toString().toUpperCase();
+              final showGodModeButton = status == 'RUNNING' || status == 'REGISTERING' || status == 'ACTIVE';
               
               // Determine status color
               Color statusColor = Colors.grey;
-              if (status == 'RUNNING') statusColor = Colors.greenAccent;
+              if (status == 'RUNNING' || status == 'ACTIVE') statusColor = Colors.greenAccent;
               if (status == 'REGISTERING') statusColor = Colors.amberAccent;
               if (status == 'FINISHED') statusColor = Colors.redAccent;
 
