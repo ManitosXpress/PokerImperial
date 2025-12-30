@@ -671,6 +671,18 @@ export class RoomManager {
                     }
                 }
             }
+
+            // 💰 NUEVO: distribute_rake - Forward to index.ts for Cloud Function call
+            if (event === 'distribute_rake') {
+                console.log(`💰 [RAKE] Forwarding distribute_rake event to emitCallback for room ${roomId}`);
+
+                // Forward event to index.ts through emitCallback
+                if (this.emitCallback) {
+                    this.emitCallback(roomId, 'distribute_rake', data);
+                } else {
+                    console.error(`❌ [RAKE] No emitCallback set - cannot forward distribute_rake event`);
+                }
+            }
         };
 
         game.startGame(room.players, room.isPublic, roomId);
