@@ -847,6 +847,34 @@ export class PokerGame {
         return { totalRake, netPot, distribution };
     }
 
+    /**
+     * 💰 TRIGGER RAKE DISTRIBUTION (SOCKET FIRST, LEDGER LATER)
+     * 
+     * Emite un evento de sistema para que el servidor Socket llame a la Cloud Function
+     * que distribuye el rake a Platform, Club y Seller.
+     * 
+     * Este método NO es bloqueante - solo emite el evento y sigue.
+     * La Cloud Function se encarga de la contabilidad financiera en background.
+     */
+    private triggerRakeDistribution(
+        potTotal: number,
+        rakeTotal: number,
+        distribution: { platform: number; club: number; seller: number },
+        winnerIds: string[]
+    ): void {
+        // Solo emitir si hay rake para distribuir
+        if (this.onSystemEvent && rakeTotal > 0) {
+            console.log(`💰 [RAKE] Triggering rake distribution: ${rakeTotal}`);
+
+            this.onSystemEvent('distribute_rake', {
+                potTotal,
+                rakeTotal,
+                rakeDistribution: distribution,
+                winnerIds
+            });
+        }
+    }
+
     private evaluateWinner() {
         try {
             console.log('Evaluating winner with side pots...');
@@ -1024,6 +1052,32 @@ export class PokerGame {
             const signature = crypto.createHmac('sha256', GAME_SECRET)
                 .update(payloadString)
                 .digest('hex');
+
+            // 💰 SOCKET FIRST, LEDGER LATER: Emitir evento para distribución de rake
+            // Extraer IDs de ganadores del Map
+            const winnerIds = Array.from(playerWinnings.keys()).map(playerId => {
+                const player = this.players.find(p => p.id === playerId);
+                return player?.uid;
+            }).filter(uid => uid !== undefined) as string[];
+
+            // Calcular pot total (incluyendo side pots)
+            const totalPotAmount = this.sidePots.reduce((acc, pot) => acc + pot.amount, 0);
+
+            // Calcular distribución final del rake (actualmente todo va a platform)
+            // La Cloud Function determinará la distribución real basada en clubId/sellerId
+            const finalRakeDistribution = {
+                platform: totalRakeCollected,
+                club: 0,
+                seller: 0
+            };
+
+            // Trigger rake distribution (non-blocking)
+            this.triggerRakeDistribution(
+                totalPotAmount,
+                totalRakeCollected,
+                finalRakeDistribution,
+                winnerIds
+            );
 
             if (this.onGameStateChange) {
                 this.onGameStateChange({

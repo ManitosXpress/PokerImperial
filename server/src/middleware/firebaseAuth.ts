@@ -321,7 +321,7 @@ export async function callJoinTableFunction(uid: string, roomId: string, buyInAm
     // Usar reservePokerSession directamente
     // Esta función tiene la misma lógica que joinTable pero ejecuta en el servidor
     console.log(`[CALL_JOIN_TABLE] 📞 Ejecutando reservePokerSession para usuario ${uid}, mesa ${roomId}, buyIn ${buyInAmount}`);
-    
+
     try {
         const sessionId = await reservePokerSession(uid, buyInAmount, roomId);
         if (sessionId) {
@@ -355,7 +355,7 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
     // Obtener roomId de la sesión para llamar a processCashOut
     const db = admin.firestore();
     let roomId: string | null = null;
-    
+
     try {
         const sessionDoc = await db.collection('poker_sessions').doc(sessionId).get();
         if (sessionDoc.exists) {
@@ -378,9 +378,9 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
 
     try {
         console.log(`[END_POKER_SESSION] 📞 Llamando a Cloud Function: ${functionUrl}`);
-        
+
         const customToken = await admin.auth().createCustomToken(uid);
-        
+
         const response = await fetch(functionUrl, {
             method: 'POST',
             headers: {
@@ -674,3 +674,54 @@ export async function addChipsToSession(uid: string, sessionId: string, amount: 
         return false;
     }
 }
+
+/**
+ * Call distributeHandRake Cloud Function to distribute rake after a hand
+ * This is called by the socket server when the game server emits a 'distribute_rake' event
+ */
+export async function callDistributeRakeFunction(data: {
+    tableId: string;
+    gameId: string;
+    potTotal: number;
+    rakeTotal: number;
+    rakeDistribution: { platform: number; club: number; seller: number };
+    winnerIds: string[];
+    clubId?: string;
+    sellerId?: string;
+}): Promise<boolean> {
+    if (!admin.apps.length) {
+        console.error('[CALL_DISTRIBUTE_RAKE] Firebase Admin not initialized');
+        return false;
+    }
+
+    const projectId = admin.app().options.projectId || 'poker-fa33a';
+    const region = process.env.FUNCTIONS_REGION || 'us-central1';
+    const functionUrl = process.env.DISTRIBUTE_RAKE_URL || `https://${region}-${projectId}.cloudfunctions.net/distributeHandRake`;
+
+    try {
+        console.log(`[CALL_DISTRIBUTE_RAKE] Calling Cloud Function: ${functionUrl}`);
+        console.log(`[CALL_DISTRIBUTE_RAKE] Data:`, data);
+
+        const response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ data })
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            console.log(`[CALL_DISTRIBUTE_RAKE] ✅ Rake distributed successfully:`, result);
+            return true;
+        } else {
+            const errorText = await response.text();
+            console.error(`[CALL_DISTRIBUTE_RAKE] ❌ HTTP Error ${response.status}: ${errorText}`);
+            return false;
+        }
+    } catch (error: any) {
+        console.error(`[CALL_DISTRIBUTE_RAKE] ❌ Error calling function:`, error.message);
+        return false;
+    }
+}
+

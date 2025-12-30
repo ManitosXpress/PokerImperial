@@ -138,6 +138,53 @@ roomManager.setEmitCallback((roomId, event, data, targetPlayerId) => {
     } else if (event === 'game_update') {
         // Persistir actualizaciones del juego de forma asíncrona
         persistGameStateAsync(roomId, data);
+    } else if (event === 'distribute_rake') {
+        // 💰 SOCKET FIRST, LEDGER LATER: Distribuir rake a Platform, Club y Seller
+        // El servidor de juego calculó los ganadores y emitió este evento
+        // Ahora llamamos a la Cloud Function para manejar la contabilidad financiera
+        console.log(`💰 [RAKE] distribute_rake event received for room ${roomId}`);
+        console.log(`💰 [RAKE] Data:`, data);
+
+        setImmediate(async () => {
+            try {
+                // Obtener metadata de la mesa (clubId, sellerId)
+                const tableRef = admin.firestore().collection('poker_tables').doc(roomId);
+                const tableDoc = await tableRef.get();
+
+                let clubId: string | undefined;
+                let sellerId: string | undefined;
+
+                if (tableDoc.exists) {
+                    const tableData = tableDoc.data();
+                    clubId = tableData?.clubId;
+                    sellerId = tableData?.sellerId;
+
+                    console.log(`💰 [RAKE] Table metadata: clubId=${clubId}, sellerId=${sellerId}`);
+                }
+
+                // Importar helper y llamar a Cloud Function
+                const { callDistributeRakeFunction } = await import('./middleware/firebaseAuth');
+
+                const success = await callDistributeRakeFunction({
+                    tableId: roomId,
+                    gameId: `hand_${Date.now()}`,
+                    potTotal: data.potTotal,
+                    rakeTotal: data.rakeTotal,
+                    rakeDistribution: data.rakeDistribution,
+                    winnerIds: data.winnerIds,
+                    clubId,
+                    sellerId
+                });
+
+                if (success) {
+                    console.log(`✅ [RAKE] Rake distributed successfully for ${roomId}`);
+                } else {
+                    console.error(`❌ [RAKE] Failed to distribute rake for ${roomId}`);
+                }
+            } catch (error) {
+                console.error(`❌ [RAKE] Error processing distribute_rake event:`, error);
+            }
+        });
     }
 });
 
