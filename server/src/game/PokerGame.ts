@@ -1057,6 +1057,7 @@ export class PokerGame {
             // Extraer IDs de ganadores del Map
             console.log(`💰 [DEBUG] playerWinnings Map size: ${playerWinnings.size}`);
             console.log(`💰 [DEBUG] playerWinnings keys:`, Array.from(playerWinnings.keys()));
+            console.log(`💰 [DEBUG] this.players:`, this.players.map(p => ({ id: p.id, uid: p.uid, name: p.name })));
 
             const winnerIds = Array.from(playerWinnings.keys()).map(playerId => {
                 const player = this.players.find(p => p.id === playerId);
