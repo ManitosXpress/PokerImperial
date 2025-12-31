@@ -221,11 +221,21 @@ io.on('connection', (socket) => {
             let isPublic = false;
             let uid: string | undefined;
 
+            console.log('DEBUG: create_room data received:', JSON.stringify(data, null, 2));
+
             if (typeof data === 'object') {
-                if (data.minBuyIn && typeof data.minBuyIn === 'number') {
-                    entryFee = data.minBuyIn;
-                } else if (data.buyIn && typeof data.buyIn === 'number') {
-                    entryFee = data.buyIn;
+                if (data.minBuyIn) {
+                    const parsedMin = Number(data.minBuyIn);
+                    if (!isNaN(parsedMin)) {
+                        entryFee = parsedMin;
+                        console.log('DEBUG: Set entryFee from minBuyIn:', entryFee);
+                    }
+                } else if (data.buyIn) {
+                    const parsedBuyIn = Number(data.buyIn);
+                    if (!isNaN(parsedBuyIn)) {
+                        entryFee = parsedBuyIn;
+                        console.log('DEBUG: Set entryFee from buyIn:', entryFee);
+                    }
                 }
             }
 
