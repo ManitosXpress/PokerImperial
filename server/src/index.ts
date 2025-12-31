@@ -257,8 +257,22 @@ io.on('connection', (socket) => {
                 return;
             }
 
+            let minBuyIn: number | undefined;
+            let maxBuyIn: number | undefined;
+
+            if (typeof data === 'object') {
+                if (data.minBuyIn) minBuyIn = Number(data.minBuyIn);
+                if (data.maxBuyIn) maxBuyIn = Number(data.maxBuyIn);
+            }
+
             // PASO 1: Crear el room PRIMERO para obtener el ID real
-            const room = roomManager.createRoom(socket.id, playerName, undefined, entryFee, customRoomId || undefined, { addHostAsPlayer: true, isPublic, hostUid: uid });
+            const room = roomManager.createRoom(socket.id, playerName, undefined, entryFee, customRoomId || undefined, {
+                addHostAsPlayer: true,
+                isPublic,
+                hostUid: uid,
+                minBuyIn,
+                maxBuyIn
+            });
             const actualRoomId = room.id; // Este es el ID real del room
 
             // PASO 2: Reservar sesión con el ID REAL del room

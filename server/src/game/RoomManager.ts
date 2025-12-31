@@ -130,7 +130,9 @@ export class RoomManager {
             dealerId: room.dealerId,
             isPublic: room.isPublic ?? false,
             hostId: room.hostId,
-            isTournament: room.isTournament
+            isTournament: room.isTournament,
+            minBuyIn: room.minBuyIn,
+            maxBuyIn: room.maxBuyIn
             // NOTE: Explicitly excluded autoStartTimer to prevent circular refs
         };
     }
@@ -237,9 +239,9 @@ export class RoomManager {
         return this.getPublicRoomState(room) as any; // Return sanitized DTO
     }
 
-    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean } = {}): Room {
+    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean, minBuyIn?: number, maxBuyIn?: number } = {}): Room {
         const roomId = customRoomId || this.generateRoomId();
-        const { addHostAsPlayer = true, isPublic = true, hostUid, isTournament = false } = options;
+        const { addHostAsPlayer = true, isPublic = true, hostUid, isTournament = false, minBuyIn, maxBuyIn } = options;
 
         if (this.rooms.has(roomId)) {
             throw new Error(`Room ${roomId} already exists`);
@@ -272,7 +274,9 @@ export class RoomManager {
             isPublic: isPublic,
             hostId: hostUid || hostId,
             isTournament: isTournament,
-            autoStartTimer: null
+            autoStartTimer: null,
+            minBuyIn: minBuyIn,
+            maxBuyIn: maxBuyIn
         };
 
         this.rooms.set(roomId, newRoom);

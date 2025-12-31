@@ -29,4 +29,6 @@ export interface Room {
     hostId?: string;
     isTournament?: boolean;
     autoStartTimer?: NodeJS.Timeout | null;
+    minBuyIn?: number;
+    maxBuyIn?: number;
 }
