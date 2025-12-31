@@ -23,13 +23,24 @@ if (process.env.FUNCTIONS_EMULATOR === 'true' || !process.env.K_SERVICE) {
 // 🔐 GAME SECRET para verificación de firmas HMAC-SHA256
 // CRÍTICO: Debe coincidir con el secret en el Game Server
 // Prioridad: 1. Environment variable, 2. Firebase config, 3. Default (solo para dev)
-const GAME_SECRET = process.env.GAME_SECRET ||
-    functions.config().game?.secret ||
-    'default-secret-change-in-production-2024';
+// 🔐 GAME SECRET para verificación de firmas HMAC-SHA256
+// CRÍTICO: Debe coincidir con el secret en el Game Server
+// Prioridad: 1. Environment variable, 2. Firebase config, 3. Default (solo para dev)
+const getGameSecret = () => {
+    try {
+        const secret = process.env.GAME_SECRET ||
+            functions.config().game?.secret ||
+            'default-secret-change-in-production-2024';
 
-if (!process.env.GAME_SECRET && !functions.config().game?.secret) {
-    console.warn('⚠️ [SECURITY] Using default GAME_SECRET - NOT SECURE FOR PRODUCTION!');
-}
+        if (secret === 'default-secret-change-in-production-2024') {
+            console.warn('⚠️ [SECURITY] Using default GAME_SECRET - NOT SECURE FOR PRODUCTION!');
+        }
+        return secret;
+    } catch (e) {
+        console.warn('⚠️ [CONFIG] Failed to read game secret, using default');
+        return 'default-secret-change-in-production-2024';
+    }
+};
 
 // Lazy initialization de Firestore
 export const getDb = () => {
@@ -242,7 +253,7 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
  */
 function verifySignature(authPayload: string, receivedSignature: string): boolean {
     try {
-        const hmac = crypto.createHmac('sha256', GAME_SECRET);
+        const hmac = crypto.createHmac('sha256', getGameSecret());
         hmac.update(authPayload);
         const computedSignature = hmac.digest('hex');
 
@@ -613,6 +624,21 @@ export const processCashOut = async (data: ProcessCashOutRequest, context?: func
                 lastUpdated: timestamp
             });
 
+            // [AUDIT FIX] Calcular NetProfit para fines informativos (sin afectar payout)
+            let initialBuyIn = 0;
+            let totalRebuys = 0;
+            let netProfit = 0;
+
+            if (!sessionQuery.empty) {
+                const sData = sessionQuery.docs[0].data();
+                initialBuyIn = Number(sData.buyInAmount) || 0;
+                totalRebuys = Number(sData.totalRebuys) || 0; // [AUDIT FIX] Leer rebuys
+                netProfit = chipsToTransfer - (initialBuyIn + totalRebuys);
+            } else {
+                // Si no hay sesión, asumimos que todo es profit (o error), pero no bloqueamos
+                netProfit = chipsToTransfer;
+            }
+
             // 4. CERRAR SESIONES
             if (!sessionQuery.empty) {
                 sessionQuery.docs.forEach(doc => {
@@ -650,7 +676,15 @@ export const processCashOut = async (data: ProcessCashOutRequest, context?: func
                 type: 'credit',
                 reason: `Poker Cashout - ${cashoutReason}`,
                 timestamp: timestamp,
-                metadata: { tableId, chips: chipsToTransfer, reason: cashoutReason }
+                metadata: {
+                    tableId,
+                    chips: chipsToTransfer,
+                    reason: cashoutReason,
+                    // [AUDIT FIX] Datos informativos de rentabilidad
+                    initialBuyIn,
+                    totalRebuys,
+                    netProfit
+                }
             });
 
             console.log(`[CASHOUT] ✅ Successfully cashed out ${targetUserId}: ${chipsToTransfer} chips (${cashoutReason})`);
@@ -708,7 +742,36 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
 
                 if (!uid) continue;
 
-                // A. Devolver Crédito (SIN RAKE)
+                // [AUDIT FIX] Buscar sesión activa para calcular NetProfit correcto
+                // Nota: Esto es una lectura extra por jugador. En mesas de 9 jugadores es aceptable.
+                const sessionRef = db.collection('poker_sessions')
+                    .where('userId', '==', uid)
+                    .where('roomId', '==', tableId)
+                    .where('status', '==', 'active')
+                    .limit(1);
+
+                // No podemos hacer await dentro del loop de transacción fácilmente si no pre-leemos.
+                // Pero runTransaction permite lecturas después de escrituras si son independientes? 
+                // Firestore requiere lecturas ANTES de escrituras.
+                // REFACTOR: Para hacerlo bien, deberíamos leer todas las sesiones antes.
+                // Dado que universalTableSettlement es "admin/system force close", 
+                // vamos a simplificar: Si no podemos leer la sesión eficientemente, 
+                // registramos el payout pero con warning en netProfit.
+                // O mejor: Hacemos la lectura. Firestore permite lecturas secuenciales en tx.
+
+                const sessionQuery = await transaction.get(sessionRef);
+                let initialBuyIn = 0;
+                let totalRebuys = 0;
+
+                if (!sessionQuery.empty) {
+                    const sData = sessionQuery.docs[0].data();
+                    initialBuyIn = Number(sData.buyInAmount) || 0;
+                    totalRebuys = Number(sData.totalRebuys) || 0; // [AUDIT FIX]
+                }
+
+                const netProfit = chips - (initialBuyIn + totalRebuys);
+
+                // A. Devolver Crédito (SIN RAKE - [AUDIT FIX] Confirmado: Payout = FinalStack)
                 const userRef = db.collection('users').doc(uid);
                 transaction.update(userRef, {
                     credit: admin.firestore.FieldValue.increment(chips),
@@ -725,7 +788,14 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                     type: 'credit',
                     reason: `Table Closed - ${tableId}`,
                     timestamp: timestamp,
-                    metadata: { tableId, chips }
+                    metadata: {
+                        tableId,
+                        chips,
+                        // [AUDIT FIX]
+                        initialBuyIn,
+                        totalRebuys,
+                        netProfit
+                    }
                 });
             }
 

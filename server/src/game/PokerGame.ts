@@ -811,8 +811,8 @@ export class PokerGame {
         distribution: { platform: number, club: number, seller: number }
     } {
         // CONFIGURACIÓN DE RAKE
-        const RAKE_PERCENTAGE = 0.08; // 8% (Updated)
-        const MAX_RAKE_CAP = 500;     // Max 500 fichas por mano (Updated)
+        const RAKE_PERCENTAGE = 0.08; // 8%
+        const MAX_RAKE_CAP = 50;      // [AUDIT FIX] Cap reducido a 50 fichas
 
         let totalRake = 0;
 
@@ -822,8 +822,8 @@ export class PokerGame {
             totalRake = 0;
             console.log('🚫 [RAKE] No Flop, No Drop. Rake = 0');
         } else {
-            totalRake = Math.floor(pot * RAKE_PERCENTAGE);
-            if (totalRake > MAX_RAKE_CAP) totalRake = MAX_RAKE_CAP;
+            // [AUDIT FIX] Fórmula con Cap
+            totalRake = Math.min(Math.floor(pot * RAKE_PERCENTAGE), MAX_RAKE_CAP);
         }
 
         const netPot = pot - totalRake;
