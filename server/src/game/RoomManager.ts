@@ -286,13 +286,14 @@ export class RoomManager {
         return this.getPublicRoomState(newRoom) as any; // Return sanitized DTO
     }
 
-    public joinRoom(roomId: string, playerId: string, playerName: string, sessionId?: string, buyInAmount: number = 1000): Room | null {
+    public joinRoom(roomId: string, playerId: string, playerName: string, sessionId?: string, buyInAmount: number = 1000, uid?: string): Room | null {
         const room = this.rooms.get(roomId);
         if (!room) return null;
 
         const existingPlayer = room.players.find(p => p.id === playerId);
         if (existingPlayer) {
             if (sessionId) existingPlayer.pokerSessionId = sessionId;
+            if (uid) existingPlayer.uid = uid; // Update UID if provided on rejoin
             console.log(`Player ${playerId} rejoined room ${roomId}`);
             return this.getPublicRoomState(room) as any; // Return sanitized DTO
         }
@@ -306,6 +307,7 @@ export class RoomManager {
 
         const newPlayer: Player = {
             id: playerId,
+            uid: uid, // ✅ CRÍTICO: Asignar UID explícitamente
             name: playerName,
             chips: buyInAmount,
             isFolded: false,
@@ -350,7 +352,7 @@ export class RoomManager {
             }
         }
 
-        console.log(`✅ Player ${playerId} joined room ${roomId}`);
+        console.log(`✅ Player ${playerId} (UID: ${uid || 'N/A'}) joined room ${roomId}`);
         return this.getPublicRoomState(room) as any; // Return sanitized DTO
     }
 
@@ -576,9 +578,8 @@ export class RoomManager {
             console.log(`🔧 System Event in Room ${roomId}: ${event}`); // Sanitized log
 
             // 🎯 NUEVO: GAME_ENDED - Trigger settlement with real pot data
-            // ❌ DEPRECATED: Old GAME_ENDED settlement - replaced by distribute_rake
-            // This code is now obsolete and generates errors
-            /*
+            // 🎯 NUEVO: GAME_ENDED - Trigger settlement with real pot data
+            // ✅ ENABLED: Using Firestore Trigger for reliable settlement
             if (event === 'GAME_ENDED') {
                 console.log(`🎯 [GAME_ENDED] Triggering settlement for ${roomId}`);
 
@@ -605,7 +606,6 @@ export class RoomManager {
                     console.warn(`⚠️ Skipping settlement for ${roomId} - Pot is 0 (pre-flop fold)`);
                 }
             }
-            */
 
 
             // 🎯 NUEVO: PLAYER_EXIT - Trigger cashout to release moneyInPlay
@@ -682,6 +682,9 @@ export class RoomManager {
             }
 
             // 💰 NUEVO: distribute_rake - Forward to index.ts for Cloud Function call
+            // 💰 NUEVO: distribute_rake - Forward to index.ts for Cloud Function call
+            // ❌ DISABLED: HTTP Call is unreliable (401/404). Using GAME_ENDED trigger instead.
+            /*
             if (event === 'distribute_rake') {
                 console.log(`💰 [RAKE] Forwarding distribute_rake event to emitCallback for room ${roomId}`);
 
@@ -692,6 +695,7 @@ export class RoomManager {
                     console.error(`❌ [RAKE] No emitCallback set - cannot forward distribute_rake event`);
                 }
             }
+            */
         };
 
         game.startGame(room.players, room.isPublic, roomId);

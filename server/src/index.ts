@@ -522,7 +522,7 @@ io.on('connection', (socket) => {
             }
 
             // --- LÓGICA DE JUGADOR NORMAL ---
-            let room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
+            let room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee, uid);
 
             if (!room) {
                 try {

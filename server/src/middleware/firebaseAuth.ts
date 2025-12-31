@@ -352,66 +352,9 @@ export async function endPokerSession(uid: string, sessionId: string, finalChips
         return false;
     }
 
-    // Obtener roomId de la sesión para llamar a processCashOut
-    const db = admin.firestore();
-    let roomId: string | null = null;
-
-    try {
-        const sessionDoc = await db.collection('poker_sessions').doc(sessionId).get();
-        if (sessionDoc.exists) {
-            roomId = sessionDoc.data()?.roomId || null;
-        }
-    } catch (error) {
-        console.error('[END_POKER_SESSION] Error obteniendo roomId:', error);
-    }
-
-    if (!roomId) {
-        console.error('[END_POKER_SESSION] No se pudo obtener roomId de la sesión');
-        // Fallback a implementación antigua
-        return await endPokerSessionLegacy(uid, sessionId, finalChips, totalRake, exitFee);
-    }
-
-    // Intentar llamar a Cloud Function processCashOut
-    const projectId = admin.app().options.projectId || 'poker-fa33a';
-    const region = process.env.FUNCTIONS_REGION || 'us-central1';
-    const functionUrl = process.env.FUNCTIONS_URL || `https://${region}-${projectId}.cloudfunctions.net/processCashOutFunction`;
-
-    try {
-        console.log(`[END_POKER_SESSION] 📞 Llamando a Cloud Function: ${functionUrl}`);
-
-        const customToken = await admin.auth().createCustomToken(uid);
-
-        const response = await fetch(functionUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${customToken}`
-            },
-            body: JSON.stringify({
-                data: {
-                    tableId: roomId,
-                    userId: uid,
-                    playerChips: finalChips
-                }
-            })
-        });
-
-        if (response.ok) {
-            const result = await response.json();
-            if (result.result && result.result.success) {
-                console.log(`[END_POKER_SESSION] ✅ Cashout procesado vía Cloud Function`);
-                return true;
-            }
-        } else {
-            const errorText = await response.text();
-            console.warn(`[END_POKER_SESSION] ⚠️ HTTP Error ${response.status}: ${errorText}`);
-        }
-    } catch (httpError: any) {
-        console.warn(`[END_POKER_SESSION] ⚠️ Error en llamada HTTP: ${httpError.message}`);
-    }
-
-    // FALLBACK: Si la llamada HTTP falla, usar implementación legacy
-    console.log(`[END_POKER_SESSION] 🔄 Usando fallback: implementación legacy`);
+    // FORCE LEGACY / FALLBACK LOGIC (Direct Firestore Write)
+    // Avoids HTTP 401 errors from Cloud Function calls without token
+    console.log(`[END_POKER_SESSION] ⚡ Using Legacy/Fallback logic (Direct Firestore) for ${uid}`);
     return await endPokerSessionLegacy(uid, sessionId, finalChips, totalRake, exitFee);
 }
 
