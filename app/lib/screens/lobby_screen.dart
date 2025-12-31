@@ -642,33 +642,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 constraints: const BoxConstraints(maxWidth: 400),
                                 child: OutlinedButton(
                                   onPressed: _isCreating ? null : () {
-                                    final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
-                                    final userName = authProvider.user?.displayName ?? 'Player';
-                                    
-                                    setState(() => _isCreating = true);
-                                    socketService.createRoom(
-                                      userName,
-                                      onSuccess: (roomId) async {
-                                        await Future.delayed(const Duration(seconds: 1));
-                                        if (mounted) {
-                                          setState(() => _isCreating = false);
-                                          _showShareDialog(roomId);
-                                        }
-                                      },
-                                      onError: (error) {
-                                        setState(() => _isCreating = false);
-                                        if (error.contains('Insufficient balance')) {
-                                          showDialog(
-                                            context: context,
-                                            builder: (_) => const AddCreditsDialog(),
-                                          );
-                                        } else {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(content: Text('Error: $error')),
-                                          );
-                                        }
-                                      },
-                                    );
+                                    _showCreateRoomDialog(context);
                                   },
                                   style: OutlinedButton.styleFrom(
                                     minimumSize: const Size(double.infinity, 60),
@@ -787,6 +761,121 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showCreateRoomDialog(BuildContext context) {
+    final minBuyInController = TextEditingController(text: '1000');
+    final maxBuyInController = TextEditingController(text: '5000');
+    final myBuyInController = TextEditingController(text: '1000');
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1C),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Color(0xFFC89A4E), width: 2),
+        ),
+        title: const Text(
+          'Crear Sala Privada',
+          style: TextStyle(color: Color(0xFFC89A4E), fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildDialogTextField(minBuyInController, 'Mínimo Buy-In', Icons.arrow_downward),
+            const SizedBox(height: 12),
+            _buildDialogTextField(maxBuyInController, 'Máximo Buy-In', Icons.arrow_upward),
+            const SizedBox(height: 12),
+            _buildDialogTextField(myBuyInController, 'Tu Buy-In Inicial', Icons.monetization_on),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final min = double.tryParse(minBuyInController.text) ?? 1000;
+              final max = double.tryParse(maxBuyInController.text) ?? 5000;
+              final buyIn = double.tryParse(myBuyInController.text) ?? 1000;
+              
+              if (buyIn < min || buyIn > max) {
+                 ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('El Buy-In debe estar entre el Mínimo y Máximo')),
+                 );
+                 return;
+              }
+              
+              Navigator.pop(context); // Close dialog
+              
+              // Proceed with creation
+              final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+              final socketService = Provider.of<SocketService>(context, listen: false);
+              final userName = authProvider.user?.displayName ?? 'Player';
+              
+              setState(() => _isCreating = true);
+              socketService.createRoom(
+                userName,
+                minBuyIn: min,
+                maxBuyIn: max,
+                buyIn: buyIn,
+                onSuccess: (roomId) async {
+                  await Future.delayed(const Duration(seconds: 1));
+                  if (mounted) {
+                    setState(() => _isCreating = false);
+                    _showShareDialog(roomId);
+                  }
+                },
+                onError: (error) {
+                  setState(() => _isCreating = false);
+                  if (error.contains('Insufficient balance')) {
+                    showDialog(
+                      context: context,
+                      builder: (_) => const AddCreditsDialog(),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error: $error')),
+                    );
+                  }
+                },
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFC89A4E),
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('CREAR SALA'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDialogTextField(TextEditingController controller, String label, IconData icon) {
+    return TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.white70),
+        prefixIcon: Icon(icon, color: const Color(0xFFC89A4E)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.white24),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFC89A4E)),
+        ),
+        filled: true,
+        fillColor: Colors.black26,
       ),
     );
   }

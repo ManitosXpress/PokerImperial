@@ -221,6 +221,14 @@ io.on('connection', (socket) => {
             let isPublic = false;
             let uid: string | undefined;
 
+            if (typeof data === 'object') {
+                if (data.minBuyIn && typeof data.minBuyIn === 'number') {
+                    entryFee = data.minBuyIn;
+                } else if (data.buyIn && typeof data.buyIn === 'number') {
+                    entryFee = data.buyIn;
+                }
+            }
+
             if (customRoomId) {
                 try {
                     const roomDoc = await admin.firestore().collection('poker_tables').doc(customRoomId).get();
