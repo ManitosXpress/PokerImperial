@@ -1,7 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from 'firebase-admin';
 import { addCredits, deductCredits, withdrawCredits, adminWithdrawCredits } from "./functions/credits";
-import { settleGameRound, joinTable, processCashOut, universalTableSettlement } from "./functions/gameEconomy";
+import { settleGameRound, joinTable, processCashOut, universalTableSettlement, distributeHandRake } from "./functions/gameEconomy";
 import { createClub, joinClub, leaveClub, ownerCreateMember, sellerCreatePlayer } from './functions/club';
 import { createTournament, registerForTournament, unregisterFromTournament, startTournament, openTournamentTables } from './functions/tournament';
 import { adminPauseTournament, adminResumeTournament, adminForceBlindLevel, adminBroadcastMessage } from './functions/tournamentAdmin';
@@ -99,6 +99,7 @@ export const startGameFunction = _startGameFunction;
 export const universalTableSettlementFunction = functions.https.onCall(universalTableSettlement);
 export const joinTableFunction = functions.https.onCall(joinTable);
 export const processCashOutFunction = functions.https.onCall(processCashOut);
+export const distributeHandRakeFunction = distributeHandRake; // 💰 HTTP endpoint for rake distribution
 export const getInGameBalanceFunction = functions.https.onCall(getInGameBalance);
 export const dailyEconomyCronFunction = dailyEconomyCron;
 

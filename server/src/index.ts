@@ -180,8 +180,9 @@ roomManager.setEmitCallback((roomId, event, data, targetPlayerId) => {
                     rakeTotal: data.rakeTotal,
                     rakeDistribution: data.rakeDistribution,
                     winnerIds: data.winnerIds,
-                    clubId,
-                    sellerId
+                    isPrivate: data.isPrivate ?? false, // 🔒 Use from payload
+                    clubId: data.clubId || clubId,      // Prefer payload, fallback to Firestore
+                    sellerId: data.sellerId || sellerId // Prefer payload, fallback to Firestore
                 });
 
                 if (success) {

@@ -726,7 +726,7 @@ export class RoomManager {
             */
         };
 
-        game.startGame(room.players, room.isPublic, roomId);
+        game.startGame(room.players, room.isPublic ?? true, roomId, room.clubId, room.sellerId);
         room.gameState = 'playing';
 
         if (this.emitCallback) {

@@ -629,6 +629,7 @@ export async function callDistributeRakeFunction(data: {
     rakeTotal: number;
     rakeDistribution: { platform: number; club: number; seller: number };
     winnerIds: string[];
+    isPrivate?: boolean;  // 🔒 Flag for private table (100% Platform rule)
     clubId?: string;
     sellerId?: string;
 }): Promise<boolean> {

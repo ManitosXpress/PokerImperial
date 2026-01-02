@@ -29,6 +29,9 @@ export class PokerGame {
     // Rake System
     private isPublicRoom: boolean = true; // Default to public
     public roomId: string = ''; // ID de la sala para firma criptográfica
+    private isPrivate: boolean = false; // 🔒 Flag for private table (100% rake to platform)
+    private clubId?: string; // Club ID for rake distribution
+    private sellerId?: string; // Seller ID for rake distribution
 
     // Side Pots System - For All-In scenarios with different stack sizes
     private sidePots: Array<{
@@ -44,11 +47,14 @@ export class PokerGame {
 
     constructor() { }
 
-    public startGame(players: Player[], isPublic: boolean = true, roomId: string = '') {
+    public startGame(players: Player[], isPublic: boolean = true, roomId: string = '', clubId?: string, sellerId?: string) {
         if (players.length < 2) throw new Error('Not enough players');
         this.players = players;
         this.isPublicRoom = isPublic;
         this.roomId = roomId;
+        this.isPrivate = !isPublic; // 🔒 Convert to isPrivate flag
+        this.clubId = clubId;
+        this.sellerId = sellerId;
 
         // Initialize status
         this.players.forEach(p => {
@@ -870,7 +876,10 @@ export class PokerGame {
                 potTotal,
                 rakeTotal,
                 rakeDistribution: distribution,
-                winnerIds
+                winnerIds,
+                isPrivate: this.isPrivate,  // 🔒 CRUCIAL: Flag for 100% Platform rule
+                clubId: this.clubId,
+                sellerId: this.sellerId
             });
         }
     }

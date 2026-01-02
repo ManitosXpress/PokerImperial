@@ -31,4 +31,6 @@ export interface Room {
     autoStartTimer?: NodeJS.Timeout | null;
     minBuyIn?: number;
     maxBuyIn?: number;
+    clubId?: string;   // 💰 Club ID for rake distribution
+    sellerId?: string; // 💰 Seller ID for rake distribution
 }

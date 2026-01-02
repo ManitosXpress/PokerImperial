@@ -835,3 +835,172 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
         throw error instanceof functions.https.HttpsError ? error : new functions.https.HttpsError('internal', error.message);
     }
 };
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 5. DISTRIBUTE HAND RAKE - Distribución de Rake por Mano
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * Called by the game server after each hand to distribute rake to:
+ * - Platform (always)
+ * - Club (if public table and player has club)
+ * - Seller (if public table and player has seller)
+ * 
+ * RULE: Private tables → 100% to Platform
+ * RULE: Public tables → 50% Platform / 30% Club / 20% Seller
+ */
+export const distributeHandRake = functions.https.onRequest(async (req, res) => {
+    // Enable CORS
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'POST');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+    }
+
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+
+    const db = getDb();
+    const data = req.body?.data || req.body;
+
+    const { tableId, gameId, potTotal, rakeTotal, isPrivate, clubId, sellerId } = data;
+
+    if (!tableId || rakeTotal === undefined) {
+        res.status(400).json({ error: 'Missing required parameters: tableId, rakeTotal' });
+        return;
+    }
+
+    // Skip if no rake to distribute
+    if (rakeTotal <= 0) {
+        console.log(`[RAKE] Skipping distribution - rakeTotal is ${rakeTotal}`);
+        res.json({ success: true, message: 'No rake to distribute' });
+        return;
+    }
+
+    console.log(`[RAKE] Distributing rake: table=${tableId}, rake=${rakeTotal}, isPrivate=${isPrivate}`);
+
+    try {
+        // Calculate distribution based on table type
+        let distribution = {
+            platform: 0,
+            club: 0,
+            seller: 0
+        };
+
+        if (isPrivate === true) {
+            // 🔒 PRIVATE TABLE: 100% Platform
+            distribution.platform = rakeTotal;
+            distribution.club = 0;
+            distribution.seller = 0;
+            console.log(`[RAKE] Private table - 100% to Platform: ${rakeTotal}`);
+        } else {
+            // 🌍 PUBLIC TABLE: 50% / 30% / 20%
+            const platformShare = Math.floor(rakeTotal * 0.50);
+            const clubShare = Math.floor(rakeTotal * 0.30);
+            const sellerShare = rakeTotal - platformShare - clubShare; // Remainder to seller
+
+            distribution.platform = platformShare;
+            distribution.club = clubId ? clubShare : 0;
+            distribution.seller = sellerId ? sellerShare : 0;
+
+            // If no club, platform gets club share
+            if (!clubId) {
+                distribution.platform += clubShare;
+            }
+            // If no seller, platform gets seller share
+            if (!sellerId) {
+                distribution.platform += sellerShare;
+            }
+
+            console.log(`[RAKE] Public table - Platform: ${distribution.platform}, Club: ${distribution.club}, Seller: ${distribution.seller}`);
+        }
+
+        const timestamp = admin.firestore.FieldValue.serverTimestamp();
+        const batch = db.batch();
+
+        // A. Platform Share (always > 0 if rakeTotal > 0)
+        if (distribution.platform > 0) {
+            const statsRef = db.collection('system_stats').doc('economy');
+            batch.set(statsRef, {
+                accumulated_rake: admin.firestore.FieldValue.increment(distribution.platform),
+                dailyGGR: admin.firestore.FieldValue.increment(distribution.platform),
+                lastUpdated: timestamp
+            }, { merge: true });
+
+            // Ledger entry for platform
+            const platformLedgerRef = db.collection('financial_ledger').doc();
+            batch.set(platformLedgerRef, {
+                type: 'RAKE_PLATFORM',
+                amount: distribution.platform,
+                tableId,
+                handId: gameId,
+                potTotal,
+                totalRake: rakeTotal,
+                isPrivate: isPrivate ?? false,
+                timestamp,
+                description: `Platform rake from hand ${gameId}`
+            });
+        }
+
+        // B. Club Share (only if > 0 - NO ZERO ENTRIES)
+        if (distribution.club > 0 && clubId) {
+            const clubRef = db.collection('clubs').doc(clubId);
+            batch.update(clubRef, {
+                walletBalance: admin.firestore.FieldValue.increment(distribution.club),
+                totalRakeEarned: admin.firestore.FieldValue.increment(distribution.club)
+            });
+
+            // Ledger entry for club
+            const clubLedgerRef = db.collection('financial_ledger').doc();
+            batch.set(clubLedgerRef, {
+                type: 'RAKE_CLUB',
+                amount: distribution.club,
+                clubId,
+                tableId,
+                handId: gameId,
+                timestamp,
+                description: `Club rake from hand ${gameId}`
+            });
+        }
+
+        // C. Seller Share (only if > 0 - NO ZERO ENTRIES)
+        if (distribution.seller > 0 && sellerId) {
+            const sellerRef = db.collection('users').doc(sellerId);
+            batch.update(sellerRef, {
+                credit: admin.firestore.FieldValue.increment(distribution.seller),
+                commissionEarned: admin.firestore.FieldValue.increment(distribution.seller)
+            });
+
+            // Ledger entry for seller
+            const sellerLedgerRef = db.collection('financial_ledger').doc();
+            batch.set(sellerLedgerRef, {
+                type: 'RAKE_SELLER',
+                amount: distribution.seller,
+                sellerId,
+                tableId,
+                handId: gameId,
+                timestamp,
+                description: `Seller commission from hand ${gameId}`
+            });
+        }
+
+        await batch.commit();
+
+        console.log(`[RAKE] ✅ Distribution complete for hand ${gameId}`);
+        res.json({
+            success: true,
+            distribution,
+            tableId,
+            gameId
+        });
+
+    } catch (error: any) {
+        console.error(`[RAKE] ❌ Error distributing rake:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
