@@ -3,6 +3,7 @@ import { PokerGame } from './PokerGame';
 import { endPokerSession } from '../middleware/firebaseAuth';
 import * as admin from 'firebase-admin';
 import * as crypto from 'crypto';
+import { performTableSettlement, savePlayerStateToFirestore } from '../utils/localSettlement';
 
 // 🔐 GAME SECRET para firmar cashouts
 const GAME_SECRET = process.env.GAME_SECRET || 'default-secret-change-in-production-2024';
@@ -361,7 +362,11 @@ export class RoomManager {
         return this.rooms.get(roomId);
     }
 
-    // ✅ NUEVO: Método para trigger cashout firmado con HMAC
+    /**
+     * @deprecated Use performTableSettlement from localSettlement.ts instead
+     * This method attempts HTTP calls to Cloud Functions which fail with 401 errors
+     * Kept for backward compatibility only
+     */
     private async triggerSecureCashout(
         uid: string,
         tableId: string,
@@ -420,7 +425,11 @@ export class RoomManager {
         }
     }
 
-    // ✅ NUEVO: Método para trigger settlement firmado con HMAC
+    /**
+     * @deprecated Replaced by Firestore Triggers in Cloud Functions
+     * Settlement is now handled automatically by _trigger_settlement collection
+     * Kept for backward compatibility only
+     */
     private async triggerRoundSettlement(roomId: string, data: any): Promise<void> {
         if (!data.authPayload || !data.securitySignature) {
             console.error(`❌ Cannot trigger settlement for room ${roomId}: Missing signature`);
@@ -454,17 +463,29 @@ export class RoomManager {
         }
     }
 
-    public removePlayer(playerId: string): { roomId: string, player: Player } | null {
+    public async removePlayer(playerId: string): Promise<{ roomId: string, player: Player } | null> {
         for (const [roomId, room] of this.rooms) {
             const index = room.players.findIndex(p => p.id === playerId);
             if (index !== -1) {
                 const player = room.players[index];
 
-                // ✅ NUEVO: Trigger cashout ANTES de remover al jugador
-                if (player.uid && player.chips > 0 && !player.isBot) {
-                    console.log(`💰 Triggering cashout for ${player.uid}: ${player.chips} chips`);
-                    this.triggerSecureCashout(player.uid, roomId, player.chips, 'EXIT')
-                        .catch(err => console.error(`❌ Failed to trigger cashout for ${player.uid}:`, err));
+                // ✅ REFACTORED: LOCAL SETTLEMENT (sin HTTP)
+                if (player.uid && !player.isBot) {
+                    console.log(`💰 [SETTLEMENT] Saving state and settling for ${player.uid}: ${player.chips} chips`);
+
+                    try {
+                        // 1. FORCE SAVE: Guardar estado actual en Firestore
+                        await savePlayerStateToFirestore(roomId, player.uid, player.chips);
+
+                        // 2. LOCAL SETTLEMENT: Ejecutar liquidación directamente con Admin SDK
+                        const totalRake = player.totalRakePaid || 0;
+                        await performTableSettlement(roomId, player.uid, player.chips, totalRake, 'EXIT');
+
+                        console.log(`✅ [SETTLEMENT] Completed for ${player.uid}`);
+                    } catch (err) {
+                        console.error(`❌ [SETTLEMENT] Failed for ${player.uid}:`, err);
+                        // Continuar de todos modos para remover al jugador
+                    }
                 }
 
                 room.players.splice(index, 1);
@@ -731,12 +752,25 @@ export class RoomManager {
 
         console.log(`🔒 Cerrando mesa ${roomId} y procesando cashouts para todos los jugadores...`);
 
-        // ✅ CRÍTICO: Procesar cashout para TODOS los jugadores (excepto bots)
+        // ✅ REFACTORED: LOCAL SETTLEMENT (sin HTTP)
         const cashoutPromises = room.players
-            .filter(p => p.uid && p.chips > 0 && !p.isBot)
-            .map(p => {
-                console.log(`💰 Triggering cashout for ${p.uid}: ${p.chips} chips`);
-                return this.triggerSecureCashout(p.uid!, roomId, p.chips, 'TABLE_CLOSED');
+            .filter(p => p.uid && !p.isBot)
+            .map(async (p) => {
+                console.log(`💰 [SETTLEMENT] Processing ${p.uid}: ${p.chips} chips`);
+
+                try {
+                    // 1. FORCE SAVE
+                    await savePlayerStateToFirestore(roomId, p.uid!, p.chips);
+
+                    // 2. LOCAL SETTLEMENT
+                    const totalRake = p.totalRakePaid || 0;
+                    await performTableSettlement(roomId, p.uid!, p.chips, totalRake, 'TABLE_CLOSED');
+
+                    console.log(`✅ [SETTLEMENT] Completed for ${p.uid}`);
+                } catch (error) {
+                    console.error(`❌ [SETTLEMENT] Failed for ${p.uid}:`, error);
+                    throw error; // Propagar para que Promise.all lo capture
+                }
             });
 
         try {

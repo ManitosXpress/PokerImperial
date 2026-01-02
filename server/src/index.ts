@@ -667,7 +667,7 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', async () => {
         console.log('User disconnected:', socket.id);
-        const result = roomManager.removePlayer(socket.id);
+        const result = await roomManager.removePlayer(socket.id);
         if (result) {
             const { roomId, player } = result;
             const uid = (socket as any).userId;

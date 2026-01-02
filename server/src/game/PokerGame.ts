@@ -1393,7 +1393,7 @@ export class PokerGame {
         const authPayload = {
             tableId: this.roomId,
             gameId: `hand_${Date.now()}`,
-            winnerUid: winner.uid,
+            winnerUid: winner.uid || null, // ✅ FIX: Nunca undefined, usar null para bots
             potTotal: (finalAmount || 0) + rakeAmount, // Reconstruir pot total
             rakeTaken: rakeAmount,
             finalPlayerStacks: finalPlayerStacks,
