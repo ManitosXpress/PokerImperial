@@ -1,5 +1,6 @@
 import { Player, Room } from '../types';
 import * as crypto from 'crypto';
+import { processRakeLocal } from '../utils/localRake';
 const Hand = require('pokersolver').Hand;
 
 const GAME_SECRET = process.env.GAME_SECRET || 'default-secret-change-in-production-2024';
@@ -856,13 +857,13 @@ export class PokerGame {
     }
 
     /**
-     * 💰 TRIGGER RAKE DISTRIBUTION (SOCKET FIRST, LEDGER LATER)
+     * 💰 TRIGGER RAKE DISTRIBUTION (LOCAL SERVER-SIDE EXECUTION)
      * 
-     * Emite un evento de sistema para que el servidor Socket llame a la Cloud Function
-     * que distribuye el rake a Platform, Club y Seller.
+     * Ejecuta la distribución de rake DIRECTAMENTE usando Admin SDK.
+     * Elimina la dependencia de Cloud Functions HTTP que pueden fallar.
      * 
-     * Este método NO es bloqueante - solo emite el evento y sigue.
-     * La Cloud Function se encarga de la contabilidad financiera en background.
+     * Este método es NON-BLOCKING - ejecuta en background y no bloquea el flujo del juego.
+     * La transacción de Firestore garantiza la integridad de datos financieros.
      */
     private triggerRakeDistribution(
         potTotal: number,
@@ -870,18 +871,45 @@ export class PokerGame {
         distribution: { platform: number; club: number; seller: number },
         winnerIds: string[]
     ): void {
-        // Solo emitir si hay rake para distribuir
-        if (this.onSystemEvent && rakeTotal > 0) {
-            console.log(`💰 [RAKE] Triggering rake distribution: ${rakeTotal}`);
+        // Solo procesar si hay rake para distribuir
+        if (rakeTotal <= 0) {
+            console.log(`💰 [RAKE] No rake to distribute. Skipping.`);
+            return;
+        }
 
+        console.log(`💰 [RAKE] Triggering LOCAL rake distribution: ${rakeTotal}`);
+
+        // 🔥 EJECUCIÓN INMEDIATA DEL PAGO AL ADMIN (LOCAL, SIN CLOUD FUNCTIONS)
+        processRakeLocal({
+            tableId: this.roomId,
+            handId: `hand_${Date.now()}`,
+            rakeTotal: rakeTotal,
+            isPrivate: this.isPrivate,
+            potTotal: potTotal,
+            winnerUid: winnerIds.length > 0 ? winnerIds[0] : null,
+            clubId: this.clubId,
+            sellerId: this.sellerId
+        }).then(success => {
+            if (success) {
+                console.log(`💰 [RAKE] ✅ Local rake distribution completed successfully.`);
+            } else {
+                console.error(`💰 [RAKE] ❌ Local rake distribution failed.`);
+            }
+        }).catch(err => {
+            console.error(`💰 [RAKE] ❌ Error in local rake async execution:`, err);
+        });
+
+        // También emitir evento para compatibilidad con sistemas legacy (si existen)
+        if (this.onSystemEvent) {
             this.onSystemEvent('distribute_rake', {
                 potTotal,
                 rakeTotal,
                 rakeDistribution: distribution,
                 winnerIds,
-                isPrivate: this.isPrivate,  // 🔒 CRUCIAL: Flag for 100% Platform rule
+                isPrivate: this.isPrivate,
                 clubId: this.clubId,
-                sellerId: this.sellerId
+                sellerId: this.sellerId,
+                processedLocally: true // Flag para indicar que ya se procesó localmente
             });
         }
     }
