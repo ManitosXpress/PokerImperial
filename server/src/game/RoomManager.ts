@@ -251,6 +251,7 @@ export class RoomManager {
         if (addHostAsPlayer) {
             const host: Player = {
                 id: hostId,
+                uid: hostUid, // ✅ CRÍTICO: Asignar UID al host
                 name: hostName,
                 chips: buyInAmount,
                 isFolded: false,
@@ -426,12 +427,18 @@ export class RoomManager {
             return;
         }
 
+        // ✅ VALIDACIÓN: Evitar undefined en winnerUid
+        const winnerUid = data.winner?.uid || null;
+        if (!winnerUid) {
+            console.warn(`⚠️ Settlement warning for room ${roomId}: winnerUid is missing/undefined. Using null.`);
+        }
+
         try {
             const db = admin.firestore();
             await db.collection('_trigger_settlement').add({
                 tableId: roomId,
                 gameId: `game_${Date.now()}`, // Or extract from payload if parsed, but payload string is enough
-                winnerUid: data.winner?.uid,
+                winnerUid: winnerUid, // ✅ SAFE: Ahora es string | null, nunca undefined
                 potTotal: data.gameState?.pot || 0,
                 authPayload: data.authPayload,
                 signature: data.securitySignature,

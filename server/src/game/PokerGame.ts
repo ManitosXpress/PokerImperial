@@ -1041,7 +1041,7 @@ export class PokerGame {
             const authPayload = {
                 tableId: this.roomId,
                 gameId: `hand_${Date.now()}`,
-                winnerUid: mainWinner.uid || null, // Ganador principal para referencia
+                winnerUid: mainWinner.uid || null, // Ganador principal para referencia (SAFE: null if undefined)
                 potTotal: this.sidePots.reduce((acc, pot) => acc + pot.amount, 0) + this.pot, // Total real incluyendo side pots
                 rakeTaken: totalRakeCollected,
                 finalPlayerStacks: finalPlayerStacks,
