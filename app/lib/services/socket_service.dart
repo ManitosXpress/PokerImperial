@@ -9,8 +9,17 @@ class SocketService extends ChangeNotifier {
   bool _isConnecting = false;
   DateTime? _lastConnectionAttempt;
   int _connectionAttempts = 0;
-  static const int _maxConnectionAttempts = 3;
-  static const Duration _minRetryDelay = Duration(seconds: 5);
+  static const int _maxConnectionAttempts = 5; // Increased for Render cold starts
+  static const Duration _minRetryDelay = Duration(seconds: 2); // Faster initial retry
+  
+  // 🚀 RENDER CONFIGURATION
+  // Render WebSocket URL - Central source of truth
+  static const String _renderProductionUrl = 'https://poker-server-s8yj.onrender.com';
+  static const String _localDevUrl = 'http://10.0.2.2:3000'; // Android emulator
+  
+  // Reconnection with exponential backoff for Render cold starts
+  Timer? _reconnectTimer;
+  static const Duration _maxReconnectDelay = Duration(seconds: 30);
   
   // Reconnection / Active Room State
   String? _currentRoomId;
@@ -24,6 +33,34 @@ class SocketService extends ChangeNotifier {
     return _socket!;
   }
   String? get socketId => _socket?.id;
+
+  /// Schedules automatic reconnection with exponential backoff
+  /// Useful for Render cold starts (free tier services may sleep)
+  void _scheduleReconnect() {
+    if (_connectionAttempts >= _maxConnectionAttempts) {
+      print('⚠️ [RECONNECT] Max attempts reached. Manual reconnection required.');
+      return;
+    }
+    
+    // Exponential backoff: 2s, 4s, 8s, 16s, 30s (capped)
+    final delaySeconds = (_minRetryDelay.inSeconds * (1 << _connectionAttempts))
+        .clamp(2, _maxReconnectDelay.inSeconds);
+    final delay = Duration(seconds: delaySeconds);
+    
+    print('🔄 [RECONNECT] Scheduling reconnection in ${delay.inSeconds}s (attempt ${_connectionAttempts + 1}/$_maxConnectionAttempts)');
+    
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () {
+      print('🔄 [RECONNECT] Attempting reconnection...');
+      connect();
+    });
+  }
+  
+  /// Cancels any pending reconnection timer
+  void _cancelReconnect() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+  }
 
   Future<void> connect() async {
     // Prevent multiple simultaneous connection attempts
@@ -58,10 +95,12 @@ class SocketService extends ChangeNotifier {
     _connectionAttempts++;
 
     try {
-      // Adjust URL based on platform
+      // 🚀 RENDER: Use production URL for web, local for emulator
       String uri = kIsWeb 
-        ? 'https://poker-server-s8yj.onrender.com'  // Production backend (Render)
-        : 'http://10.0.2.2:3000';  // Android emulator (local)
+        ? _renderProductionUrl  // Production backend (Render)
+        : _localDevUrl;  // Android emulator (local)
+      
+      print('🔌 [SOCKET] Connecting to: $uri (attempt $_connectionAttempts/$_maxConnectionAttempts)');
       
       // Dispose existing socket if any
       _socket?.dispose();
@@ -82,9 +121,10 @@ class SocketService extends ChangeNotifier {
       _socket!.connect();
 
       _socket!.onConnect((_) async {
-        print('Connected to server');
+        print('✅ [SOCKET] Connected to server');
         _isConnecting = false;
         _connectionAttempts = 0; // Reset on successful connection
+        _cancelReconnect(); // Cancel any pending reconnection
         
         // Get fresh token on every connection
         final user = FirebaseAuth.instance.currentUser;
@@ -106,18 +146,27 @@ class SocketService extends ChangeNotifier {
       });
 
       _socket!.onDisconnect((_) {
-        print('Disconnected from server');
+        print('❌ [SOCKET] Disconnected from server');
         _isConnected = false;
         _isConnecting = false;
         notifyListeners();
+        
+        // 🔄 Auto-reconnect for Render cold starts
+        // Only reconnect if we were actively in a room
+        if (_currentRoomId != null) {
+          print('🔄 [SOCKET] Was in room $_currentRoomId, attempting auto-reconnect...');
+          _scheduleReconnect();
+        }
       });
 
       _socket!.onConnectError((error) {
-        print('Socket connection error: $error');
+        print('❌ [SOCKET] Connection error: $error');
         _isConnecting = false;
         _isConnected = false;
         notifyListeners();
-        // Don't print repeatedly, only log once per attempt
+        
+        // 🔄 Auto-reconnect on connection error (Render may be waking up)
+        _scheduleReconnect();
       });
 
       // Only log errors once, not repeatedly
@@ -191,6 +240,7 @@ class SocketService extends ChangeNotifier {
   }
 
   void disconnect() {
+    _cancelReconnect(); // Stop any pending auto-reconnection
     _socket?.dispose();
     _socket?.disconnect();
     _socket = null;

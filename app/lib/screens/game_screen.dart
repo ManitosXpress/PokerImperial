@@ -16,7 +16,7 @@ import '../widgets/chip_stack.dart';
 import '../widgets/game_wallet_dialog.dart';
 import '../game_controllers/practice_game_controller.dart';
 import '../widgets/game/betting_dialog.dart';
-import 'table_lobby_screen.dart';
+
 
 import '../widgets/game/victory_overlay.dart';
 import '../widgets/game/action_controls.dart';
@@ -83,17 +83,61 @@ class _GameScreenState extends State<GameScreen> {
   // Rebuy Dialog State
   bool _isRebuyDialogShowing = false;
   
+  // Music Player
+  final AudioPlayer _musicPlayer = AudioPlayer();
+  bool _isMusicPlaying = false;
+  
   // Club Leader Mode
   bool get isClubLeader => widget.currentUserId != null && 
                            widget.clubOwnerId != null && 
                            widget.currentUserId == widget.clubOwnerId;
 
+  // --- Music Methods ---
+  Future<void> _playLobbyMusic() async {
+    // Only play if waiting and not practice mode (unless practice lobby uses it too, but usually online)
+    if (gameState != null) return; 
+    
+    try {
+      await _musicPlayer.setReleaseMode(ReleaseMode.loop);
+      await _musicPlayer.setVolume(0.5); 
+      await _musicPlayer.play(AssetSource('audio/lobby_music.mp3'));
+      if (mounted) setState(() => _isMusicPlaying = true);
+    } catch (e) {
+      print('Error playing lobby music: $e');
+      if (mounted) setState(() => _isMusicPlaying = false);
+    }
+  }
+
+  void _stopLobbyMusic() {
+    _musicPlayer.stop();
+    if (mounted) setState(() => _isMusicPlaying = false);
+  }
+
+  void _toggleMusic() async {
+    if (_isMusicPlaying) {
+      await _musicPlayer.pause();
+      if (mounted) setState(() => _isMusicPlaying = false);
+    } else {
+      try {
+        await _musicPlayer.setReleaseMode(ReleaseMode.loop);
+        await _musicPlayer.setVolume(0.5);
+        await _musicPlayer.play(AssetSource('audio/lobby_music.mp3'));
+        if (mounted) setState(() => _isMusicPlaying = true);
+      } catch (e) {
+         print('Error resuming music: $e');
+      }
+    }
+  }
+
+
   @override
   void initState() {
     super.initState();
 
-    if (widget.initialGameState != null) {
+    if (widget.initialGameState != null && widget.initialGameState!.containsKey('players')) {
       gameState = widget.initialGameState;
+    } else {
+       _playLobbyMusic(); // Start music if waiting
     }
 
     if (widget.isPracticeMode) {
@@ -339,6 +383,7 @@ class _GameScreenState extends State<GameScreen> {
       print('🎮 GAME_STARTED received!');
       if (mounted) {
         if (data != null && data is Map<String, dynamic>) {
+           _stopLobbyMusic(); // Stop music when game starts
            setState(() {
              gameState = data;
              // Only clear roomState if we have valid game state
@@ -613,11 +658,22 @@ class _GameScreenState extends State<GameScreen> {
 
     void tryJoin() {
        print('Attempting to join room ${widget.roomId}...');
+       
+       final int? initialBuyIn = widget.initialGameState?['initialBuyIn'];
+       print('💰 [GameScreen] Initial BuyIn: $initialBuyIn');
+
        socketService.joinRoom(
           widget.roomId, 
           user.displayName ?? 'Player',
           onSuccess: (roomId) {
              print('Joined room $roomId on socket');
+             
+             if (mounted) {
+               setState(() {
+                 _socketReady = true;
+               });
+             }
+
              // Auto-start game if requested (Tournament Host directly from lobby)
              if (widget.autoStart) {
                 print('🚀 Auto-starting game for Tournament Host...');
@@ -634,8 +690,17 @@ class _GameScreenState extends State<GameScreen> {
                     socketService.createRoom(
                         user.displayName ?? 'Player',
                         roomId: widget.roomId,
+                        // If forcing creation from Firestore plan, we might need to fetch settings from Firestore here too?
+                        // For now, we rely on default or what server knows.
                         onSuccess: (newRoomId) {
                            print('Created room $newRoomId on socket as Host');
+                           
+                           if (mounted) {
+                             setState(() {
+                               _socketReady = true;
+                             });
+                           }
+
                            // Auto-start game if requested
                            if (widget.autoStart) {
                               print('🚀 Auto-starting game after creation...');
@@ -716,13 +781,20 @@ class _GameScreenState extends State<GameScreen> {
      });
   }
 
+
+
+  // ... (lines 106-749 omitted)
+
   @override
   void dispose() {
     _practiceController?.dispose();
     _stopTurnTimer();
     _retryJoinTimer?.cancel();
+    _stopLobbyMusic();
+    _musicPlayer.dispose(); 
 
     if (!widget.isPracticeMode) {
+// ...
       try {
         final socketService = Provider.of<SocketService>(context, listen: false);
         socketService.socket.off('player_joined');
@@ -804,25 +876,9 @@ class _GameScreenState extends State<GameScreen> {
   Future<void> _playYourTurnSound() async {
     print('🔊 Attempting to play YOUR TURN sound...');
     
-    // 1. Show Visual Notification ALWAYS (regardless of sound success)
+    // 1. Visual Notification moved to build() method as a Positioned widget
     if (mounted) {
-       print('📱 Showing SnackBar...');
-       ScaffoldMessenger.of(context).clearSnackBars(); // Clear previous messages
-       ScaffoldMessenger.of(context).showSnackBar(
-         SnackBar(
-           content: Row(
-             children: const [
-               Icon(Icons.gamepad, color: Colors.white),
-               SizedBox(width: 10),
-               Text("¡Es tu turno!", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-             ],
-           ),
-           backgroundColor: const Color(0xFFD4AF37), // Gold color
-           duration: const Duration(seconds: 3),
-           behavior: SnackBarBehavior.floating,
-           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-         ),
-       );
+       // Optional: Add haptic feedback or other non-visual cues here
     }
 
     // 2. Attempt to play sound
@@ -1035,6 +1091,18 @@ class _GameScreenState extends State<GameScreen> {
         backgroundColor: Colors.black,
         elevation: 0,
         actions: [
+          if (gameState == null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: IconButton(
+                icon: Icon(
+                  _isMusicPlaying ? Icons.music_note : Icons.music_off,
+                  color: Colors.white, // Or Gold to standout? White matches theme better usually.
+                ),
+                onPressed: _toggleMusic,
+                tooltip: _isMusicPlaying ? 'Silenciar Música' : 'Activar Música',
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: IconButton(
@@ -1503,6 +1571,51 @@ class _GameScreenState extends State<GameScreen> {
                       right: 10,
                       child: WalletBadge(),
                     ),
+
+                    // INDICADOR DE TURNO (Compacto y posicionado arriba)
+                    if (isTurn)
+                      Positioned(
+                        top: 70, 
+                        left: 0, 
+                        right: 0,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFFFD700), Color(0xFFFFA000)], // Gold gradient
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.5),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                              border: Border.all(color: Colors.white30, width: 1),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.timer, color: Colors.black.withOpacity(0.8), size: 14),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  "TU TURNO",
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                    letterSpacing: 1.0,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
 
                     // Action Controls (Refactored Widget)
                     // Always render ActionControls, it handles spectator mode internally

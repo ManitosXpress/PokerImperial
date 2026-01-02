@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/socket_service.dart';
+import 'package:audioplayers/audioplayers.dart'; // Audio Import
 
 class WaitingRoomView extends StatefulWidget {
   final String roomId;
@@ -36,16 +37,56 @@ class WaitingRoomView extends StatefulWidget {
 class _WaitingRoomViewState extends State<WaitingRoomView> {
   int? _autoStartSeconds;
   Timer? _localTimer;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isMusicPlaying = false; 
 
   @override
   void initState() {
     super.initState();
     _setupSocketListeners();
+    // Delay slightly to allow context mount? No, just try play.
+    _playLobbyMusic();
+  }
+
+  Future<void> _playLobbyMusic() async {
+    try {
+      await _audioPlayer.setReleaseMode(ReleaseMode.loop);
+      await _audioPlayer.setVolume(0.5); 
+      await _audioPlayer.play(AssetSource('audio/lobby_music.mp3'));
+      if (mounted) setState(() => _isMusicPlaying = true);
+    } catch (e) {
+      print('Error playing lobby music: $e');
+      if (mounted) setState(() => _isMusicPlaying = false);
+    }
+  }
+
+  void _toggleMusic() async {
+    if (_isMusicPlaying) {
+      await _audioPlayer.pause();
+      if (mounted) setState(() => _isMusicPlaying = false);
+    } else {
+      // If we are resuming, we might need to play if it wasn't playing before
+      // Or resume if it was paused.
+      // Easiest is to just call play() again, AudioPlayer handles it.
+      try {
+        await _audioPlayer.setReleaseMode(ReleaseMode.loop); // Ensure loop
+        await _audioPlayer.setVolume(0.5);
+        await _audioPlayer.play(AssetSource('audio/lobby_music.mp3'));
+        if (mounted) setState(() => _isMusicPlaying = true);
+      } catch (e) {
+         print('Error resuming music: $e');
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('Error al reproducir música: $e')),
+         );
+      }
+    }
   }
 
   @override
   void dispose() {
     _localTimer?.cancel();
+    _audioPlayer.stop();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -105,48 +146,64 @@ class _WaitingRoomViewState extends State<WaitingRoomView> {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Room Header
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1A237E), Color(0xFF0D47A1)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+              Stack(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF1A237E), Color(0xFF0D47A1)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFE94560), width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.5),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.table_restaurant, color: Color(0xFFE94560), size: 48),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Sala: ${widget.roomId}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '$playerCount / $maxPlayers Jugadores',
+                          style: const TextStyle(
+                            color: Color(0xFFFFD700),
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFE94560), width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    const Icon(Icons.table_restaurant, color: Color(0xFFE94560), size: 48),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Sala: ${widget.roomId}',
-                      style: const TextStyle(
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: IconButton(
+                      icon: Icon(
+                        _isMusicPlaying ? Icons.music_note : Icons.music_off,
                         color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.5,
                       ),
+                      onPressed: _toggleMusic,
+                      tooltip: _isMusicPlaying ? 'Silenciar Música' : 'Activar Música',
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '$playerCount / $maxPlayers Jugadores',
-                      style: const TextStyle(
-                        color: Color(0xFFFFD700),
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
               
               const SizedBox(height: 32),

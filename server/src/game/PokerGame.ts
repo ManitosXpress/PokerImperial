@@ -17,6 +17,7 @@ export class PokerGame {
     private players: Player[] = [];
     private activePlayers: Player[] = []; // Players currently in the hand
     private lastAggressorIndex: number = 0;
+    private isHandProcessing: boolean = false; // 🔒 Security Flag: Prevent double spending on race conditions
 
     // AFK System
     private turnTimer: NodeJS.Timeout | null = null;
@@ -95,11 +96,12 @@ export class PokerGame {
             return;
         }
 
-        // CRÍTICO: Detener cualquier timer activo antes de iniciar nueva ronda
         if (this.turnTimer) {
             clearTimeout(this.turnTimer);
             this.turnTimer = null;
         }
+
+        this.isHandProcessing = false; // 🔓 Reset security flag for new round
 
         this.initializeDeck();
         this.pot = 0;
@@ -1340,6 +1342,13 @@ export class PokerGame {
     }
 
     private endHand(winner: Player, wonAmount?: number, winnerHand?: any, playerHands?: Array<{ player: Player, hand: any }>, rakeDistribution?: any) {
+        // 🔒 SECURITY CHECK: Prevent race conditions (Double Spending)
+        if (this.isHandProcessing) {
+            console.warn(`🛑 [RACE_CONDITION] endHand called but hand is already processing for table ${this.roomId}. Ignoring.`);
+            return;
+        }
+        this.isHandProcessing = true;
+
         // CRÍTICO: Detener el timer de turno inmediatamente cuando termina la mano
         if (this.turnTimer) {
             clearTimeout(this.turnTimer);

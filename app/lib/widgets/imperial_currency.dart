@@ -36,6 +36,7 @@ class ImperialCurrency extends StatelessWidget {
           'assets/images/imperial_coin.png',
           width: computedIconSize,
           height: computedIconSize,
+          cacheWidth: (computedIconSize * 3).toInt(), // Optimize for Web/Chrome
           fit: BoxFit.contain,
         ),
         if (isSpaceBetween) SizedBox(width: computedIconSize * 0.2), // Small gap relative to size

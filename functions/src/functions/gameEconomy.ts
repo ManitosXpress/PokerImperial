@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as crypto from "crypto";
 import { SettleRoundRequest } from "../types";
+// import { onCall, HttpsError } from "firebase-functions/v2/https"; // Revertido a v1 por error de upgrade
 import { logToLiveFeed, FeedEventPayload } from "../utils/liveFeed";
 
 // 🔐 Cargar variables de entorno desde .env SOLO EN DESARROLLO LOCAL
@@ -49,6 +50,12 @@ export const getDb = () => {
     }
     return admin.firestore();
 };
+
+/**
+ * 🏦 BILLETERA DE TESORERÍA (VERSATECH)
+ * UID del Administrador Principal que recibe el platformShare del rake.
+ */
+const TREASURY_ADMIN_UID = "g2ISanL5eJVfkNijF8l8jFiA5v52";
 
 /**
  * INTERFACES
@@ -838,7 +845,7 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * 5. DISTRIBUTE HAND RAKE - Distribución de Rake por Mano
+ * 5. DISTRIBUTE HAND RAKE - Distribución de Rake por Mano (IDEMPOTENTE)
  * ═══════════════════════════════════════════════════════════════════════════
  * 
  * Called by the game server after each hand to distribute rake to:
@@ -848,159 +855,99 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
  * 
  * RULE: Private tables → 100% to Platform
  * RULE: Public tables → 50% Platform / 30% Club / 20% Seller
+ * 
+ * 🔒 IDEMPOTENCY: Uses deterministic doc ID `rake_${tableId}_${handId}`
+ *    to prevent duplicate processing. Transaction-based duplicate detection.
  */
-export const distributeHandRake = functions.https.onRequest(async (req, res) => {
-    // Enable CORS
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Access-Control-Allow-Methods', 'POST');
-    res.set('Access-Control-Allow-Headers', 'Content-Type');
+export const distributeHandRake = functions.https.onCall(async (data, context) => {
+    // v1 onCall recibe (data, context) directamente
+    // const data = request.data; // v2 style removed
 
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-
-    if (req.method !== 'POST') {
-        res.status(405).json({ error: 'Method not allowed' });
-        return;
-    }
+    // Validar autenticación si es necesario (opcional para server-to-server si se usa admin sdk, pero onCall requiere auth context usualmente)
+    // Si el Game Server llama sin auth user, onCall puede fallar si se espera context.auth.
+    // Pero el Game Server suele tener credenciales.
+    // Para simplificar y mantener compatibilidad con la llamada anterior (que era onRequest),
+    // si el cliente cambió a onCall, enviará el formato correcto.
 
     const db = getDb();
-    const data = req.body?.data || req.body;
 
-    const { tableId, gameId, potTotal, rakeTotal, isPrivate, clubId, sellerId } = data;
-
-    if (!tableId || rakeTotal === undefined) {
-        res.status(400).json({ error: 'Missing required parameters: tableId, rakeTotal' });
-        return;
+    // Validaciones básicas
+    if (!data.tableId || !data.handId || typeof data.rakeTotal !== 'number') {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing required data parameters');
     }
 
-    // Skip if no rake to distribute
-    if (rakeTotal <= 0) {
-        console.log(`[RAKE] Skipping distribution - rakeTotal is ${rakeTotal}`);
-        res.json({ success: true, message: 'No rake to distribute' });
-        return;
-    }
-
-    console.log(`[RAKE] Distributing rake: table=${tableId}, rake=${rakeTotal}, isPrivate=${isPrivate}`);
+    const ledgerId = `rake_${data.tableId}_${data.handId}`;
+    const ledgerRef = db.collection('financial_ledger').doc(ledgerId);
+    const treasuryRef = db.collection('users').doc(TREASURY_ADMIN_UID);
 
     try {
-        // Calculate distribution based on table type
-        let distribution = {
-            platform: 0,
-            club: 0,
-            seller: 0
-        };
-
-        if (isPrivate === true) {
-            // 🔒 PRIVATE TABLE: 100% Platform
-            distribution.platform = rakeTotal;
-            distribution.club = 0;
-            distribution.seller = 0;
-            console.log(`[RAKE] Private table - 100% to Platform: ${rakeTotal}`);
-        } else {
-            // 🌍 PUBLIC TABLE: 50% / 30% / 20%
-            const platformShare = Math.floor(rakeTotal * 0.50);
-            const clubShare = Math.floor(rakeTotal * 0.30);
-            const sellerShare = rakeTotal - platformShare - clubShare; // Remainder to seller
-
-            distribution.platform = platformShare;
-            distribution.club = clubId ? clubShare : 0;
-            distribution.seller = sellerId ? sellerShare : 0;
-
-            // If no club, platform gets club share
-            if (!clubId) {
-                distribution.platform += clubShare;
-            }
-            // If no seller, platform gets seller share
-            if (!sellerId) {
-                distribution.platform += sellerShare;
+        await db.runTransaction(async (transaction) => {
+            // 1. 🔒 IDEMPOTENCIA: Si ya cobramos esta mano, abortar silenciosamente.
+            const doc = await transaction.get(ledgerRef);
+            if (doc.exists) {
+                console.log(`[IDEMPOTENCY] Rake for hand ${data.handId} already processed.`);
+                return;
             }
 
-            console.log(`[RAKE] Public table - Platform: ${distribution.platform}, Club: ${distribution.club}, Seller: ${distribution.seller}`);
-        }
+            // 2. 🧮 CALCULAR SHARE (100% Plataforma en Privadas, Split en Públicas)
+            let platformShare = 0;
+            let clubShare = 0;
+            let sellerShare = 0;
 
-        const timestamp = admin.firestore.FieldValue.serverTimestamp();
-        const batch = db.batch();
+            if (data.isPrivate === true) {
+                platformShare = data.rakeTotal;
+            } else {
+                platformShare = Math.floor(data.rakeTotal * 0.50);
+                clubShare = Math.floor(data.rakeTotal * 0.30);
+                sellerShare = data.rakeTotal - platformShare - clubShare;
+            }
 
-        // A. Platform Share (always > 0 if rakeTotal > 0)
-        if (distribution.platform > 0) {
-            const statsRef = db.collection('system_stats').doc('economy');
-            batch.set(statsRef, {
-                accumulated_rake: admin.firestore.FieldValue.increment(distribution.platform),
-                dailyGGR: admin.firestore.FieldValue.increment(distribution.platform),
-                lastUpdated: timestamp
-            }, { merge: true });
+            // 3. 💸 EJECUTAR TRANSFERENCIA AL ADMIN (TESORERÍA)
+            if (platformShare > 0) {
+                transaction.update(treasuryRef, {
+                    credit: admin.firestore.FieldValue.increment(platformShare)
+                });
+            }
 
-            // Ledger entry for platform
-            const platformLedgerRef = db.collection('financial_ledger').doc();
-            batch.set(platformLedgerRef, {
-                type: 'RAKE_PLATFORM',
-                amount: distribution.platform,
-                tableId,
-                handId: gameId,
-                potTotal,
-                totalRake: rakeTotal,
-                isPrivate: isPrivate ?? false,
-                timestamp,
-                description: `Platform rake from hand ${gameId}`
-            });
-        }
-
-        // B. Club Share (only if > 0 - NO ZERO ENTRIES)
-        if (distribution.club > 0 && clubId) {
-            const clubRef = db.collection('clubs').doc(clubId);
-            batch.update(clubRef, {
-                walletBalance: admin.firestore.FieldValue.increment(distribution.club),
-                totalRakeEarned: admin.firestore.FieldValue.increment(distribution.club)
+            // 4. 📝 REGISTRAR EN EL LEDGER (Consolidado)
+            transaction.set(ledgerRef, {
+                type: 'RAKE_COLLECTED',
+                amount: data.rakeTotal,
+                breakdown: {
+                    platform: platformShare,
+                    club: clubShare,
+                    seller: sellerShare
+                },
+                tableId: data.tableId,
+                handId: data.handId,
+                isPrivate: !!data.isPrivate,
+                processedAt: admin.firestore.FieldValue.serverTimestamp(),
+                treasuryUid: TREASURY_ADMIN_UID // Referencia cruzada
             });
 
-            // Ledger entry for club
-            const clubLedgerRef = db.collection('financial_ledger').doc();
-            batch.set(clubLedgerRef, {
-                type: 'RAKE_CLUB',
-                amount: distribution.club,
-                clubId,
-                tableId,
-                handId: gameId,
-                timestamp,
-                description: `Club rake from hand ${gameId}`
-            });
-        }
+            // (Opcional) Aquí agregarías la lógica para pagar al Club/Seller si corresponde
+            // Mantenemos la lógica existente para Club y Seller si están presentes en data
+            if (clubShare > 0 && data.clubId) {
+                const clubRef = db.collection('clubs').doc(data.clubId);
+                transaction.set(clubRef, {
+                    walletBalance: admin.firestore.FieldValue.increment(clubShare),
+                    totalRakeEarned: admin.firestore.FieldValue.increment(clubShare)
+                }, { merge: true });
+            }
 
-        // C. Seller Share (only if > 0 - NO ZERO ENTRIES)
-        if (distribution.seller > 0 && sellerId) {
-            const sellerRef = db.collection('users').doc(sellerId);
-            batch.update(sellerRef, {
-                credit: admin.firestore.FieldValue.increment(distribution.seller),
-                commissionEarned: admin.firestore.FieldValue.increment(distribution.seller)
-            });
-
-            // Ledger entry for seller
-            const sellerLedgerRef = db.collection('financial_ledger').doc();
-            batch.set(sellerLedgerRef, {
-                type: 'RAKE_SELLER',
-                amount: distribution.seller,
-                sellerId,
-                tableId,
-                handId: gameId,
-                timestamp,
-                description: `Seller commission from hand ${gameId}`
-            });
-        }
-
-        await batch.commit();
-
-        console.log(`[RAKE] ✅ Distribution complete for hand ${gameId}`);
-        res.json({
-            success: true,
-            distribution,
-            tableId,
-            gameId
+            if (sellerShare > 0 && data.sellerId) {
+                const sellerRef = db.collection('users').doc(data.sellerId);
+                transaction.update(sellerRef, {
+                    credit: admin.firestore.FieldValue.increment(sellerShare),
+                    commissionEarned: admin.firestore.FieldValue.increment(sellerShare)
+                });
+            }
         });
 
-    } catch (error: any) {
-        console.error(`[RAKE] ❌ Error distributing rake:`, error);
-        res.status(500).json({ error: error.message });
+        return { success: true, message: "Rake processed and transferred to Treasury." };
+
+    } catch (error) {
+        console.error("❌ Error processing rake transaction:", error);
+        throw new functions.https.HttpsError('internal', 'Transaction failed');
     }
 });

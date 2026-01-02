@@ -1,285 +1,239 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 
 class CreateTableDialog extends StatefulWidget {
-  const CreateTableDialog({super.key});
+  final Function(Map<String, int>) onCreate;
+
+  const CreateTableDialog({Key? key, required this.onCreate}) : super(key: key);
 
   @override
-  State<CreateTableDialog> createState() => _CreateTableDialogState();
+  _CreateTableDialogState createState() => _CreateTableDialogState();
 }
 
 class _CreateTableDialogState extends State<CreateTableDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _smallBlindController = TextEditingController(text: '10');
-  final _bigBlindController = TextEditingController(text: '20');
-  final _minBuyInController = TextEditingController(text: '100');
-  final _maxBuyInController = TextEditingController(text: '1000');
-
-  bool _isCreating = false;
+  
+  // No default values, use hints
+  final TextEditingController _sbController = TextEditingController();
+  final TextEditingController _bbController = TextEditingController();
+  final TextEditingController _minBuyInController = TextEditingController();
+  final TextEditingController _maxBuyInController = TextEditingController();
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _smallBlindController.dispose();
-    _bigBlindController.dispose();
+    _sbController.dispose();
+    _bbController.dispose();
     _minBuyInController.dispose();
     _maxBuyInController.dispose();
     super.dispose();
   }
 
-  Future<void> _createTable() async {
-    if (!_formKey.currentState!.validate()) return;
+  void _submit() {
+    if (_formKey.currentState!.validate()) {
+      final sb = int.parse(_sbController.text);
+      final bb = int.parse(_bbController.text);
+      final minBuyIn = int.parse(_minBuyInController.text);
+      final maxBuyIn = int.parse(_maxBuyInController.text);
 
-    setState(() => _isCreating = true);
+      print('📋 [CreateTableDialog] Validated values: SB=$sb, BB=$bb, Min=$minBuyIn, Max=$maxBuyIn');
 
-    try {
-      final functions = FirebaseFunctions.instance;
-      final result = await functions.httpsCallable('createPublicTableFunction').call({
-        'name': _nameController.text.trim(),
-        'smallBlind': int.parse(_smallBlindController.text),
-        'bigBlind': int.parse(_bigBlindController.text),
-        'minBuyIn': int.parse(_minBuyInController.text),
-        'maxBuyIn': int.parse(_maxBuyInController.text),
+      widget.onCreate({
+        'smallBlind': sb,
+        'bigBlind': bb,
+        'minBuyIn': minBuyIn,
+        'maxBuyIn': maxBuyIn,
       });
-
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ ${result.data['message']}'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isCreating = false);
-      }
+      Navigator.of(context).pop();
+    } else {
+      print('❌ [CreateTableDialog] Validation failed');
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    const Color goldColor = Color(0xFFFFD700);
+    const Color inputBg = Color(0xFF1A1A2E);
+    const Color textColor = Colors.white70;
+
     return Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 500),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF1a1f3a),
-              Color(0xFF0f1425),
+      backgroundColor: const Color(0xFF16213E),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+               const Center(
+                child: Text(
+                  'CONFIGURAR MESA',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              
+              // Blinds Row
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildInputField(
+                      controller: _sbController,
+                      label: 'SB (Small Blind)',
+                      hint: 'Ej: 10',
+                      validator: (val) {
+                        return _validateNumber(val, min: 1);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildInputField(
+                      controller: _bbController,
+                      label: 'BB (Big Blind)',
+                      hint: 'Ej: 20',
+                      validator: (val) {
+                        final sb = int.tryParse(_sbController.text) ?? 0;
+                        return _validateNumber(val, min: sb + 1, errorMsg: 'Debe ser > SB');
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              
+              // Buy-In Row
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildInputField(
+                      controller: _minBuyInController,
+                      label: 'Min Buy-In',
+                      hint: 'Ej: 1000',
+                      validator: (val) {
+                         final bb = int.tryParse(_bbController.text) ?? 0;
+                        return _validateNumber(val, min: bb * 10, errorMsg: 'Min ${bb*10}');
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildInputField(
+                      controller: _maxBuyInController,
+                      label: 'Max Buy-In',
+                      hint: 'Ej: 5000',
+                      validator: (val) {
+                        final min = int.tryParse(_minBuyInController.text) ?? 0;
+                        return _validateNumber(val, min: min, errorMsg: '>= Min');
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 32),
+              
+              // Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text(
+                        'Cancelar',
+                        style: TextStyle(color: Colors.white54, fontSize: 16),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: goldColor,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Crear Mesa',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
-          ),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFFFD700), width: 2),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.8),
-              blurRadius: 20,
-              spreadRadius: 5,
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Title
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Crear Mesa Pública',
-                      style: TextStyle(
-                        color: Color(0xFFFFD700),
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close, color: Colors.white70),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Table Name
-                _buildTextField(
-                  controller: _nameController,
-                  label: 'Nombre de la Mesa',
-                  icon: Icons.table_chart,
-                  validator: (v) => v?.isEmpty == true ? 'Requerido' : null,
-                ),
-                const SizedBox(height: 16),
-
-                // Blinds Row
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _smallBlindController,
-                        label: 'Ciega Pequeña',
-                        icon: Icons.remove_circle_outline,
-                        keyboardType: TextInputType.number,
-                        validator: (v) => int.tryParse(v ?? '') == null
-                            ? 'Número inválido'
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _bigBlindController,
-                        label: 'Ciega Grande',
-                        icon: Icons.add_circle_outline,
-                        keyboardType: TextInputType.number,
-                        validator: (v) => int.tryParse(v ?? '') == null
-                            ? 'Número inválido'
-                            : null,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Buy-In Row
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _minBuyInController,
-                        label: 'Buy-In Mínimo',
-                        icon: Icons.arrow_downward,
-                        keyboardType: TextInputType.number,
-                        validator: (v) => int.tryParse(v ?? '') == null
-                            ? 'Número inválido'
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTextField(
-                        controller: _maxBuyInController,
-                        label: 'Buy-In Máximo',
-                        icon: Icons.arrow_upward,
-                        keyboardType: TextInputType.number,
-                        validator: (v) => int.tryParse(v ?? '') == null
-                            ? 'Número inválido'
-                            : null,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-
-                // Create Button
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFFD700), Color(0xFFB8860B)],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFFFFD700).withOpacity(0.5),
-                        blurRadius: 10,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: ElevatedButton.icon(
-                    onPressed: _isCreating ? null : _createTable,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    icon: _isCreating
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.black,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Icon(Icons.add_circle, color: Colors.black),
-                    label: Text(
-                      _isCreating ? 'CREANDO...' : 'CREAR MESA',
-                      style: const TextStyle(
-                        color: Colors.black,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildTextField({
+  Widget _buildInputField({
     required TextEditingController controller,
     required String label,
-    required IconData icon,
-    TextInputType? keyboardType,
-    String? Function(String?)? validator,
+    required String hint,
+    required String? Function(String?) validator,
   }) {
-    return TextFormField(
-      controller: controller,
-      style: const TextStyle(color: Colors.white),
-      keyboardType: keyboardType,
-      validator: validator,
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: const TextStyle(color: Color(0xFFFFD700)),
-        prefixIcon: Icon(icon, color: const Color(0xFFFFD700)),
-        filled: true,
-        fillColor: Colors.black.withOpacity(0.3),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFFFD700)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 14),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: const Color(0xFFFFD700).withOpacity(0.5)),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          validator: validator,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
+            filled: true,
+            fillColor: const Color(0xFF1A1A2E).withOpacity(0.5),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Colors.white24),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Colors.white12),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFFFD700)),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 12),
+          ),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFFFD700), width: 2),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.red),
-        ),
-      ),
+      ],
     );
+  }
+
+  String? _validateNumber(String? value, {int min = 0, String? errorMsg}) {
+    if (value == null || value.isEmpty) {
+      return 'Requerido';
+    }
+    final num = int.tryParse(value);
+    if (num == null) {
+      return 'Inválido';
+    }
+    if (num < min) {
+      return errorMsg ?? 'Min $min';
+    }
+    return null;
   }
 }

@@ -18,6 +18,9 @@ import 'tournament/tournament_list_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 import '../widgets/poker_loading_indicator.dart';
 import '../providers/club_provider.dart';
+import '../widgets/create_table_dialog.dart';
+import '../widgets/buy_in_dialog.dart';
+import '../providers/wallet_provider.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -50,6 +53,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   void _navigateToGame(String roomId, [Map<String, dynamic>? initialState]) async {
     final bool isPractice = initialState?['isPracticeMode'] ?? false;
+    final bool isSpectator = initialState?['isSpectatorMode'] ?? false;
     
     // Artificial delay
     await Future.delayed(const Duration(seconds: 1));
@@ -62,12 +66,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
           roomId: roomId,
           initialGameState: isPractice ? null : initialState,
           isPracticeMode: isPractice,
+          isSpectatorMode: isSpectator,
         ),
       ),
     );
   }
 
-  void _showShareDialog(String roomId) {
+  void _showShareDialog(String roomId, {bool isSpectator = false}) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -124,7 +129,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ElevatedButton.icon(
             onPressed: () {
               Navigator.pop(dialogContext); // Close dialog first
-              _navigateToGame(roomId);
+              _navigateToGame(roomId, {'isSpectatorMode': isSpectator});
             },
             icon: const Icon(Icons.play_arrow),
             label: const Text('Ir a la Sala'),
@@ -509,19 +514,71 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                           child: ElevatedButton(
                                             onPressed: _isJoining ? null : () {
                                               final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
-                                              final userName = authProvider.user?.displayName ?? 'Player';
-                                              
+                                              final clubProvider = Provider.of<ClubProvider>(context, listen: false);
+                                              // Normalize role to lowercase to be safe
+                                              final userRole = clubProvider.currentUserRole?.toLowerCase() ?? 'player';
+                                              final isPrivileged = userRole == 'admin' || userRole == 'club';
+
                                               if (_roomController.text.isNotEmpty) {
                                                 setState(() => _isJoining = true);
-                                                socketService.joinRoom(
+                                                
+                                                if (isPrivileged) {
+                                                   // ADMIN/CLUB: Join directly as Spectator (hidden from player list)
+                                                   // They can see the waiting room and start the game if needed.
+                                                   print('🛡️ [Lobby] User is $userRole. Joining ${_roomController.text} as SPECTATOR immediately.');
+                                                   
+                                                   // Slight delay to show loading state for feedback
+                                                   Future.delayed(const Duration(milliseconds: 500), () {
+                                                      if (mounted) {
+                                                         setState(() => _isJoining = false);
+                                                         _navigateToGame(
+                                                            _roomController.text, 
+                                                            {'isSpectatorMode': true} // Pass intent to GameScreen
+                                                         );
+                                                      }
+                                                   });
+                                                   return;
+                                                }
+
+                                                // PLAYER: Standard Flow (Fetch Settings -> Buy In)
+                                                print('🔍 [Lobby] Joining as spectator to fetch settings for ${_roomController.text}...');
+                                                socketService.joinSpectator(
                                                   _roomController.text,
-                                                  userName,
-                                                  onSuccess: (roomId) async {
-                                                    await _navigateToGameWithDelay(roomId);
+                                                  onSuccess: (roomId) {
+                                                    print('✅ [Lobby] Spectator join success. Room: $roomId');
                                                     if (mounted) setState(() => _isJoining = false);
+                                                    
+                                                    // For joining, we don't have settings here - navigate directly or fetch from Firestore
+                                                    // Simple approach: Just use defaults since we're joining existing room
+                                                    final int minBuyIn = 1000;
+                                                    final int maxBuyIn = 5000;
+                                                    
+                                                    // Check User Balance
+                                                    // We use WalletProvider for user's personal balance.
+                                                    final double currentBalance = Provider.of<WalletProvider>(context, listen: false).balance;
+                                                    
+                                                    // Step 3: Show Buy-In Dialog
+                                                    showDialog(
+                                                      context: context,
+                                                      barrierDismissible: false,
+                                                      builder: (context) => BuyInDialog(
+                                                        minBuyIn: minBuyIn,
+                                                        maxBuyIn: maxBuyIn,
+                                                        userBalance: currentBalance.toInt(),
+                                                        onJoin: (amount) async {
+                                                          // Step 4: Navigate to Game with Buy-In Intent
+                                                          print('🚀 [Lobby] User selected buy-in: $amount. Navigating...');
+                                                          await _navigateToGameWithDelay(
+                                                            _roomController.text, 
+                                                            {'initialBuyIn': amount}
+                                                          );
+                                                        },
+                                                      ),
+                                                    );
                                                   },
                                                   onError: (error) {
-                                                    setState(() => _isJoining = false);
+                                                    print('❌ [Lobby] Join error: $error');
+                                                    if (mounted) setState(() => _isJoining = false);
                                                     if (error.contains('Insufficient balance')) {
                                                       showDialog(
                                                         context: context,
@@ -642,7 +699,65 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 constraints: const BoxConstraints(maxWidth: 400),
                                 child: OutlinedButton(
                                   onPressed: _isCreating ? null : () {
-                                    _showCreateRoomDialog(context);
+                                    showDialog(
+                                      context: context,
+                                      builder: (ctx) => CreateTableDialog(
+                                        onCreate: (settings) {
+                                          final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
+                                          final userName = authProvider.user?.displayName ?? 'Player';
+                                          
+                                          final isPrivileged = (Provider.of<ClubProvider>(context, listen: false).currentUserRole?.toLowerCase() == 'admin' || 
+                                                                Provider.of<ClubProvider>(context, listen: false).currentUserRole?.toLowerCase() == 'club');
+                                          
+                                          setState(() => _isCreating = true);
+                                          print('🏗️ [Lobby] Creating room with settings: $settings (Admin/Club: $isPrivileged)');
+                                          
+                                          // Extract settings values for createRoom params
+                                          final int sbValue = settings['smallBlind'] ?? 10;
+                                          final int bbValue = settings['bigBlind'] ?? 20;
+                                          final int minBuyInValue = settings['minBuyIn'] ?? (bbValue * 50);
+                                          final int maxBuyInValue = settings['maxBuyIn'] ?? (bbValue * 200);
+                                          
+                                          socketService.createRoom(
+                                            userName,
+                                            minBuyIn: minBuyInValue.toDouble(),
+                                            maxBuyIn: maxBuyInValue.toDouble(),
+                                            buyIn: minBuyInValue.toDouble(),
+                                            onSuccess: (roomId) async {
+                                              print('✅ [Lobby] Room created: $roomId');
+                                              
+                                              await Future.delayed(const Duration(seconds: 1));
+                                              if (mounted) {
+                                                setState(() => _isCreating = false);
+                                                
+                                                // If privileged, navigate directly, skip share dialog? Or show share dialog but ensure Nav goes to Spectator?
+                                                // Actually _showShareDialog calls _navigateToGame. We need to patch _navigateToGame or _showShareDialog.
+                                                // Or just modify _showShareDialog logic right here.
+                                                
+                                                // Let's modify _showShareDialog to accept intent.
+                                                // But since we can't easily change signature in "replace_file", let's handle it locally or update _navigateToGame.
+                                                
+                                                _showShareDialog(roomId.toString(), isSpectator: isPrivileged);
+                                              }
+                                            },
+                                            onError: (error) {
+                                              print('❌ [Lobby] Create error: $error');
+                                              setState(() => _isCreating = false);
+                                              if (error.contains('Insufficient balance')) {
+                                                showDialog(
+                                                  context: context,
+                                                  builder: (_) => const AddCreditsDialog(),
+                                                );
+                                              } else {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Error: $error')),
+                                                );
+                                              }
+                                            },
+                                          );
+                                        },
+                                      ),
+                                    );
                                   },
                                   style: OutlinedButton.styleFrom(
                                     minimumSize: const Size(double.infinity, 60),
@@ -761,121 +876,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showCreateRoomDialog(BuildContext context) {
-    final minBuyInController = TextEditingController(text: '1000');
-    final maxBuyInController = TextEditingController(text: '5000');
-    final myBuyInController = TextEditingController(text: '1000');
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1C1C1C),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: Color(0xFFC89A4E), width: 2),
-        ),
-        title: const Text(
-          'Crear Sala Privada',
-          style: TextStyle(color: Color(0xFFC89A4E), fontWeight: FontWeight.bold),
-          textAlign: TextAlign.center,
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildDialogTextField(minBuyInController, 'Mínimo Buy-In', Icons.arrow_downward),
-            const SizedBox(height: 12),
-            _buildDialogTextField(maxBuyInController, 'Máximo Buy-In', Icons.arrow_upward),
-            const SizedBox(height: 12),
-            _buildDialogTextField(myBuyInController, 'Tu Buy-In Inicial', Icons.monetization_on),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final min = double.tryParse(minBuyInController.text) ?? 1000;
-              final max = double.tryParse(maxBuyInController.text) ?? 5000;
-              final buyIn = double.tryParse(myBuyInController.text) ?? 1000;
-              
-              if (buyIn < min || buyIn > max) {
-                 ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('El Buy-In debe estar entre el Mínimo y Máximo')),
-                 );
-                 return;
-              }
-              
-              Navigator.pop(context); // Close dialog
-              
-              // Proceed with creation
-              final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
-              final socketService = Provider.of<SocketService>(context, listen: false);
-              final userName = authProvider.user?.displayName ?? 'Player';
-              
-              setState(() => _isCreating = true);
-              socketService.createRoom(
-                userName,
-                minBuyIn: min,
-                maxBuyIn: max,
-                buyIn: buyIn,
-                onSuccess: (roomId) async {
-                  await Future.delayed(const Duration(seconds: 1));
-                  if (mounted) {
-                    setState(() => _isCreating = false);
-                    _showShareDialog(roomId);
-                  }
-                },
-                onError: (error) {
-                  setState(() => _isCreating = false);
-                  if (error.contains('Insufficient balance')) {
-                    showDialog(
-                      context: context,
-                      builder: (_) => const AddCreditsDialog(),
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error: $error')),
-                    );
-                  }
-                },
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFC89A4E),
-              foregroundColor: Colors.black,
-            ),
-            child: const Text('CREAR SALA'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDialogTextField(TextEditingController controller, String label, IconData icon) {
-    return TextField(
-      controller: controller,
-      keyboardType: TextInputType.number,
-      style: const TextStyle(color: Colors.white),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: const TextStyle(color: Colors.white70),
-        prefixIcon: Icon(icon, color: const Color(0xFFC89A4E)),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.white24),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFC89A4E)),
-        ),
-        filled: true,
-        fillColor: Colors.black26,
       ),
     );
   }

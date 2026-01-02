@@ -281,7 +281,59 @@ class _CashTablesViewState extends State<CashTablesView> with AutomaticKeepAlive
                 onPressed: () {
                   showDialog(
                     context: context,
-                    builder: (context) => const CreateTableDialog(),
+                    builder: (context) => CreateTableDialog(
+                      onCreate: (settings) {
+                        final socketService = Provider.of<SocketService>(context, listen: false);
+                        final user = FirebaseAuth.instance.currentUser;
+                        final userName = user?.displayName ?? 'Player';
+                        
+                        // Show loading or feedback? For now just fire request
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Creando mesa...')),
+                        );
+
+                        print('🏗️ [CashTables] Creating room with settings: $settings');
+                        
+                        // Extract settings values for createRoom params
+                        final int sbValue = settings['smallBlind'] ?? 10;
+                        final int bbValue = settings['bigBlind'] ?? 20;
+                        final int minBuyInValue = settings['minBuyIn'] ?? (bbValue * 50);
+                        final int maxBuyInValue = settings['maxBuyIn'] ?? (bbValue * 200);
+                        
+                        socketService.createRoom(
+                          userName,
+                          minBuyIn: minBuyInValue.toDouble(),
+                          maxBuyIn: maxBuyInValue.toDouble(),
+                          buyIn: minBuyInValue.toDouble(),
+                          onSuccess: (roomId) {
+                             print('✅ [CashTables] Room created: $roomId');
+                             // Navigation handled by stream listener usually, or we can force it here
+                             // But usually we wait for 'game_started' or just join it?
+                             // LobbyScreen joins explicitly after creation? No, it shares.
+                             // Actually, creator usually joins automatically?
+                             // Let's mimic LobbyScreen behavior or just let the global listeners handle it if any.
+                             // But wait, createRoom in SocketService emits 'create_room'.
+                             // If successful, we probably want to navigate.
+                             
+                             Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => GameScreen(
+                                    roomId: roomId.toString(),
+                                    isSpectatorMode: false, // Core creator is player usually unless specified
+                                    autoStart: true, // Auto start for creator? Maybe.
+                                  ),
+                                ),
+                             );
+                          },
+                          onError: (error) {
+                             ScaffoldMessenger.of(context).showSnackBar(
+                               SnackBar(content: Text('Error al crear mesa: $error'), backgroundColor: Colors.red),
+                             );
+                          }
+                        );
+                      },
+                    ),
                   );
                 },
                 backgroundColor: const Color(0xFFFFD700),
