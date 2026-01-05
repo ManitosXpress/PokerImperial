@@ -183,6 +183,25 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                     lastRakeReceived: admin.firestore.FieldValue.serverTimestamp()
                 });
                 console.log(`[RAKE_LOCAL] 💵 Treasury recibe: ${platformShare}`);
+
+                // 📝 CREAR TRANSACTION LOG PARA LA BILLETERA DEL ADMIN
+                //    CRITICAL: Esto hace que el rake aparezca en "Mi Billetera" del admin
+                const adminTxLogRef = db.collection('transaction_logs').doc();
+                transaction.set(adminTxLogRef, {
+                    userId: TREASURY_ADMIN_UID,
+                    amount: platformShare,
+                    type: 'credit',
+                    reason: `Rake - ${data.isPrivate ? 'Private' : 'Public'} Table`,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    metadata: {
+                        handId: data.handId,
+                        tableId: data.tableId,
+                        potTotal: data.potTotal,
+                        rakeTotal: data.rakeTotal,
+                        platformShare: platformShare,
+                        isPrivate: !!data.isPrivate
+                    }
+                });
             }
 
             // B. Club
