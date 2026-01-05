@@ -439,8 +439,26 @@ io.on('connection', (socket) => {
                 return;
             }
 
+            // 🔒 ADMIN AUTO-DETECTION: Force spectator mode for admins
+            let forceSpectator = isSpectator;
+            if (uid && !isSpectator) {
+                try {
+                    const userDoc = await admin.firestore().collection('users').doc(uid).get();
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        const userRole = userData?.role;
+                        if (userRole === 'admin') {
+                            console.log(`👑 [ADMIN] Usuario ${uid} es admin - forzando modo espectador`);
+                            forceSpectator = true;
+                        }
+                    }
+                } catch (err) {
+                    console.error(`[JOIN_ROOM] Error verificando role del usuario:`, err);
+                }
+            }
+
             // === LÓGICA DE ESPECTADOR (NUEVA) ===
-            if (isSpectator === true) {
+            if (forceSpectator === true) {
                 console.log(`👀 [JOIN_ROOM] Usuario ${playerName} (${uid}) uniéndose como ESPECTADOR a sala ${roomId}`);
                 const room = roomManager.getRoom(roomId);
 
