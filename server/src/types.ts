@@ -1,3 +1,5 @@
+import { TableConfig, PlayerSession } from './types/TableConfig';
+
 export interface Player {
     id: string;
     uid?: string; // Added Firebase UID for cashout
@@ -29,8 +31,23 @@ export interface Room {
     hostId?: string;
     isTournament?: boolean;
     autoStartTimer?: NodeJS.Timeout | null;
+
+    // 🔒 IMMUTABLE TABLE CONFIGURATION (BUG FIX: Buy-in persistence)
+    tableConfig?: TableConfig;
+
+    // ⚠️ DEPRECATED: Use tableConfig instead
+    /** @deprecated Use tableConfig.minBuyIn */
     minBuyIn?: number;
+    /** @deprecated Use tableConfig.maxBuyIn */
     maxBuyIn?: number;
-    clubId?: string;   // 💰 Club ID for rake distribution
-    sellerId?: string; // 💰 Seller ID for rake distribution
+
+    // 💰 RAKE DISTRIBUTION
+    clubId?: string;   // Club ID for rake distribution
+    sellerId?: string; // Seller ID for rake distribution
+
+    // 🕐 GRACE PERIOD (BUG FIX: Zombie rooms)
+    gracePeriodTimeout?: NodeJS.Timeout;
+
+    // 👥 PLAYER SESSIONS (BUG FIX: Role-based rake)
+    playerSessions?: Map<string, PlayerSession>;
 }

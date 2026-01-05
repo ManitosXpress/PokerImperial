@@ -57,7 +57,7 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
       if (resultData is Map) {
          _currentStats = {
             'totalCirculation': resultData['totalCirculation'] ?? 0,
-            'accumulatedRake': resultData['accumulated_rake'] ?? 0,
+            'accumulatedRake': resultData['accumulatedRake'] ?? 0,  // Fixed: camelCase
          };
       }
       

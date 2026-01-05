@@ -4,6 +4,7 @@ import { endPokerSession } from '../middleware/firebaseAuth';
 import * as admin from 'firebase-admin';
 import * as crypto from 'crypto';
 import { performTableSettlement, savePlayerStateToFirestore } from '../utils/localSettlement';
+import { createTableConfig, createPlayerSession, TableConfig, PlayerSession } from '../types/TableConfig';
 
 // 🔐 GAME SECRET para firmar cashouts
 const GAME_SECRET = process.env.GAME_SECRET || 'default-secret-change-in-production-2024';
@@ -18,6 +19,8 @@ export class RoomManager {
     private cleanupInterval: NodeJS.Timeout | null = null;
     private readonly CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // Limpiar cada 5 minutos
     private readonly EMPTY_ROOM_TIMEOUT_MS = 10 * 60 * 1000; // Eliminar mesas vacías después de 10 minutos
+    // 🕐 GRACE PERIOD: Tiempo antes de eliminar sala vacía (permite reconexiones)
+    private readonly GRACE_PERIOD_MS = 30 * 1000; // 30 segundos
 
     constructor() {
         // Iniciar limpieza automática periódica para prevenir memory leaks
@@ -109,6 +112,15 @@ export class RoomManager {
      * Prevents "Maximum call stack size exceeded" crashes from circular references
      */
     private getPublicRoomState(room: Room) {
+        // 🔒 BUG FIX: Include table config in public state (prevents null errors in frontend)
+        const tableConfig = room.tableConfig || {
+            minBuyIn: room.minBuyIn || 1000,
+            maxBuyIn: room.maxBuyIn || 10000,
+            smallBlind: 10,
+            bigBlind: 20,
+            createdAt: Date.now()
+        };
+
         return {
             id: room.id,
             players: room.players.map(p => ({
@@ -132,8 +144,11 @@ export class RoomManager {
             isPublic: room.isPublic ?? false,
             hostId: room.hostId,
             isTournament: room.isTournament,
-            minBuyIn: room.minBuyIn,
-            maxBuyIn: room.maxBuyIn
+            // 🔒 BUG FIX: Always include table limits (frontend expects these)
+            minBuyIn: tableConfig.minBuyIn,
+            maxBuyIn: tableConfig.maxBuyIn,
+            smallBlind: tableConfig.smallBlind,
+            bigBlind: tableConfig.bigBlind
             // NOTE: Explicitly excluded autoStartTimer to prevent circular refs
         };
     }
@@ -216,8 +231,8 @@ export class RoomManager {
         this.emitCallback = callback;
     }
 
-    public createPracticeRoom(hostId: string, hostName: string): Room {
-        const roomDto = this.createRoom(hostId, hostName, undefined, 1000, undefined, { addHostAsPlayer: true, isPublic: true });
+    public async createPracticeRoom(hostId: string, hostName: string): Promise<Room> {
+        const roomDto = await this.createRoom(hostId, hostName, undefined, 1000, undefined, { addHostAsPlayer: true, isPublic: true });
 
         // Get the actual Room object from the map (not the sanitized DTO)
         const room = this.rooms.get(roomDto.id);
@@ -240,15 +255,27 @@ export class RoomManager {
         return this.getPublicRoomState(room) as any; // Return sanitized DTO
     }
 
-    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean, minBuyIn?: number, maxBuyIn?: number } = {}): Room {
+    public async createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean, minBuyIn?: number, maxBuyIn?: number, clubId?: string, sellerId?: string, role?: 'admin' | 'club_owner' | 'seller' | 'player' } = {}): Promise<Room> {
         const roomId = customRoomId || this.generateRoomId();
-        const { addHostAsPlayer = true, isPublic = true, hostUid, isTournament = false, minBuyIn, maxBuyIn } = options;
+        const { addHostAsPlayer = true, isPublic = true, hostUid, isTournament = false, minBuyIn, maxBuyIn, clubId, sellerId, role = 'player' } = options;
 
         if (this.rooms.has(roomId)) {
             throw new Error(`Room ${roomId} already exists`);
         }
 
+        // 🔒 BUG FIX #1: Create IMMUTABLE TableConfig
+        const tableConfig = createTableConfig(
+            minBuyIn || 1000,      // Default: 1000
+            maxBuyIn || 10000,     // Default: 10000
+            10,                     // smallBlind
+            20                      // bigBlind
+        );
+
+        console.log(`🔒 [TABLE_CONFIG] Room ${roomId}: minBuyIn=${tableConfig.minBuyIn}, maxBuyIn=${tableConfig.maxBuyIn}`);
+
         const players: Player[] = [];
+        const playerSessions = new Map<string, PlayerSession>();
+
         if (addHostAsPlayer) {
             const host: Player = {
                 id: hostId,
@@ -262,6 +289,11 @@ export class RoomManager {
                 status: 'PLAYING'
             };
             players.push(host);
+
+            // 🔒 BUG FIX #3: Store PlayerSession for rake distribution
+            if (hostUid) {
+                playerSessions.set(hostUid, createPlayerSession(hostUid, role, clubId, sellerId));
+            }
         }
 
         const newRoom: Room = {
@@ -277,20 +309,68 @@ export class RoomManager {
             hostId: hostUid || hostId,
             isTournament: isTournament,
             autoStartTimer: null,
-            minBuyIn: minBuyIn,
-            maxBuyIn: maxBuyIn
+            // 🔒 IMMUTABLE CONFIG
+            tableConfig: tableConfig,
+            // ⚠️ DEPRECATED (kept for backward compatibility)
+            minBuyIn: tableConfig.minBuyIn,
+            maxBuyIn: tableConfig.maxBuyIn,
+            // 💰 RAKE DISTRIBUTION
+            clubId: clubId,
+            sellerId: sellerId,
+            // 👥 PLAYER SESSIONS
+            playerSessions: playerSessions
         };
 
         this.rooms.set(roomId, newRoom);
         this.games.set(roomId, new PokerGame());
 
+        // 🔒 BUG FIX #1: PERSIST TO FIRESTORE (prevents buy-in reset on server restart)
+        try {
+            const db = admin.firestore();
+            await db.collection('poker_tables').doc(roomId).set({
+                roomId: roomId,
+                hostId: hostUid || hostId,
+                isPublic: isPublic,
+                isTournament: isTournament,
+                maxPlayers: 8,
+                // 🔒 CRITICAL: Persist table config to Firestore
+                minBuyIn: tableConfig.minBuyIn,
+                maxBuyIn: tableConfig.maxBuyIn,
+                smallBlind: tableConfig.smallBlind,
+                bigBlind: tableConfig.bigBlind,
+                clubId: clubId || null,
+                sellerId: sellerId || null,
+                status: 'waiting',
+                players: players.map(p => ({
+                    id: p.id,
+                    uid: p.uid,
+                    name: p.name,
+                    chips: p.chips
+                })),
+                activePlayers: players.map(p => p.id),
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastActionTime: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`✅ [FIRESTORE] Room ${roomId} persisted with table config`);
+        } catch (err) {
+            console.error(`❌ [FIRESTORE] Failed to persist room ${roomId}:`, err);
+            // Continue anyway - room exists in memory
+        }
+
         console.log(`✅ Room created: ${roomId}`);
         return this.getPublicRoomState(newRoom) as any; // Return sanitized DTO
     }
 
-    public joinRoom(roomId: string, playerId: string, playerName: string, sessionId?: string, buyInAmount: number = 1000, uid?: string): Room | null {
+    public async joinRoom(roomId: string, playerId: string, playerName: string, sessionId?: string, buyInAmount: number = 1000, uid?: string, metadata?: { role?: 'admin' | 'club_owner' | 'seller' | 'player', clubId?: string, sellerId?: string }): Promise<Room | null> {
         const room = this.rooms.get(roomId);
         if (!room) return null;
+
+        // 🔒 BUG FIX #2: Cancel grace period if exists (player reconnecting)
+        if (room.gracePeriodTimeout) {
+            console.log(`✅ [GRACE_PERIOD] Player reconnecting to ${roomId} - cancelling deletion timeout`);
+            clearTimeout(room.gracePeriodTimeout);
+            room.gracePeriodTimeout = undefined;
+        }
 
         const existingPlayer = room.players.find(p => p.id === playerId);
         if (existingPlayer) {
@@ -304,8 +384,42 @@ export class RoomManager {
             throw new Error('Room is full');
         }
 
-        // Allow join if waiting OR playing (rebuy/late join) - simplified
-        // But original code blocked join if playing. We keep that for now unless requested.
+        // 🔒 BUG FIX #4: ATOMIC BALANCE VERIFICATION (prevents race conditions)
+        if (uid) {
+            try {
+                const db = admin.firestore();
+
+                // Use Firestore transaction to atomically check and deduct balance
+                await db.runTransaction(async (transaction) => {
+                    const userRef = db.collection('users').doc(uid);
+                    const userDoc = await transaction.get(userRef);
+
+                    if (!userDoc.exists) {
+                        throw new Error(`User ${uid} not found in database`);
+                    }
+
+                    const userData = userDoc.data();
+                    const currentCredit = userData?.credit || 0;
+
+                    // Verify sufficient balance
+                    if (currentCredit < buyInAmount) {
+                        throw new Error(`Insufficient balance. Required: ${buyInAmount}, Available: ${currentCredit}`);
+                    }
+
+                    // 💰 ATOMIC DEDUCTION: Deduct buy-in from user credit
+                    transaction.update(userRef, {
+                        credit: admin.firestore.FieldValue.increment(-buyInAmount),
+                        moneyInPlay: admin.firestore.FieldValue.increment(buyInAmount),
+                        lastActivity: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    console.log(`✅ [ATOMIC] Deducted ${buyInAmount} from ${uid}. Remaining: ${currentCredit - buyInAmount}`);
+                });
+            } catch (err: any) {
+                console.error(`❌ [ATOMIC] Failed to verify/deduct balance for ${uid}:`, err.message);
+                throw new Error(`Join failed: ${err.message}`);
+            }
+        }
 
         const newPlayer: Player = {
             id: playerId,
@@ -320,6 +434,19 @@ export class RoomManager {
         };
 
         room.players.push(newPlayer);
+
+        // 🔒 BUG FIX #3: Store PlayerSession for rake distribution
+        if (uid && metadata) {
+            if (!room.playerSessions) {
+                room.playerSessions = new Map();
+            }
+            room.playerSessions.set(uid, createPlayerSession(
+                uid,
+                metadata.role || 'player',
+                metadata.clubId,
+                metadata.sellerId
+            ));
+        }
 
         // ✅ AUTO-START LOGIC
         if (room.isTournament && room.gameState === 'waiting') {
@@ -507,26 +634,42 @@ export class RoomManager {
                     game.removePlayer(playerId);
                 }
 
-                // ✅ FIX ZOMBIE TABLES: Actualizar Firestore y limpiar memoria cuando la sala queda vacía
+                // 🔒 BUG FIX #2: GRACE PERIOD for zombie rooms
                 if (room.players.length === 0) {
-                    console.log(`🗑️ Room ${roomId} is now empty - updating Firestore and cleaning up`);
+                    console.log(`� [GRACE_PERIOD] Room ${roomId} is now empty - starting ${this.GRACE_PERIOD_MS / 1000}s grace period...`);
 
-                    // PASO 1: Actualizar estado en Firestore ANTES de eliminar de memoria
-                    const db = admin.firestore();
-                    db.collection('poker_tables').doc(roomId).update({
-                        status: 'finished',
-                        players: [],
-                        activePlayers: [],
-                        lastActionTime: admin.firestore.FieldValue.serverTimestamp()
-                    }).then(() => {
-                        console.log(`✅ Firestore updated: Room ${roomId} marked as finished`);
-                    }).catch(err => {
-                        console.error(`❌ Failed to update Firestore for room ${roomId}:`, err);
-                        // Continuar de todos modos para limpiar memoria
-                    });
+                    // Cancel existing grace period if somehow it exists
+                    if (room.gracePeriodTimeout) {
+                        clearTimeout(room.gracePeriodTimeout);
+                    }
 
-                    // PASO 2: Eliminar de memoria (no bloqueamos con await)
-                    this.deleteRoom(roomId);
+                    // Set grace period timeout
+                    room.gracePeriodTimeout = setTimeout(async () => {
+                        console.log(`🗑️ [GRACE_PERIOD] Grace period expired for ${roomId} - deleting room`);
+
+                        // PASO 1: Actualizar estado en Firestore ANTES de eliminar de memoria
+                        const db = admin.firestore();
+                        const tableRef = db.collection('poker_tables').doc(roomId);
+
+                        try {
+                            // 🔒 USE .set() with merge instead of .update() to avoid NOT_FOUND errors
+                            await tableRef.set({
+                                status: 'closed',
+                                players: [],
+                                activePlayers: [],
+                                lastActionTime: admin.firestore.FieldValue.serverTimestamp()
+                            }, { merge: true });
+                            console.log(`✅ Firestore updated: Room ${roomId} marked as closed`);
+                        } catch (err) {
+                            console.error(`❌ Failed to update Firestore for room ${roomId}:`, err);
+                            // Continuar de todos modos para limpiar memoria
+                        }
+
+                        // PASO 2: Eliminar de memoria
+                        this.deleteRoom(roomId);
+                    }, this.GRACE_PERIOD_MS);
+
+                    console.log(`✅ [GRACE_PERIOD] Grace period timeout set for room ${roomId}`);
                 }
 
                 return { roomId, player };
@@ -813,6 +956,13 @@ export class RoomManager {
         const room = this.rooms.get(roomId);
         const game = this.games.get(roomId);
 
+        // 🔒 Clear grace period timeout if exists
+        if (room?.gracePeriodTimeout) {
+            clearTimeout(room.gracePeriodTimeout);
+            room.gracePeriodTimeout = undefined;
+            console.log(`✅ [GRACE_PERIOD] Cleared timeout for room ${roomId}`);
+        }
+
         // ✅ FIX ZOMBIE TABLES: Actualizar Firestore antes de eliminar de memoria
         try {
             const db = admin.firestore();
@@ -820,12 +970,13 @@ export class RoomManager {
             const tableDoc = await tableRef.get();
 
             if (tableDoc.exists) {
-                await tableRef.update({
+                // 🔒 USE .set() with merge to avoid NOT_FOUND errors
+                await tableRef.set({
                     status: 'finished',
                     players: [],
                     activePlayers: [],
                     lastActionTime: admin.firestore.FieldValue.serverTimestamp()
-                });
+                }, { merge: true });
                 console.log(`✅ Firestore updated: Room ${roomId} marked as finished`);
             }
         } catch (err) {

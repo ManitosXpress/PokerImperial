@@ -285,7 +285,7 @@ io.on('connection', (socket) => {
             }
 
             // PASO 1: Crear el room PRIMERO para obtener el ID real
-            const room = roomManager.createRoom(socket.id, playerName, undefined, entryFee, customRoomId || undefined, {
+            const room = await roomManager.createRoom(socket.id, playerName, undefined, entryFee, customRoomId || undefined, {
                 addHostAsPlayer: true,
                 isPublic,
                 hostUid: uid,
@@ -328,9 +328,9 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('create_practice_room', (playerName: string) => {
+    socket.on('create_practice_room', async (playerName: string) => {
         try {
-            const room = roomManager.createPracticeRoom(socket.id, playerName);
+            const room = await roomManager.createPracticeRoom(socket.id, playerName);
             socket.join(room.id);
             socket.emit('room_created', room);
 
@@ -523,7 +523,7 @@ io.on('connection', (socket) => {
             }
 
             // --- LÓGICA DE JUGADOR NORMAL ---
-            let room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee, uid);
+            let room = await roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee, uid);
 
             if (!room) {
                 try {
@@ -539,14 +539,14 @@ io.on('connection', (socket) => {
 
                             if (!roomManager.getRoom(roomId)) {
                                 try {
-                                    const tempRoom = roomManager.createRoom('temp-host', hostName, undefined, entryFee, roomId, { addHostAsPlayer: false, isPublic, isTournament });
+                                    const tempRoom = await roomManager.createRoom('temp-host', hostName, undefined, entryFee, roomId, { addHostAsPlayer: false, isPublic, isTournament });
                                     tempRoom.hostId = firestoreHostId;
                                 } catch (err: any) {
                                     console.log(`Room ${roomId} created concurrently during hydration.`);
                                 }
                             }
 
-                            room = roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
+                            room = await roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
                         }
                     }
                 } catch (err) {

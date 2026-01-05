@@ -821,8 +821,6 @@ export class PokerGame {
     } {
         // CONFIGURACIÓN DE RAKE
         const RAKE_PERCENTAGE = 0.08; // 8%
-        // const MAX_RAKE_CAP = 50;   // [AUDIT FIX] Cap eliminado o ajustado según requerimiento de usuario (User pidió 8% flat o no especificó cap, pero mantendré lógica simple)
-        // El usuario especificó: rakeAmount = Math.floor(totalPot * 0.08);
 
         let totalRake = 0;
 
@@ -840,19 +838,49 @@ export class PokerGame {
 
         const netPot = pot - totalRake;
 
-        // LOG SOLICITADO
-        console.log(`💰 [RAKE] Pot: ${pot} | FlopSeen: ${hasFlopSeen} | Rake: ${totalRake} | Winner Gets: ${netPot}`);
-
+        // 🔒 BUG FIX #3: RAKE DISTRIBUTION LOGIC
         let distribution = {
             platform: 0,
             club: 0,
             seller: 0
         };
 
-        // NOTA: La distribución exacta se calcula en gameEconomy.ts
         if (totalRake > 0) {
-            distribution.platform = totalRake;
+            if (this.isPrivate) {
+                // 💰 PRIVATE TABLE: 100% to Platform
+                distribution.platform = totalRake;
+                console.log(`💰 [RAKE] PRIVATE table: 100% platform (${totalRake})`);
+            } else {
+                // 💰 PUBLIC TABLE: 50% Platform, 30% Club, 20% Seller
+                const platformShare = Math.floor(totalRake * 0.50);
+                const clubShare = this.clubId ? Math.floor(totalRake * 0.30) : 0;
+                const sellerShare = this.sellerId ? Math.floor(totalRake * 0.20) : 0;
+
+                // Handle centavos (remainder goes to platform)
+                const allocated = platformShare + clubShare + sellerShare;
+                const remainder = totalRake - allocated;
+
+                distribution.platform = platformShare + remainder; // Platform gets remainder
+                distribution.club = clubShare;
+                distribution.seller = sellerShare;
+
+                // Fallback: If club or seller missing, their share goes to platform
+                if (!this.clubId && !this.sellerId) {
+                    distribution.platform = totalRake; // All to platform if no club/seller
+                } else if (!this.clubId) {
+                    distribution.platform += distribution.club;
+                    distribution.club = 0;
+                } else if (!this.sellerId) {
+                    distribution.platform += distribution.seller;
+                    distribution.seller = 0;
+                }
+
+                console.log(`💰 [RAKE] PUBLIC table: Platform=${distribution.platform}, Club=${distribution.club}, Seller=${distribution.seller}`);
+            }
         }
+
+        // LOG DETAILED INFO
+        console.log(`💰 [RAKE] Pot: ${pot} | FlopSeen: ${hasFlopSeen} | Rake: ${totalRake} | Winner Gets: ${netPot}`);
 
         return { totalRake, netPot, distribution };
     }
