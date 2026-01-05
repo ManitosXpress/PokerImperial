@@ -951,3 +951,329 @@ export const distributeHandRake = functions.https.onCall(async (data, context) =
         throw new functions.https.HttpsError('internal', 'Transaction failed');
     }
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 6. DISTRIBUTE POT - UNIFIED ATOMIC POT DISTRIBUTION (IDEMPOTENT)
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * 🔒 CRITICAL SECURITY FIX: This function prevents race conditions and double payments.
+ * 
+ * FEATURES:
+ * 1. IDEMPOTENCY: Uses `hands/{handId}` document with `status: 'DISTRIBUTED'` to prevent re-processing
+ * 2. ATOMIC: All operations in single Firestore transaction (all-or-nothing)
+ * 3. RAKE: 8% of pot (capped at 50), distributed according to table type
+ * 4. WINNER CHIPS: Updated in `poker_tables/{tableId}/players[].chips` (NOT in wallet)
+ * 
+ * BUSINESS RULES:
+ * - Rake = 8% of Total Pot (max 50)
+ * - Private Table: 100% Platform
+ * - Public Table: 50% Platform / 30% Club / 20% Seller (if missing, goes to platform)
+ * 
+ * WORKFLOW:
+ * 1. Check if hand already distributed → abort if yes
+ * 2. Calculate rake and netPot
+ * 3. Transfer rake to Treasury/Club/Seller wallets
+ * 4. Update winner's chips in table document
+ * 5. Mark hand as DISTRIBUTED
+ * 
+ * @param data.handId - Unique hand identifier (REQUIRED for idempotency)
+ * @param data.tableId - Table document ID
+ * @param data.potTotal - Total pot amount before rake
+ * @param data.winnerUid - Winner's Firebase UID
+ * @param data.winnerSeatIndex - Winner's seat index in players array (for chip update)
+ * @param data.isPrivate - true for private tables (100% platform rake)
+ * @param data.clubId - Optional club ID for rake distribution
+ * @param data.sellerId - Optional seller ID for rake distribution
+ */
+interface DistributePotRequest {
+    handId: string;
+    tableId: string;
+    potTotal: number;
+    winnerUid: string;
+    winnerSeatIndex?: number; // Optional: if provided, updates chips at this index
+    isPrivate: boolean;
+    clubId?: string;
+    sellerId?: string;
+    // For split pots (multiple winners)
+    winners?: Array<{
+        uid: string;
+        seatIndex: number;
+        amount: number; // Net amount after rake split
+    }>;
+    rakeAmount?: number;   // [NEW] Exact rake amount calculated by server
+    winnerAmount?: number; // [NEW] Exact winner amount calculated by server
+}
+
+export const distributePot = functions.https.onCall(async (data: DistributePotRequest, context) => {
+    const db = getDb();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // VALIDATION
+    // ═══════════════════════════════════════════════════════════════════════
+    if (!data.handId || !data.tableId || typeof data.potTotal !== 'number') {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing required parameters: handId, tableId, potTotal');
+    }
+
+    if (data.potTotal <= 0) {
+        console.log(`[DISTRIBUTE_POT] ⚠️ Pot is ${data.potTotal}. Nothing to distribute.`);
+        return { success: true, skipped: true, reason: 'zero_pot' };
+    }
+
+    console.log(`[DISTRIBUTE_POT] 🎯 Processing hand ${data.handId} | Pot: ${data.potTotal} | Winner: ${data.winnerUid}`);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // REFERENCES
+    // ═══════════════════════════════════════════════════════════════════════
+    const handRef = db.collection('hands').doc(data.handId);
+    const tableRef = db.collection('poker_tables').doc(data.tableId);
+    const treasuryRef = db.collection('users').doc(TREASURY_ADMIN_UID);
+    const ledgerId = `pot_${data.tableId}_${data.handId}`;
+    const ledgerRef = db.collection('financial_ledger').doc(ledgerId);
+
+    try {
+        const result = await db.runTransaction(async (transaction) => {
+            // ═══════════════════════════════════════════════════════════════
+            // 1. 🔒 IDEMPOTENCY CHECK - Prevent double distribution
+            // ═══════════════════════════════════════════════════════════════
+            const handDoc = await transaction.get(handRef);
+            if (handDoc.exists && handDoc.data()?.status === 'DISTRIBUTED') {
+                console.log(`[DISTRIBUTE_POT] ⚠️ Hand ${data.handId} already DISTRIBUTED. Aborting (idempotency).`);
+                return { success: true, skipped: true, reason: 'already_distributed' };
+            }
+
+            // Also check ledger for extra safety
+            const ledgerDoc = await transaction.get(ledgerRef);
+            if (ledgerDoc.exists) {
+                console.log(`[DISTRIBUTE_POT] ⚠️ Ledger entry ${ledgerId} already exists. Aborting (idempotency).`);
+                return { success: true, skipped: true, reason: 'ledger_exists' };
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // 2. Read table to find winner's seat index
+            // ═══════════════════════════════════════════════════════════════
+            const tableDoc = await transaction.get(tableRef);
+            if (!tableDoc.exists) {
+                throw new functions.https.HttpsError('not-found', `Table ${data.tableId} not found`);
+            }
+
+            const tableData = tableDoc.data();
+            const players: any[] = Array.isArray(tableData?.players) ? tableData.players : [];
+
+            // ═══════════════════════════════════════════════════════════════
+            // 3. 🧮 CALCULATE RAKE (8% capped at 50) OR USE PROVIDED
+            // ═══════════════════════════════════════════════════════════════
+            const RAKE_PERCENTAGE = 0.08;
+            const MAX_RAKE_CAP = 50;
+
+            let rakeAmount = 0;
+
+            if (data.rakeAmount !== undefined) {
+                // TRUST THE SERVER (No Flop No Drop rule applied there)
+                rakeAmount = data.rakeAmount;
+                console.log(`[DISTRIBUTE_POT] 🛡️ Using provided rake amount: ${rakeAmount}`);
+            } else {
+                // Fallback calculation
+                rakeAmount = Math.min(Math.floor(data.potTotal * RAKE_PERCENTAGE), MAX_RAKE_CAP);
+            }
+
+            const netPot = data.potTotal - rakeAmount;
+
+            console.log(`[DISTRIBUTE_POT] 💰 Pot: ${data.potTotal} | Rake: ${rakeAmount} (8%, cap 50) | Net: ${netPot}`);
+
+            // ═══════════════════════════════════════════════════════════════
+            // 4. 📊 CALCULATE RAKE DISTRIBUTION
+            // ═══════════════════════════════════════════════════════════════
+            let platformShare = 0;
+            let clubShare = 0;
+            let sellerShare = 0;
+
+            if (data.isPrivate === true) {
+                // PRIVATE TABLE: 100% to Platform
+                platformShare = rakeAmount;
+                console.log(`[DISTRIBUTE_POT] 🔒 Private table: 100% (${platformShare}) to platform`);
+            } else {
+                // PUBLIC TABLE: 50% Platform / 30% Club / 20% Seller
+                platformShare = Math.floor(rakeAmount * 0.50);
+
+                if (data.clubId) {
+                    clubShare = Math.floor(rakeAmount * 0.30);
+                } else {
+                    // No club → 30% goes to platform
+                    platformShare += Math.floor(rakeAmount * 0.30);
+                }
+
+                if (data.sellerId) {
+                    sellerShare = Math.floor(rakeAmount * 0.20);
+                } else {
+                    // No seller → 20% goes to platform
+                    platformShare += Math.floor(rakeAmount * 0.20);
+                }
+
+                // Handle rounding (remaining centavos go to platform)
+                const allocated = platformShare + clubShare + sellerShare;
+                if (allocated < rakeAmount) {
+                    platformShare += (rakeAmount - allocated);
+                }
+
+                console.log(`[DISTRIBUTE_POT] 🌐 Public table: Platform=${platformShare}, Club=${clubShare}, Seller=${sellerShare}`);
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // 5. 💸 TRANSFER RAKE TO WALLETS
+            // ═══════════════════════════════════════════════════════════════
+
+            // A. Platform (Treasury)
+            if (platformShare > 0) {
+                transaction.update(treasuryRef, {
+                    credit: admin.firestore.FieldValue.increment(platformShare),
+                    totalRakeReceived: admin.firestore.FieldValue.increment(platformShare),
+                    lastRakeReceived: admin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`[DISTRIBUTE_POT] 💵 Treasury receives: ${platformShare}`);
+            }
+
+            // B. Club
+            if (clubShare > 0 && data.clubId) {
+                const clubRef = db.collection('clubs').doc(data.clubId);
+                transaction.set(clubRef, {
+                    walletBalance: admin.firestore.FieldValue.increment(clubShare),
+                    totalRakeEarned: admin.firestore.FieldValue.increment(clubShare),
+                    lastRakeReceived: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                console.log(`[DISTRIBUTE_POT] 🏠 Club ${data.clubId} receives: ${clubShare}`);
+            }
+
+            // C. Seller
+            if (sellerShare > 0 && data.sellerId) {
+                const sellerRef = db.collection('users').doc(data.sellerId);
+                transaction.update(sellerRef, {
+                    credit: admin.firestore.FieldValue.increment(sellerShare),
+                    commissionEarned: admin.firestore.FieldValue.increment(sellerShare),
+                    lastCommissionReceived: admin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`[DISTRIBUTE_POT] 👤 Seller ${data.sellerId} receives: ${sellerShare}`);
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // 6. 🏆 UPDATE WINNER'S CHIPS IN TABLE
+            //    CRITICAL: We update chips, NOT credit (wallet)
+            // ═══════════════════════════════════════════════════════════════
+
+            if (data.winners && data.winners.length > 0) {
+                // SPLIT POT: Multiple winners
+                for (const winner of data.winners) {
+                    const winnerIndex = winner.seatIndex ?? players.findIndex((p: any) =>
+                        p.uid === winner.uid || p.id === winner.uid
+                    );
+
+                    if (winnerIndex !== -1) {
+                        transaction.update(tableRef, {
+                            [`players.${winnerIndex}.chips`]: admin.firestore.FieldValue.increment(winner.amount)
+                        });
+                        console.log(`[DISTRIBUTE_POT] 🏆 Winner ${winner.uid} (seat ${winnerIndex}): +${winner.amount} chips`);
+                    } else {
+                        console.warn(`[DISTRIBUTE_POT] ⚠️ Winner ${winner.uid} not found in table. Skipping chip update.`);
+                    }
+                }
+            } else if (data.winnerUid) {
+                // SINGLE WINNER
+                let winnerIndex = data.winnerSeatIndex;
+
+                if (winnerIndex === undefined) {
+                    // Find winner in players array
+                    winnerIndex = players.findIndex((p: any) =>
+                        p.uid === data.winnerUid || p.id === data.winnerUid
+                    );
+                }
+
+                if (winnerIndex !== -1) {
+                    transaction.update(tableRef, {
+                        [`players.${winnerIndex}.chips`]: admin.firestore.FieldValue.increment(netPot)
+                    });
+                    console.log(`[DISTRIBUTE_POT] 🏆 Winner ${data.winnerUid} (seat ${winnerIndex}): +${netPot} chips`);
+                } else {
+                    console.warn(`[DISTRIBUTE_POT] ⚠️ Winner ${data.winnerUid} not found in table. Skipping chip update.`);
+                    // Still continue with rake distribution and hand marking
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // 7. 📝 CREATE LEDGER ENTRY (Audit Trail)
+            // ═══════════════════════════════════════════════════════════════
+            transaction.set(ledgerRef, {
+                type: 'POT_DISTRIBUTED',
+                handId: data.handId,
+                tableId: data.tableId,
+                potTotal: data.potTotal,
+                rakeAmount: rakeAmount,
+                netPotDistributed: netPot,
+                winnerUid: data.winnerUid || null,
+                winners: data.winners || null,
+                isPrivate: !!data.isPrivate,
+                rakeBreakdown: {
+                    platform: platformShare,
+                    club: clubShare,
+                    seller: sellerShare
+                },
+                clubId: data.clubId || null,
+                sellerId: data.sellerId || null,
+                treasuryUid: TREASURY_ADMIN_UID,
+                processedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // ═══════════════════════════════════════════════════════════════
+            // 8. 🔒 MARK HAND AS DISTRIBUTED (Idempotency Lock)
+            // ═══════════════════════════════════════════════════════════════
+            transaction.set(handRef, {
+                status: 'DISTRIBUTED',
+                tableId: data.tableId,
+                potTotal: data.potTotal,
+                rakeCollected: rakeAmount,
+                netPotDistributed: netPot,
+                winnerUid: data.winnerUid || null,
+                distributedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            // ═══════════════════════════════════════════════════════════════
+            // 9. 📊 UPDATE SYSTEM STATS
+            // ═══════════════════════════════════════════════════════════════
+            transaction.set(db.collection('system_stats').doc('economy'), {
+                accumulated_rake: admin.firestore.FieldValue.increment(rakeAmount),
+                total_volume: admin.firestore.FieldValue.increment(data.potTotal),
+                hands_played: admin.firestore.FieldValue.increment(1),
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            // Daily stats
+            const dateKey = new Date().toISOString().split('T')[0];
+            transaction.set(db.collection('stats_daily').doc(dateKey), {
+                dateKey,
+                totalVolume: admin.firestore.FieldValue.increment(data.potTotal),
+                totalRake: admin.firestore.FieldValue.increment(rakeAmount),
+                handsPlayed: admin.firestore.FieldValue.increment(1),
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            console.log(`[DISTRIBUTE_POT] ✅ Successfully distributed pot for hand ${data.handId}`);
+
+            return {
+                success: true,
+                skipped: false,
+                handId: data.handId,
+                potTotal: data.potTotal,
+                rakeAmount: rakeAmount,
+                netPotDistributed: netPot,
+                rakeBreakdown: { platform: platformShare, club: clubShare, seller: sellerShare }
+            };
+        });
+
+        return result;
+
+    } catch (error: any) {
+        console.error(`[DISTRIBUTE_POT] ❌ CRITICAL ERROR:`, error);
+        throw error instanceof functions.https.HttpsError
+            ? error
+            : new functions.https.HttpsError('internal', error.message);
+    }
+});

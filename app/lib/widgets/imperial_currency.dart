@@ -33,7 +33,7 @@ class ImperialCurrency extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Image.asset(
-          'assets/images/imperial_coin.png',
+          'assets/images/moneda.png',
           width: computedIconSize,
           height: computedIconSize,
           cacheWidth: (computedIconSize * 3).toInt(), // Optimize for Web/Chrome

@@ -29,7 +29,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
   int _bountyAmount = 0; // Para torneos BOUNTY
   final _nameController = TextEditingController();
   final _buyInController = TextEditingController(text: '100');
-  int _numberOfTables = 1; // 🆕 Changed from estimatedPlayers
+  int _numberOfTables = 1; // 🆕 Changed from estimatedPlayers (8-max)
   
   // 🆕 NEW ADVANCED CONFIGURATION FIELDS
   String _tournamentFormat = 'MTT'; // 'SNG' (Sit & Go), 'MTT' (Multi-Table Tournament)
@@ -820,7 +820,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                   },
                 ),
                 Text(
-                  'Capacidad aprox: ${_numberOfTables * 9} jugadores',
+                  'Capacidad aprox: ${_numberOfTables * 8} jugadores',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.5),
                     fontSize: 14,
@@ -833,7 +833,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
           // Prize Pool Calculator
           PrizePoolCalculator(
             buyIn: double.tryParse(_buyInController.text) ?? 0,
-            estimatedPlayers: _numberOfTables * 9, // Estimate based on tables
+            estimatedPlayers: _numberOfTables * 8, // Estimate based on tables (8-max)
           ),
         ],
       ),

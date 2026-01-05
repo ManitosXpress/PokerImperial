@@ -87,9 +87,9 @@ export const createTournament = async (data: any, context: functions.https.Calla
     const chatRoomId = db.collection('chats').doc().id; // Generar ID para chat room
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-    // 🆕 Calcular estimatedPlayers basado en mesas (9-max por defecto)
+    // 🆕 Calcular estimatedPlayers basado en mesas (8-max por defecto)
     const tablesCount = numberOfTables || 1;
-    const estimatedPlayerCount = tablesCount * 9;
+    const estimatedPlayerCount = tablesCount * 8;
 
     // 🆕 Pre-generar mesas
     const tableIds: string[] = [];
@@ -472,7 +472,7 @@ export const startTournament = async (data: any, context: functions.https.Callab
             }
 
             // 5. Create Tables and Distribute Players
-            const maxPlayersPerTable = 9; // Standard full ring
+            const maxPlayersPerTable = 8; // Eight-Max (8-max)
             const playerCount = registeredPlayerIds.length;
             // Cálculo Dinámico: Si hay 4 jugadores, debe ser 1 mesa.
             const tableCount = playerCount === 0 ? 0 : Math.ceil(playerCount / maxPlayersPerTable);

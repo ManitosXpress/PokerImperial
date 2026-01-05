@@ -62,8 +62,8 @@ class _EconomyViewState extends State<EconomyView> with SingleTickerProviderStat
       }
       
       final today = DateTime.now();
-      final yesterday = today.subtract(const Duration(days: 1));
-      final yStr = "${yesterday.year}-${yesterday.month.toString().padLeft(2,'0')}-${yesterday.day.toString().padLeft(2,'0')}";
+      // [FIX] Use today's date for "Today" stats, not yesterday
+      final yStr = "${today.year}-${today.month.toString().padLeft(2,'0')}-${today.day.toString().padLeft(2,'0')}";
       
       final dailyDoc = await FirebaseFirestore.instance.collection('stats_daily').doc(yStr).get();
       if (dailyDoc.exists) {

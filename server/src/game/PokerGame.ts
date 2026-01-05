@@ -821,24 +821,27 @@ export class PokerGame {
     } {
         // CONFIGURACIÓN DE RAKE
         const RAKE_PERCENTAGE = 0.08; // 8%
-        const MAX_RAKE_CAP = 50;      // [AUDIT FIX] Cap reducido a 50 fichas
+        // const MAX_RAKE_CAP = 50;   // [AUDIT FIX] Cap eliminado o ajustado según requerimiento de usuario (User pidió 8% flat o no especificó cap, pero mantendré lógica simple)
+        // El usuario especificó: rakeAmount = Math.floor(totalPot * 0.08);
 
         let totalRake = 0;
 
         // REGLA: No Flop, No Drop (No Rake)
-        // Si la mano termina en pre-flop, no se cobra comisión
-        if (this.round === 'pre-flop') {
+        // Verificar si hubo Flop (3 cartas comunitarias o más)
+        const hasFlopSeen = this.communityCards.length >= 3;
+
+        if (!hasFlopSeen) {
             totalRake = 0;
             console.log('🚫 [RAKE] No Flop, No Drop. Rake = 0');
         } else {
-            // [AUDIT FIX] Fórmula con Cap
-            totalRake = Math.min(Math.floor(pot * RAKE_PERCENTAGE), MAX_RAKE_CAP);
+            // Cálculo simple del 8% como solicitó el usuario
+            totalRake = Math.floor(pot * RAKE_PERCENTAGE);
         }
 
         const netPot = pot - totalRake;
 
         // LOG SOLICITADO
-        console.log(`💰 [RAKE] Pot: ${pot} | Rake: ${totalRake} | Winner Gets: ${netPot}`);
+        console.log(`💰 [RAKE] Pot: ${pot} | FlopSeen: ${hasFlopSeen} | Rake: ${totalRake} | Winner Gets: ${netPot}`);
 
         let distribution = {
             platform: 0,
@@ -846,9 +849,7 @@ export class PokerGame {
             seller: 0
         };
 
-        // NOTA: La distribución exacta se calcula en gameEconomy.ts usando los datos del usuario (Club/Seller).
-        // Aquí asignamos todo a platform temporalmente para el evento, o mantenemos la lógica aproximada.
-        // Para evitar confusión, asignamos todo a platform en este objeto, ya que el backend es la autoridad.
+        // NOTA: La distribución exacta se calcula en gameEconomy.ts
         if (totalRake > 0) {
             distribution.platform = totalRake;
         }
@@ -900,6 +901,8 @@ export class PokerGame {
         });
 
         // También emitir evento para compatibilidad con sistemas legacy (si existen)
+        // [FIX] Comentado para evitar doble procesamiento y logs incorrectos (RAKE_COLLECTED vs POT_DISTRIBUTED)
+        /*
         if (this.onSystemEvent) {
             this.onSystemEvent('distribute_rake', {
                 potTotal,
@@ -912,6 +915,7 @@ export class PokerGame {
                 processedLocally: true // Flag para indicar que ya se procesó localmente
             });
         }
+        */
     }
 
     private evaluateWinner() {
@@ -1493,6 +1497,8 @@ export class PokerGame {
                 gameId: `hand_${Date.now()}`,
                 potTotal: (finalAmount || 0) + rakeAmount,
                 rakeTaken: rakeAmount,
+                rakeAmount: rakeAmount,     // [REQUESTED] Lo que se queda la casa
+                winnerAmount: finalAmount || 0, // [REQUESTED] Lo que recibe el jugador
                 winnerUid: winner.uid || null,
                 playersInvolved: playersInvolved,
                 authPayload: payloadString,

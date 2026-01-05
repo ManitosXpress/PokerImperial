@@ -9,6 +9,7 @@ import '../../providers/club_provider.dart';
 import '../game_screen.dart';
 import '../../widgets/tournament/god_mode_admin_panel.dart';
 import '../../widgets/tournament/tournament_detail_sheet.dart';
+import '../../widgets/tournament/tournament_chat_widget.dart';
 
 class TournamentLobbyScreen extends StatefulWidget {
   final String tournamentId;
@@ -647,21 +648,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
   }
 
   Widget _buildChatArea(String? chatRoomId) {
-    // Placeholder for chat area
-    return Container(
-      margin: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: const Center(
-        child: Text(
-          'Chat del Torneo',
-          style: TextStyle(color: Colors.white54),
-        ),
-      ),
-    );
+    return TournamentChatWidget(tournamentId: widget.tournamentId);
   }
 
   Widget _buildActionBar(bool isRegistered, bool canRegister, String tournamentStatus, bool isCreator, int playerCount, String? activeTableId) {
