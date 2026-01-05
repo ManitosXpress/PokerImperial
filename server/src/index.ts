@@ -290,9 +290,29 @@ io.on('connection', (socket) => {
                 if (data.maxBuyIn) maxBuyIn = Number(data.maxBuyIn);
             }
 
+            // 🔒 ROLE-BASED HOST DETECTION: Admin/Club Owner/Seller should NOT be added as player
+            let addHostAsPlayer = true;
+            if (uid) {
+                try {
+                    const userDoc = await admin.firestore().collection('users').doc(uid).get();
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        const userRole = userData?.role;
+
+                        // Admin, Club Owners, and Sellers should only spectate
+                        if (userRole === 'admin' || userRole === 'club_owner' || userRole === 'seller') {
+                            console.log(`👑 [CREATE_ROOM] Usuario ${uid} con role '${userRole}' - NO se agregará como jugador`);
+                            addHostAsPlayer = false;
+                        }
+                    }
+                } catch (err) {
+                    console.error(`[CREATE_ROOM] Error verificando role del usuario:`, err);
+                }
+            }
+
             // PASO 1: Crear el room PRIMERO para obtener el ID real
             const room = await roomManager.createRoom(socket.id, playerName, undefined, entryFee, customRoomId || undefined, {
-                addHostAsPlayer: true,
+                addHostAsPlayer,  // Dynamic based on user role
                 isPublic,
                 hostUid: uid,
                 minBuyIn,
@@ -301,8 +321,8 @@ io.on('connection', (socket) => {
             const actualRoomId = room.id; // Este es el ID real del room
 
             // PASO 2: Reservar sesión con el ID REAL del room
-            // ✅ CORREGIDO: Llamar a Cloud Function en lugar de crear sesión directamente
-            if (uid) {
+            // ✅ CORREGIDO: Solo reservar créditos si el host será agregado como jugador
+            if (uid && addHostAsPlayer) {
                 // Importar función helper
                 const { callJoinTableFunction } = await import('./middleware/firebaseAuth');
                 sessionId = await callJoinTableFunction(uid, actualRoomId, entryFee) || undefined;
@@ -318,8 +338,8 @@ io.on('connection', (socket) => {
                 }
             }
 
-            // Inject UID into player object for the host
-            if (uid && room.players.length > 0) {
+            // Inject UID into player object for the host (only if added as player)
+            if (uid && addHostAsPlayer && room.players.length > 0) {
                 room.players[0].uid = uid;
             }
 
