@@ -224,6 +224,12 @@ io.on('connection', (socket) => {
 
             console.log('DEBUG: create_room data received:', JSON.stringify(data, null, 2));
 
+            // 🔒 READ isPublic from frontend data (default: false for private, true if specified)
+            if (typeof data === 'object' && data.isPublic !== undefined) {
+                isPublic = Boolean(data.isPublic);
+                console.log(`DEBUG: isPublic from frontend: ${isPublic}`);
+            }
+
             if (typeof data === 'object') {
                 if (data.minBuyIn) {
                     const parsedMin = Number(data.minBuyIn);
@@ -246,7 +252,7 @@ io.on('connection', (socket) => {
                     if (roomDoc.exists) {
                         const roomData = roomDoc.data();
                         if (roomData) {
-                            isPublic = roomData.isPublic ?? false;
+                            isPublic = roomData.isPublic ?? isPublic;  // Keep frontend value if Firestore doesn't have it
                             if (roomData.minBuyIn) {
                                 entryFee = roomData.minBuyIn;
                             }
@@ -439,7 +445,7 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            // 🔒 ADMIN AUTO-DETECTION: Force spectator mode for admins
+            // 🔒 ROLE-BASED SPECTATOR AUTO-DETECTION: Force spectator for admin/club_owner/seller
             let forceSpectator = isSpectator;
             if (uid && !isSpectator) {
                 try {
@@ -447,8 +453,10 @@ io.on('connection', (socket) => {
                     if (userDoc.exists) {
                         const userData = userDoc.data();
                         const userRole = userData?.role;
-                        if (userRole === 'admin') {
-                            console.log(`👑 [ADMIN] Usuario ${uid} es admin - forzando modo espectador`);
+
+                        // Admin, Club Owners, and Sellers can only spectate public games
+                        if (userRole === 'admin' || userRole === 'club_owner' || userRole === 'seller') {
+                            console.log(`👑 [SPECTATOR] Usuario ${uid} con role '${userRole}' - forzando modo espectador`);
                             forceSpectator = true;
                         }
                     }
