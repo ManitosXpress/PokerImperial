@@ -53,11 +53,11 @@ export interface SettleRoundRequest {
 }
 
 export interface LedgerEntry {
-    type: 'RAKE_DISTRIBUTION' | 'WIN_PRIZE';
+    type: 'RAKE_DISTRIBUTION' | 'WIN_PRIZE' | 'RAKE' | 'POT_DISTRIBUTED';
     amount: number;
     source: string; // e.g., 'game_round_123'
     destination: string; // e.g., 'club_456', 'platform', 'user_789'
-    description: string;
+    description?: string;
     timestamp: any;
     metadata?: any;
 }

@@ -312,6 +312,40 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
             });
 
             // ═══════════════════════════════════════════════════════════════
+            // 7b. 📝 CREAR ENTRADA DE RAKE EN LEDGER (Para Finance History)
+            //     CRITICAL: Esta entrada separada permite que el Admin Panel
+            //     muestre las transacciones de Rake en el historial financiero
+            // ═══════════════════════════════════════════════════════════════
+            if (data.rakeTotal > 0) {
+                const rakeLedgerId = `rake_${data.tableId}_${data.handId}`;
+                const rakeLedgerRef = db.collection('financial_ledger').doc(rakeLedgerId);
+
+                transaction.set(rakeLedgerRef, {
+                    type: 'RAKE',
+                    amount: data.rakeTotal,
+                    source: `table_${data.tableId}`,
+                    destination: 'SYSTEM',
+                    description: `Rake collected from hand ${data.handId}`,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    metadata: {
+                        handId: data.handId,
+                        tableId: data.tableId,
+                        potTotal: data.potTotal,
+                        breakdown: {
+                            platform: platformShare,
+                            club: clubShare,
+                            seller: sellerShare
+                        },
+                        isPrivate: !!data.isPrivate,
+                        clubId: data.clubId || null,
+                        sellerId: data.sellerId || null,
+                        treasuryUid: TREASURY_ADMIN_UID
+                    }
+                });
+                console.log(`[RAKE_LOCAL] 📊 Rake ledger entry created: ${rakeLedgerId}`);
+            }
+
+            // ═══════════════════════════════════════════════════════════════
             // 8. 🔒 MARCAR MANO COMO DISTRIBUTED (Lock de Idempotencia)
             // ═══════════════════════════════════════════════════════════════
             transaction.set(handRef, {
