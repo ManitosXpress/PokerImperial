@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 import '../poker_card.dart';
+import '../card_back.dart';
 import '../../utils/responsive_utils.dart';
 
-/// CRASH-PROOF: Renders community cards with full null safety
-/// Handles null, empty, and partial community cards scenarios
-class CommunityCardsWidget extends StatelessWidget {
+/// ANIMATED: Renders community cards with sequential flip animation
+class CommunityCardsWidget extends StatefulWidget {
   final List<dynamic>? communityCards;
   final bool isMobile;
 
@@ -15,14 +16,110 @@ class CommunityCardsWidget extends StatelessWidget {
   });
 
   @override
+  State<CommunityCardsWidget> createState() => _CommunityCardsWidgetState();
+}
+
+class _CommunityCardsWidgetState extends State<CommunityCardsWidget> with TickerProviderStateMixin {
+  final List<AnimationController> _flipControllers = [];
+  final List<Animation<double>> _flipAnimations = [];
+  int _previousCardCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeControllers();
+  }
+
+  void _initializeControllers() {
+    final cardCount = widget.communityCards?.length ?? 0;
+    
+    // Create controllers for each card
+    for (int i = 0; i < cardCount; i++) {
+      final controller = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 600),
+      );
+      _flipControllers.add(controller);
+      _flipAnimations.add(
+        Tween<double>(begin: 0, end: 1).animate(
+          CurvedAnimation(parent: controller, curve: Curves.easeInOut),
+        ),
+      );
+    }
+
+    _previousCardCount = cardCount;
+  }
+
+  @override
+  void didUpdateWidget(CommunityCardsWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final oldCount = oldWidget.communityCards?.length ?? 0;
+    final newCount = widget.communityCards?.length ?? 0;
+
+    // If new cards were added, animate them
+    if (newCount > oldCount) {
+      _handleNewCards(oldCount, newCount);
+    } else if (newCount < oldCount) {
+      // If cards were removed (new hand), reset
+      _resetControllers();
+    }
+  }
+
+  void _handleNewCards(int oldCount, int newCount) async {
+    // Add new controllers for new cards
+    for (int i = oldCount; i < newCount; i++) {
+      if (i >= _flipControllers.length) {
+        final controller = AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 600),
+        );
+        _flipControllers.add(controller);
+        _flipAnimations.add(
+          Tween<double>(begin: 0, end: 1).animate(
+            CurvedAnimation(parent: controller, curve: Curves.easeInOut),
+          ),
+        );
+      }
+    }
+
+    // Animate new cards one by one
+    for (int i = oldCount; i < newCount; i++) {
+      if (!mounted) return;
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted && i < _flipControllers.length) {
+        _flipControllers[i].forward();
+      }
+    }
+  }
+
+  void _resetControllers() {
+    for (var controller in _flipControllers) {
+      controller.dispose();
+    }
+    _flipControllers.clear();
+    _flipAnimations.clear();
+    _initializeControllers();
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _flipControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     // SAFETY: Handle null or empty community cards
-    if (communityCards == null || communityCards!.isEmpty) {
-      return const SizedBox.shrink(); // Render nothing if no cards
+    if (widget.communityCards == null || widget.communityCards!.isEmpty) {
+      return const SizedBox.shrink();
     }
 
     try {
-      final cardWidth = ResponsiveUtils.scale(context, isMobile ? 50 : 45);
+      final cardWidth = ResponsiveUtils.scale(context, widget.isMobile ? 50 : 45);
+      final cardHeight = cardWidth * 1.4;
 
       return Center(
         child: Container(
@@ -35,23 +132,48 @@ class CommunityCardsWidget extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
-            children: communityCards!.map((card) {
-              // SAFETY: Handle potential null cards in the list
-              if (card == null) return const SizedBox.shrink();
+            children: List.generate(widget.communityCards!.length, (index) {
+              final card = widget.communityCards![index];
               
+              // SAFETY: Handle potential null cards
+              if (card == null) return const SizedBox.shrink();
+
+              // Ensure we have a controller for this card
+              if (index >= _flipControllers.length) return const SizedBox.shrink();
+
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                child: PokerCard(
-                  cardCode: card.toString(),
-                  width: cardWidth,
+                child: AnimatedBuilder(
+                  animation: _flipAnimations[index],
+                  builder: (context, child) {
+                    final double value = _flipAnimations[index].value;
+                    final bool isFaceUp = value >= 0.5;
+                    final double rotation = value * math.pi;
+
+                    return Transform(
+                      transform: Matrix4.identity()
+                        ..setEntry(3, 2, 0.001)
+                        ..rotateY(rotation),
+                      alignment: Alignment.center,
+                      child: isFaceUp
+                          ? Transform(
+                              alignment: Alignment.center,
+                              transform: Matrix4.identity()..rotateY(math.pi),
+                              child: PokerCard(
+                                cardCode: card.toString(),
+                                width: cardWidth,
+                              ),
+                            )
+                          : CardBack(width: cardWidth, height: cardHeight),
+                    );
+                  },
                 ),
               );
-            }).toList(),
+            }),
           ),
         ),
       );
     } catch (e) {
-      // CRASH-PROOF: If anything goes wrong, show nothing instead of crashing
       print('⚠️ Error rendering community cards: $e');
       return const SizedBox.shrink();
     }

@@ -102,6 +102,13 @@ class PlayersSeatGrid extends StatelessWidget {
 
         int currentBet = int.tryParse(player['currentBet']?.toString() ?? '0') ?? 0;
 
+        // --- 5. WINNER LOGIC ---
+        bool isWinner = false;
+        if (winners != null && winners!['winners'] != null) {
+           final winnersList = winners!['winners'] as List;
+           isWinner = winnersList.any((w) => w['playerId'] == player['id']);
+        }
+
         return Stack(
           children: [
             // LAYER A: The Player Seat
@@ -117,6 +124,7 @@ class PlayersSeatGrid extends StatelessWidget {
                 isFolded: isFolded,
                 cards: cardsToRender, // <--- PASSING CARDS HERE
                 handRank: player['handRank'],
+                isWinner: isWinner,
               ),
             ),
 

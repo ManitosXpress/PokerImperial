@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'poker_card.dart';
+import 'seat_hand.dart';
 import 'imperial_currency.dart';
 
 import '../utils/responsive_utils.dart';
@@ -52,32 +53,14 @@ class PlayerSeat extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         // Cards
-        if (cards != null && cards!.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.only(bottom: 4),
-            padding: isWinner ? const EdgeInsets.all(4) : EdgeInsets.zero,
-            decoration: isWinner
-                ? BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFFFD700), width: 3),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFFFFD700).withOpacity(0.6),
-                        blurRadius: 12,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  )
-                : null,
-            height: cardHeight + (isWinner ? 8 : 0),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: cards!.map((c) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                child: PokerCard(cardCode: c, width: cardWidth),
-              )).toList(),
-            ),
-          ),
+        SeatHand(
+          visibleCards: cards,
+          cardCount: 2, // Default for Hold'em
+          isFolded: isFolded,
+          cardWidth: cardWidth,
+          isWinner: isWinner,
+          isMe: isMe, // <-- NEW: Pass isMe flag
+        ),
         
         // Hand Rank (shown at showdown)
         if (handRank != null && handRank!.isNotEmpty)
