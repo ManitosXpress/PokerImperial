@@ -414,16 +414,24 @@ io.on('connection', (socket) => {
             let entryFee = 1000;
             let uid: string | undefined;
 
-            try {
-                const roomDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
-                if (roomDoc.exists) {
-                    const roomData = roomDoc.data();
-                    if (roomData && roomData.minBuyIn) {
-                        entryFee = roomData.minBuyIn;
+            // 🔒 OPTIMIZATION: Check in-memory room first
+            const existingRoom = roomManager.getRoom(roomId);
+            if (existingRoom && existingRoom.tableConfig) {
+                entryFee = existingRoom.tableConfig.minBuyIn;
+                console.log(`[JOIN_ROOM] Using in-memory minBuyIn: ${entryFee}`);
+            } else {
+                // Fallback to Firestore
+                try {
+                    const roomDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
+                    if (roomDoc.exists) {
+                        const roomData = roomDoc.data();
+                        if (roomData && roomData.minBuyIn) {
+                            entryFee = roomData.minBuyIn;
+                        }
                     }
+                } catch (err) {
+                    console.error(`Error getting minBuyIn for room ${roomId}:`, err);
                 }
-            } catch (err) {
-                console.error(`Error getting minBuyIn for room ${roomId}:`, err);
             }
 
             if (token) {
@@ -585,6 +593,9 @@ io.on('connection', (socket) => {
                             // 🔒 FIX: Preserve Club/Seller ID during hydration
                             const clubId = roomData.clubId;
                             const sellerId = roomData.sellerId;
+                            // 🔒 FIX: Preserve Buy-In Limits during hydration
+                            const minBuyIn = roomData.minBuyIn;
+                            const maxBuyIn = roomData.maxBuyIn;
 
                             if (!roomManager.getRoom(roomId)) {
                                 try {
@@ -593,7 +604,9 @@ io.on('connection', (socket) => {
                                         isPublic,
                                         isTournament,
                                         clubId,     // ✅ Pass clubId
-                                        sellerId    // ✅ Pass sellerId
+                                        sellerId,   // ✅ Pass sellerId
+                                        minBuyIn,   // ✅ Pass minBuyIn
+                                        maxBuyIn    // ✅ Pass maxBuyIn
                                     });
                                     tempRoom.hostId = firestoreHostId;
                                 } catch (err: any) {
