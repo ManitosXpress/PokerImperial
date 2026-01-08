@@ -179,8 +179,23 @@ class _GameScreenState extends State<GameScreen> {
     final userRole = clubProvider.currentUserRole;
     final isSpectatorRole = userRole == 'club' || userRole == 'seller' || userRole == 'admin';
     
-    // FIX: Treat Admin/Club/Seller as Spectator even if widget.isSpectatorMode is false
-    final shouldJoinAsSpectator = widget.isSpectatorMode || isSpectatorRole;
+    // Check if user is actually a player in this table (to allow Admins/Owners to play)
+    bool isPlayerInTable = false;
+    if (user != null) {
+      try {
+        final doc = await FirebaseFirestore.instance.collection('poker_tables').doc(widget.roomId).get();
+        if (doc.exists) {
+           final data = doc.data();
+           final players = List.from(data?['players'] ?? []);
+           isPlayerInTable = players.any((p) => p['id'] == user.uid);
+        }
+      } catch (e) {
+        print('Error checking table players: $e');
+      }
+    }
+    
+    // FIX: Treat Admin/Club/Seller as Spectator ONLY if they are not playing
+    final shouldJoinAsSpectator = widget.isSpectatorMode || (isSpectatorRole && !isPlayerInTable);
     
     if (shouldJoinAsSpectator) {
       setState(() => _isJoining = true);

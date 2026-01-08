@@ -6,7 +6,7 @@ import { createClub, joinClub, leaveClub, ownerCreateMember, sellerCreatePlayer 
 import { createTournament, registerForTournament, unregisterFromTournament, startTournament, openTournamentTables } from './functions/tournament';
 import { adminPauseTournament, adminResumeTournament, adminForceBlindLevel, adminBroadcastMessage } from './functions/tournamentAdmin';
 import { sendTournamentMessage } from './functions/chat';
-import { onTournamentFinish } from './functions/tournamentTriggers';
+import { onTournamentFinish, onTableUpdate } from './functions/tournamentTriggers';
 
 import { getClubLeaderboard } from './functions/leaderboard';
 import { ownerTransferCredit, sellerTransferCredit } from './functions/clubWallet';
@@ -50,6 +50,7 @@ export const startTournamentFunction = functions.https.onCall(startTournament);
 export const openTournamentTablesFunction = functions.https.onCall(openTournamentTables);
 export const sendTournamentMessageFunction = functions.https.onCall(sendTournamentMessage);
 export const onTournamentFinishFunction = onTournamentFinish;
+export const onTableUpdateFunction = onTableUpdate;
 
 // Tournament Admin (God Mode) Functions
 export const adminPauseTournamentFunction = functions.https.onCall(adminPauseTournament);

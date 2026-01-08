@@ -61,11 +61,31 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
       final isRunning = status == 'ACTIVE' || status == 'RUNNING' || status == 'STARTED';
 
       if (isRunning && !_hasRedirected) {
-        // Deterministic Redirection using playerTableMap
-        final playerTableMap = data['playerTableMap'] as Map<String, dynamic>?;
+        String? myTableId;
         
+        // 1. Try to find via Map (Most accurate)
+        final playerTableMap = data['playerTableMap'] as Map<String, dynamic>?;
         if (playerTableMap != null && playerTableMap.containsKey(currentUserId)) {
-          final myTableId = playerTableMap[currentUserId] as String;
+           myTableId = playerTableMap[currentUserId] as String;
+        }
+        
+        // 2. Fallback: If no map but only 1 active table, assume that's it (e.g. final table or single table tournament)
+        final activeTableIds = List<String>.from(data['activeTableIds'] ?? []);
+        if (myTableId == null && activeTableIds.length == 1) {
+           myTableId = activeTableIds.first;
+        }
+
+        // 3. Validation: Ensure the table is actually active/valid
+        if (myTableId != null) {
+           // Verify against activeTableIds if available to prevent joining ghost tables
+           if (activeTableIds.isNotEmpty && !activeTableIds.contains(myTableId)) {
+               print('⚠️ Warning: Assigned table $myTableId is not in activeTableIds list. Checking legacy activeTableId...');
+               // Legacy check
+               if (data['activeTableId'] != myTableId) {
+                   print('❌ Table $myTableId seems invalid/inactive. Aborting auto-redirect.');
+                   return;
+               }
+           }
           
           _hasRedirected = true;
           print('🚀 Torneo iniciado. Redirigiendo automáticamente a mi mesa asignada: $myTableId');
@@ -77,7 +97,7 @@ class _TournamentLobbyScreenState extends State<TournamentLobbyScreen> {
             context,
             MaterialPageRoute(
               builder: (_) => GameScreen(
-                roomId: myTableId,
+                roomId: myTableId!,
                 isTournamentMode: true,
                 autoStart: isCreator, // Host auto-starts the game
               ),

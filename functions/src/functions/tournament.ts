@@ -475,29 +475,13 @@ export const startTournament = async (data: any, context: functions.https.Callab
             const maxPlayersPerTable = 8; // Eight-Max (8-max)
             const playerCount = registeredPlayerIds.length;
             // Cálculo Dinámico: Si hay 4 jugadores, debe ser 1 mesa.
-            const tableCount = playerCount === 0 ? 0 : Math.ceil(playerCount / maxPlayersPerTable);
+            const requiredTableCount = playerCount === 0 ? 0 : Math.ceil(playerCount / maxPlayersPerTable);
 
             // Shuffle players for random seating
             const shuffledPlayers = [...registeredPlayerIds].sort(() => Math.random() - 0.5);
 
-            // Fetch user profiles for table population - READ before WRITE in transaction
-            // Note: In a transaction, we must perform all reads before writes.
-            // However, fetching potentially hundreds of user docs individually is expensive and might exceed transaction limits.
-            // For now, we will assume basic player info is enough or fetch it outside if possible.
-            // BUT, strictly inside transaction, we need to read.
-            // Optimization: We can't read dynamic number of docs easily in transaction without knowing IDs beforehand.
-            // We already have IDs.
-            // Let's rely on the fact that we need to write to the tournament doc and create table docs.
-            // We can fetch users OUTSIDE the transaction if we are okay with slight staleness (name/photo),
-            // OR we accept that we might not get the absolute latest profile data.
-            // Given the requirement for ATOMICITY of table creation, the critical part is the tournament state and table creation.
-            // We will fetch users INSIDE if count is small, or OUTSIDE if large?
-            // The prompt asks for "Leer estado del torneo y jugadores" inside transaction.
-            // Let's try to fetch them inside.
-
+            // Fetch user profiles for table population
             const userRefs = shuffledPlayers.map((pid: string) => db.collection('users').doc(pid));
-            // Firestore transaction.getAll is not available in the client SDK exposed here directly usually, 
-            // but admin SDK supports it.
             const userSnapshots = await transaction.getAll(...userRefs);
             const userMap = new Map();
             userSnapshots.forEach(snap => {
@@ -506,12 +490,42 @@ export const startTournament = async (data: any, context: functions.https.Callab
                 }
             });
 
-            const tableIds: string[] = [];
+            // --- REUSE EXISTING TABLES LOGIC ---
+            // Fetch existing tables for this tournament
+            // Note: We cannot perform a query inside a transaction if we didn't plan for it, 
+            // but we can query by IDs if we have them in tournament.tableIds.
+            // However, to be safe and robust, we should query all tables for this tournament.
+            // Queries in transactions require the index to be built.
+            const existingTablesQuery = await transaction.get(
+                db.collection('poker_tables').where('tournamentId', '==', tournamentId)
+            );
+
+            const activeTableIds: string[] = [];
             const playerTableMap: { [key: string]: string } = {}; // Map { uid: tableId }
 
-            for (let i = 0; i < tableCount; i++) {
-                const tableId = db.collection('poker_tables').doc().id;
-                tableIds.push(tableId);
+            let availableTables: any[] = [];
+            if (!existingTablesQuery.empty) {
+                availableTables = existingTablesQuery.docs.map(doc => ({ ref: doc.ref, data: doc.data(), id: doc.id }));
+            }
+
+            // We need 'requiredTableCount' tables.
+            for (let i = 0; i < requiredTableCount; i++) {
+                let tableId: string;
+                let tableRef: any;
+                let isNew = false;
+
+                if (i < availableTables.length) {
+                    // Reuse existing table
+                    tableId = availableTables[i].id;
+                    tableRef = availableTables[i].ref;
+                } else {
+                    // Create new table if not enough exist
+                    tableRef = db.collection('poker_tables').doc();
+                    tableId = tableRef.id;
+                    isNew = true;
+                }
+
+                activeTableIds.push(tableId);
 
                 // Determine players for this table
                 const start = i * maxPlayersPerTable;
@@ -533,8 +547,7 @@ export const startTournament = async (data: any, context: functions.https.Callab
                     };
                 });
 
-                const newTable = {
-                    id: tableId,
+                const tableData = {
                     tournamentId: tournamentId,
                     name: `${tournament?.name} - Table ${i + 1}`,
                     smallBlind: 50, // TODO: Get from blind structure Level 1
@@ -545,10 +558,11 @@ export const startTournament = async (data: any, context: functions.https.Callab
                     createdByName: 'Tournament System',
                     isPublic: false,
                     isTournament: true,
-                    status: 'active', // Ready to play
+                    status: 'active', // Set to active immediately
                     players: tablePlayers,
                     spectators: [],
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    // Only set createdAt if new, otherwise keep original
+                    ...(isNew ? { createdAt: admin.firestore.FieldValue.serverTimestamp() } : {}),
                     currentRound: null,
                     pot: 0,
                     communityCards: [],
@@ -558,42 +572,35 @@ export const startTournament = async (data: any, context: functions.https.Callab
                     lastActionTime: admin.firestore.FieldValue.serverTimestamp()
                 };
 
-                const tableRef = db.collection('poker_tables').doc(tableId);
-                transaction.set(tableRef, newTable);
+                if (isNew) {
+                    transaction.set(tableRef, { id: tableId, ...tableData });
+                } else {
+                    transaction.update(tableRef, tableData);
+                }
             }
 
             // 6. Update Tournament State
             transaction.update(tournamentRef, {
-                status: 'active', // Changed from RUNNING to active as per prompt requirement or keep consistent? Prompt said 'active'.
-                // Let's use 'active' to match the prompt's explicit instruction: "cambiando el status a 'active'"
-                // But existing code used 'RUNNING'. I will use 'active' to be safe with the prompt, 
-                // but I should check if other parts of the system expect 'RUNNING'.
-                // The prompt says: "Actualizar el documento del torneo... cambiando el status a 'active'"
-                // I will follow the prompt.
-                tableIds: tableIds,
-                activeTableId: tableIds[0],
+                status: 'active',
+                activeTableIds: activeTableIds, // <--- CRÍTICO: Array de mesas activas
+                tableIds: activeTableIds, // Keep legacy field in sync
+                activeTableId: activeTableIds[0], // Legacy support for single table
                 startTime: admin.firestore.FieldValue.serverTimestamp(),
                 startedAt: admin.firestore.FieldValue.serverTimestamp(),
-                totalTables: tableCount,
+                totalTables: requiredTableCount,
                 playerTableMap: playerTableMap // <--- CRÍTICO: Mapa { uid: tableId }
             });
 
-            return { tableIds, playerTableMap };
+            return { activeTableIds, playerTableMap };
         });
 
-        // 7. Send Notifications (Non-blocking, after transaction)
-        // ... (Notification logic remains similar but outside transaction)
-        // We can't easily access userSnapshots here unless we refetch or pass data out.
-        // For simplicity and robustness, we'll skip the complex notification logic rewrite 
-        // or just do a simple log since the core requirement is the race condition fix.
-        // If we want to keep notifications, we should fetch tokens again or pass them out.
-        // Let's assume notifications are secondary to the critical bug fix.
-        console.log(`Tournament ${tournamentId} started with ${result.tableIds.length} tables.`);
+        console.log(`Tournament ${tournamentId} started with ${result.activeTableIds.length} tables.`);
 
         return {
             success: true,
             message: 'Tournament started successfully',
-            tableIds: result.tableIds
+            tableIds: result.activeTableIds,
+            activeTableIds: result.activeTableIds
         };
 
     } catch (error) {

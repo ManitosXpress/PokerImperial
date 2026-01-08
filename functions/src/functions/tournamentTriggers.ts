@@ -46,3 +46,69 @@ export const onTournamentFinish = functions.firestore
             console.log(`Tournament ${context.params.tournamentId} completed. Club ${clubId} stats updated.`);
         }
     });
+
+/**
+ * onTableUpdate
+ * Trigger para cerrar automáticamente el torneo cuando todas las mesas finalizan.
+ */
+export const onTableUpdate = functions.firestore
+    .document('poker_tables/{tableId}')
+    .onUpdate(async (change, context) => {
+        const before = change.before.data();
+        const after = change.after.data();
+
+        // Detectar cambio a 'finished'
+        // Usamos toLowerCase() para robustez
+        const beforeStatus = (before.status || '').toLowerCase();
+        const afterStatus = (after.status || '').toLowerCase();
+
+        if (beforeStatus !== 'finished' && afterStatus === 'finished') {
+            const tournamentId = after.tournamentId;
+
+            // Solo proceder si es una mesa de torneo
+            if (!tournamentId) return;
+
+            if (!admin.apps.length) {
+                admin.initializeApp();
+            }
+            const db = admin.firestore();
+
+            // Consultar si quedan mesas activas para este torneo
+            // Buscamos mesas que NO estén finished.
+            // Firestore no soporta '!=' en queries fácilmente con otros filtros a veces, 
+            // pero podemos buscar por los estados activos conocidos: 'active', 'playing', 'running'
+            const activeTablesSnapshot = await db.collection('poker_tables')
+                .where('tournamentId', '==', tournamentId)
+                .where('status', 'in', ['active', 'playing', 'running', 'ACTIVE', 'PLAYING', 'RUNNING'])
+                .get();
+
+            if (activeTablesSnapshot.empty) {
+                console.log(`All tables finished for tournament ${tournamentId}. Auto-closing tournament...`);
+
+                // Ejecutar transacción para cerrar el torneo
+                try {
+                    await db.runTransaction(async (transaction) => {
+                        const tournamentRef = db.collection('tournaments').doc(tournamentId);
+                        const tournamentDoc = await transaction.get(tournamentRef);
+
+                        if (!tournamentDoc.exists) return;
+
+                        const currentStatus = (tournamentDoc.data()?.status || '').toUpperCase();
+
+                        // Solo cerrar si no está ya cerrado
+                        if (currentStatus !== 'FINISHED' && currentStatus !== 'COMPLETED') {
+                            transaction.update(tournamentRef, {
+                                status: 'FINISHED',
+                                endedAt: admin.firestore.FieldValue.serverTimestamp()
+                            });
+                        }
+                    });
+                    console.log(`Tournament ${tournamentId} successfully closed.`);
+                } catch (error) {
+                    console.error(`Error auto-closing tournament ${tournamentId}:`, error);
+                }
+            } else {
+                console.log(`Tournament ${tournamentId} still has ${activeTablesSnapshot.size} active tables.`);
+            }
+        }
+    });

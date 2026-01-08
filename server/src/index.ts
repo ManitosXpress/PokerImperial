@@ -582,10 +582,19 @@ io.on('connection', (socket) => {
                             const hostName = roomData.hostName || 'Host';
                             const isPublic = roomData.isPublic !== undefined ? roomData.isPublic : true;
                             const isTournament = roomData.isTournament === true;
+                            // 🔒 FIX: Preserve Club/Seller ID during hydration
+                            const clubId = roomData.clubId;
+                            const sellerId = roomData.sellerId;
 
                             if (!roomManager.getRoom(roomId)) {
                                 try {
-                                    const tempRoom = await roomManager.createRoom('temp-host', hostName, undefined, entryFee, roomId, { addHostAsPlayer: false, isPublic, isTournament });
+                                    const tempRoom = await roomManager.createRoom('temp-host', hostName, undefined, entryFee, roomId, {
+                                        addHostAsPlayer: false,
+                                        isPublic,
+                                        isTournament,
+                                        clubId,     // ✅ Pass clubId
+                                        sellerId    // ✅ Pass sellerId
+                                    });
                                     tempRoom.hostId = firestoreHostId;
                                 } catch (err: any) {
                                     console.log(`Room ${roomId} created concurrently during hydration.`);
@@ -593,6 +602,11 @@ io.on('connection', (socket) => {
                             }
 
                             room = await roomManager.joinRoom(roomId, socket.id, playerName, sessionId, entryFee);
+
+                            // ✅ FIX: Sync player count to Firestore immediately after hydration join
+                            if (room) {
+                                persistGameStateAsync(roomId, room);
+                            }
                         }
                     }
                 } catch (err) {
@@ -610,6 +624,10 @@ io.on('connection', (socket) => {
                 // room is already sanitized from roomManager.joinRoom
                 io.to(roomId).emit('player_joined', room);
                 socket.emit('room_joined', room);
+
+                // ✅ FIX: Sync player count to Firestore immediately after normal join
+                persistGameStateAsync(roomId, room);
+
                 console.log(`${playerName} joined room ${roomId}`);
             } else {
                 console.error(`[JOIN_ROOM] ❌ Room no encontrada: ${roomId}`);

@@ -182,6 +182,14 @@ class _CashTablesViewState extends State<CashTablesView> with AutomaticKeepAlive
                   final isPublic = isPublicRaw == true || isPublicRaw == 'true';
                   if (!isPublic) return false;
 
+                  // 🔒 CRITICAL: Exclude club tables from public Game Zone
+                  // Club tables have a clubId set, even if marked as public
+                  // They should only appear in their respective Club Dashboard
+                  final clubId = data['clubId'];
+                  if (clubId != null && clubId.toString().isNotEmpty) {
+                    return false; // This is a club table, skip it
+                  }
+
                   // 3. Filter by Blinds (New Logic)
                   if (_selectedTier != null) {
                     final bigBlind = data['bigBlind'] is int 

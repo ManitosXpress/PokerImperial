@@ -118,8 +118,18 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
         // Validar Buy-In
         let finalBuyIn = minBuyIn;
         if (buyInAmount) {
-            if (buyInAmount < minBuyIn) throw new functions.https.HttpsError('invalid-argument', `Buy-in too low. Min: ${minBuyIn}`);
-            if (buyInAmount > maxBuyIn) throw new functions.https.HttpsError('invalid-argument', `Buy-in too high. Max: ${maxBuyIn}`);
+            if (buyInAmount < minBuyIn) {
+                throw new functions.https.HttpsError(
+                    'invalid-argument',
+                    `El Buy-In debe ser al menos ${minBuyIn}. Recibido: ${buyInAmount}`
+                );
+            }
+            if (buyInAmount > maxBuyIn) {
+                throw new functions.https.HttpsError(
+                    'invalid-argument',
+                    `El Buy-In no puede exceder ${maxBuyIn}. Recibido: ${buyInAmount}`
+                );
+            }
             finalBuyIn = buyInAmount;
         }
 
