@@ -159,9 +159,22 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
 
             // Leer club si es necesario
             let clubDocRead: FirebaseFirestore.DocumentSnapshot | null = null;
+            let clubOwnerId: string | null = null;
             const clubRefLocal = data.clubId ? db.collection('clubs').doc(data.clubId) : null;
+
             if (clubShare > 0 && clubRefLocal) {
                 clubDocRead = await transaction.get(clubRefLocal);
+                if (clubDocRead.exists) {
+                    clubOwnerId = clubDocRead.data()?.ownerId || null;
+                }
+            }
+
+            // Leer Dueño del Club si existe
+            let clubOwnerDocRead: FirebaseFirestore.DocumentSnapshot | null = null;
+            const clubOwnerRefLocal = clubOwnerId ? db.collection('users').doc(clubOwnerId) : null;
+
+            if (clubShare > 0 && clubOwnerRefLocal) {
+                clubOwnerDocRead = await transaction.get(clubOwnerRefLocal);
             }
 
             // Leer seller si es necesario
@@ -204,22 +217,50 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                 });
             }
 
-            // B. Club
-            if (clubShare > 0 && clubRefLocal && clubDocRead) {
-                if (clubDocRead.exists) {
-                    transaction.update(clubRefLocal, {
-                        walletBalance: admin.firestore.FieldValue.increment(clubShare),
-                        totalRakeEarned: admin.firestore.FieldValue.increment(clubShare),
-                        lastRakeReceived: admin.firestore.FieldValue.serverTimestamp()
+            // B. Club (Pago al DUEÑO)
+            if (clubShare > 0 && clubRefLocal && clubDocRead && clubDocRead.exists) {
+                // 1. Actualizar Wallet del Club (para contabilidad interna del club)
+                transaction.update(clubRefLocal, {
+                    walletBalance: admin.firestore.FieldValue.increment(clubShare),
+                    totalRakeEarned: admin.firestore.FieldValue.increment(clubShare),
+                    lastRakeReceived: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                // 2. Pagar al DUEÑO del Club (si existe)
+                if (clubOwnerRefLocal && clubOwnerDocRead && clubOwnerDocRead.exists) {
+                    transaction.update(clubOwnerRefLocal, {
+                        credit: admin.firestore.FieldValue.increment(clubShare)
                     });
-                    console.log(`[RAKE_LOCAL] 🏠 Club ${data.clubId} recibe: ${clubShare}`);
+
+                    // Log para el Dueño
+                    const ownerTxLogRef = db.collection('transaction_logs').doc();
+                    transaction.set(ownerTxLogRef, {
+                        userId: clubOwnerId,
+                        amount: clubShare,
+                        type: 'credit',
+                        reason: `Club Rake - Table ${data.tableId}`,
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        metadata: {
+                            clubId: data.clubId,
+                            handId: data.handId,
+                            role: 'CLUB_OWNER'
+                        }
+                    });
+
+                    console.log(`[RAKE_LOCAL] 🏠 Club Owner ${clubOwnerId} recibe: ${clubShare} (Club ${data.clubId})`);
                 } else {
-                    // Si el club no existe, el dinero va a la plataforma
+                    // Fallback: Si no hay dueño válido, enviar a Treasury
                     transaction.update(treasuryRef, {
                         credit: admin.firestore.FieldValue.increment(clubShare)
                     });
-                    console.warn(`[RAKE_LOCAL] ⚠️ Club ${data.clubId} no existe. ${clubShare} redirigido a plataforma.`);
+                    console.warn(`[RAKE_LOCAL] ⚠️ Club Owner ${clubOwnerId} no encontrado/válido. ${clubShare} redirigido a plataforma.`);
                 }
+            } else if (clubShare > 0) {
+                // Fallback: Si el club no existe
+                transaction.update(treasuryRef, {
+                    credit: admin.firestore.FieldValue.increment(clubShare)
+                });
+                console.warn(`[RAKE_LOCAL] ⚠️ Club ${data.clubId} no existe. ${clubShare} redirigido a plataforma.`);
             }
 
             // C. Seller
@@ -301,6 +342,8 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                 if (winnerPlayer) {
                     winnerName = winnerPlayer.name || winnerPlayer.displayName || 'Unknown';
                 }
+            } else {
+                winnerName = 'BOT/SYSTEM'; // Manejo explícito de null winner
             }
 
             // ═══════════════════════════════════════════════════════════════
@@ -324,6 +367,7 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                     seller: sellerShare
                 },
                 clubId: data.clubId || null,
+                clubOwnerId: clubOwnerId || null, // [FIX] Agregar Owner ID al ledger
                 sellerId: data.sellerId || null,
                 treasuryUid: TREASURY_ADMIN_UID,
                 processedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -357,6 +401,7 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                         },
                         isPrivate: !!data.isPrivate,
                         clubId: data.clubId || null,
+                        clubOwnerId: clubOwnerId || null, // [FIX] Agregar Owner ID al metadata
                         sellerId: data.sellerId || null,
                         treasuryUid: TREASURY_ADMIN_UID
                     }
