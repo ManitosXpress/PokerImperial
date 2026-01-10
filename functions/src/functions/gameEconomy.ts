@@ -735,7 +735,7 @@ export const processCashOut = async (data: ProcessCashOutRequest, context?: func
  * finales del jugador a su billetera (credit).
  */
 export const universalTableSettlement = async (data: CloseTableRequest, context: functions.https.CallableContext) => {
-    // Validación auth...
+    // 1. Validación
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
     const { tableId } = data;
     if (!tableId) throw new functions.https.HttpsError('invalid-argument', 'Missing tableId.');
@@ -744,19 +744,21 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
     try {
-        console.log(`[UNIVERSAL_SETTLEMENT] Iniciando liquidación universal (TAX-FREE) de mesa ${tableId}`);
+        console.log(`[UNIVERSAL_SETTLEMENT] (FIXED) Iniciando liquidación Tax-Free mesa ${tableId}`);
 
-        // Leer mesa y sesiones...
+        // --- LECTURAS PRE-TRANSACCIÓN ---
         const tableRef = db.collection('poker_tables').doc(tableId);
         const tableDoc = await tableRef.get();
+
         if (!tableDoc.exists) throw new functions.https.HttpsError('not-found', 'Table not found.');
 
         const tableData = tableDoc.data();
-        if (tableData?.status === 'FINISHED') return { success: true, message: 'Table already finished.' };
+        // Si la mesa ya está finalizada, abortar para mantener idempotencia
+        if (tableData?.status === 'FINISHED') {
+            return { success: true, message: 'Table already finished.', playersProcessed: 0 };
+        }
 
-        const players = Array.isArray(tableData?.players) ? [...tableData.players] : [];
-
-        // Mapear sesiones activas...
+        // Obtener sesiones activas
         const activeSessionsQuery = await db.collection('poker_sessions')
             .where('roomId', '==', tableId)
             .where('status', '==', 'active')
@@ -772,9 +774,10 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
             }
         });
 
-        // Mapear usuarios...
+        // Obtener referencias de usuarios
+        const players = Array.isArray(tableData?.players) ? [...tableData.players] : [];
         const userIds = players.map((p: any) => p.id).filter(Boolean);
-        const userMap = new Map<string, { ref: admin.firestore.DocumentReference, data: any }>();
+        const userMap = new Map();
         if (userIds.length > 0) {
             const userDocs = await Promise.all(userIds.map((uid: string) => db.collection('users').doc(uid).get()));
             userDocs.forEach((doc, index) => {
@@ -782,16 +785,19 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
             });
         }
 
-        // TRANSACCIÓN ATÓMICA
-        await db.runTransaction(async (transaction) => {
+        // --- TRANSACCIÓN ATÓMICA ---
+        const result = await db.runTransaction(async (transaction) => {
+            const processedPlayers: any[] = [];
+
             for (const player of players) {
                 const playerId = player.id;
+                // FUENTE DE VERDAD: Chips en la mesa
                 const finalStack = Number(player.chips) || 0;
 
                 const userInfo = userMap.get(playerId);
                 if (!userInfo) continue;
 
-                // 1. Devolución ÍNTEGRA (Sin Rake)
+                // 1. Devolución ÍNTEGRA (Tax-Free)
                 transaction.update(userInfo.ref, {
                     credit: admin.firestore.FieldValue.increment(finalStack),
                     moneyInPlay: 0,
@@ -801,21 +807,26 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
 
                 // 2. Cerrar sesiones
                 const sessions = sessionsByUser.get(playerId) || [];
-                // Calcular netResult solo informativo
-                let buyIn = 0;
-                if (sessions.length > 0) buyIn = Number(sessions[0].data.buyInAmount) || 0;
+                let initialBuyIn = 0;
+                if (sessions.length > 0) {
+                    sessions.sort((a, b) => (b.data.startTime?.toMillis() || 0) - (a.data.startTime?.toMillis() || 0));
+                    initialBuyIn = Number(sessions[0].data.buyInAmount) || 0;
+                } else {
+                    initialBuyIn = Number(tableData?.minBuyIn) || 0;
+                }
+                const netResult = finalStack - initialBuyIn;
 
-                sessions.forEach((s, idx) => {
-                    transaction.update(s.ref, {
+                sessions.forEach((session, idx) => {
+                    transaction.update(session.ref, {
                         status: 'completed',
                         currentChips: idx === 0 ? finalStack : 0,
-                        netResult: idx === 0 ? (finalStack - buyIn) : 0,
+                        netResult: idx === 0 ? netResult : 0,
                         endTime: timestamp,
-                        closedReason: 'table_closed_settlement'
+                        closedReason: 'table_settlement'
                     });
                 });
 
-                // 3. Ledger (SESSION_END)
+                // 3. Ledger de Cierre
                 const ledgerRef = db.collection('financial_ledger').doc();
                 transaction.set(ledgerRef, {
                     type: 'SESSION_END',
@@ -823,31 +834,37 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                     userName: userInfo.data.displayName || 'Unknown',
                     tableId: tableId,
                     amount: finalStack,
-                    netAmount: finalStack, // Lo que recibe en mano
-                    rakePaid: 0, // YA PAGADO EN EL JUEGO
+                    netAmount: finalStack,
+                    netProfit: netResult,
                     grossAmount: finalStack,
-                    buyInAmount: buyIn,
+                    rakePaid: 0, // YA SE PAGÓ EN CADA MANO
+                    buyInAmount: initialBuyIn,
                     timestamp: timestamp,
-                    description: `Liquidación Final Mesa (Return: ${finalStack})`
+                    description: `Cierre Mesa (Tax-Free) - Retorno: ${finalStack}`
                 });
+
+                processedPlayers.push({ userId: playerId, finalStack });
             }
 
-            // Cerrar mesa
+            // Cerrar la mesa
             transaction.update(tableRef, {
                 players: players.map((p: any) => ({ ...p, chips: 0, inGame: false })),
                 status: 'FINISHED',
                 lastUpdated: timestamp
             });
+
+            return { success: true, players: processedPlayers };
         });
 
-        console.log(`[UNIVERSAL_SETTLEMENT] ✅ Mesa ${tableId} liquidada sin doble tributación.`);
-        return { success: true, message: 'Table settled without double taxation.' };
+        return result;
 
     } catch (error: any) {
         console.error('[UNIVERSAL_SETTLEMENT] Error:', error);
         throw new functions.https.HttpsError('internal', error.message);
     }
 };
+
+
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════

@@ -287,12 +287,12 @@ export class PokerGame {
             }
             this.currentTurnIndex = -1;
 
-            // FIX CRÍTICO: Usar endHand para procesar Rake correctamente y generar eventos
+            // FIX CRÍTICO: Usar endHand para procesar el Rake correctamente y generar eventos
             if (this.pot > 0) {
                 console.log(`💰 Procesando victoria de ${winner.name} a través de endHand (Rake processing)`);
                 this.endHand(winner);
             } else {
-                // Si el bote está vacío, solo reiniciamos
+                // Si el bote es 0, solo reinicia
                 this.activePlayers = [];
                 this.round = 'pre-flop';
             }
