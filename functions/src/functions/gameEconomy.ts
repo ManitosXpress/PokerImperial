@@ -727,137 +727,125 @@ export const processCashOut = async (data: ProcessCashOutRequest, context?: func
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * 4. UNIVERSAL TABLE SETTLEMENT - CIERRE DE MESA
+ * 4. UNIVERSAL TABLE SETTLEMENT - CIERRE DE MESA (TAX-FREE)
  * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * IMPORTANTE: Esta función NO cobra Rake. El Rake ya fue cobrado mano a mano
+ * en settleGameRound/processRakeLocal. Esta función solo devuelve las fichas
+ * finales del jugador a su billetera (credit).
  */
 export const universalTableSettlement = async (data: CloseTableRequest, context: functions.https.CallableContext) => {
+    // Validación auth...
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
-
-    const db = getDb();
     const { tableId } = data;
     if (!tableId) throw new functions.https.HttpsError('invalid-argument', 'Missing tableId.');
 
-    console.log(`[ECONOMY] Universal Settlement for ${tableId}`);
+    const db = getDb();
+    const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
     try {
-        // 1. Leer Mesa y Jugadores
+        console.log(`[UNIVERSAL_SETTLEMENT] Iniciando liquidación universal (TAX-FREE) de mesa ${tableId}`);
+
+        // Leer mesa y sesiones...
         const tableRef = db.collection('poker_tables').doc(tableId);
         const tableDoc = await tableRef.get();
         if (!tableDoc.exists) throw new functions.https.HttpsError('not-found', 'Table not found.');
 
         const tableData = tableDoc.data();
+        if (tableData?.status === 'FINISHED') return { success: true, message: 'Table already finished.' };
+
         const players = Array.isArray(tableData?.players) ? [...tableData.players] : [];
 
-        if (players.length === 0) {
-            await tableRef.update({ status: 'FINISHED' });
-            return { success: true, message: 'Table closed (empty).' };
+        // Mapear sesiones activas...
+        const activeSessionsQuery = await db.collection('poker_sessions')
+            .where('roomId', '==', tableId)
+            .where('status', '==', 'active')
+            .get();
+
+        const sessionsByUser = new Map<string, Array<{ ref: admin.firestore.DocumentReference, data: any }>>();
+        activeSessionsQuery.docs.forEach(doc => {
+            const d = doc.data();
+            if (d.userId) {
+                const existing = sessionsByUser.get(d.userId) || [];
+                existing.push({ ref: doc.ref, data: d });
+                sessionsByUser.set(d.userId, existing);
+            }
+        });
+
+        // Mapear usuarios...
+        const userIds = players.map((p: any) => p.id).filter(Boolean);
+        const userMap = new Map<string, { ref: admin.firestore.DocumentReference, data: any }>();
+        if (userIds.length > 0) {
+            const userDocs = await Promise.all(userIds.map((uid: string) => db.collection('users').doc(uid).get()));
+            userDocs.forEach((doc, index) => {
+                if (doc.exists) userMap.set(userIds[index], { ref: doc.ref, data: doc.data() });
+            });
         }
 
-        // 2. Iterar y Liquidar (Batch o Serie de Transacciones)
-        // Dado que runTransaction tiene límite de escrituras, y universalTableSettlement puede tener muchos jugadores,
-        // lo ideal es hacerlo en una sola transacción si son pocos (<500 ops), o iterar.
-        // Asumimos mesa de poker max 9 jugadores -> Una sola transacción es segura.
-
+        // TRANSACCIÓN ATÓMICA
         await db.runTransaction(async (transaction) => {
-            const timestamp = admin.firestore.FieldValue.serverTimestamp();
-
             for (const player of players) {
-                const uid = player.id;
-                const chips = Number(player.chips) || 0;
+                const playerId = player.id;
+                const finalStack = Number(player.chips) || 0;
 
-                if (!uid) continue;
+                const userInfo = userMap.get(playerId);
+                if (!userInfo) continue;
 
-                // [AUDIT FIX] Buscar sesión activa para calcular NetProfit correcto
-                // Nota: Esto es una lectura extra por jugador. En mesas de 9 jugadores es aceptable.
-                const sessionRef = db.collection('poker_sessions')
-                    .where('userId', '==', uid)
-                    .where('roomId', '==', tableId)
-                    .where('status', '==', 'active')
-                    .limit(1);
-
-                // No podemos hacer await dentro del loop de transacción fácilmente si no pre-leemos.
-                // Pero runTransaction permite lecturas después de escrituras si son independientes? 
-                // Firestore requiere lecturas ANTES de escrituras.
-                // REFACTOR: Para hacerlo bien, deberíamos leer todas las sesiones antes.
-                // Dado que universalTableSettlement es "admin/system force close", 
-                // vamos a simplificar: Si no podemos leer la sesión eficientemente, 
-                // registramos el payout pero con warning en netProfit.
-                // O mejor: Hacemos la lectura. Firestore permite lecturas secuenciales en tx.
-
-                const sessionQuery = await transaction.get(sessionRef);
-                let initialBuyIn = 0;
-                let totalRebuys = 0;
-
-                if (!sessionQuery.empty) {
-                    const sData = sessionQuery.docs[0].data();
-                    initialBuyIn = Number(sData.buyInAmount) || 0;
-                    totalRebuys = Number(sData.totalRebuys) || 0; // [AUDIT FIX]
-                }
-
-                const netProfit = chips - (initialBuyIn + totalRebuys);
-
-                // A. Devolver Crédito (SIN RAKE - [AUDIT FIX] Confirmado: Payout = FinalStack)
-                const userRef = db.collection('users').doc(uid);
-                transaction.update(userRef, {
-                    credit: admin.firestore.FieldValue.increment(chips),
+                // 1. Devolución ÍNTEGRA (Sin Rake)
+                transaction.update(userInfo.ref, {
+                    credit: admin.firestore.FieldValue.increment(finalStack),
                     moneyInPlay: 0,
                     currentTableId: null,
                     lastUpdated: timestamp
                 });
 
-                // B. Log
-                const txLogRef = db.collection('transaction_logs').doc();
-                transaction.set(txLogRef, {
-                    userId: uid,
-                    amount: chips,
-                    type: 'credit',
-                    reason: `Table Closed - ${tableId}`,
+                // 2. Cerrar sesiones
+                const sessions = sessionsByUser.get(playerId) || [];
+                // Calcular netResult solo informativo
+                let buyIn = 0;
+                if (sessions.length > 0) buyIn = Number(sessions[0].data.buyInAmount) || 0;
+
+                sessions.forEach((s, idx) => {
+                    transaction.update(s.ref, {
+                        status: 'completed',
+                        currentChips: idx === 0 ? finalStack : 0,
+                        netResult: idx === 0 ? (finalStack - buyIn) : 0,
+                        endTime: timestamp,
+                        closedReason: 'table_closed_settlement'
+                    });
+                });
+
+                // 3. Ledger (SESSION_END)
+                const ledgerRef = db.collection('financial_ledger').doc();
+                transaction.set(ledgerRef, {
+                    type: 'SESSION_END',
+                    userId: playerId,
+                    userName: userInfo.data.displayName || 'Unknown',
+                    tableId: tableId,
+                    amount: finalStack,
+                    netAmount: finalStack, // Lo que recibe en mano
+                    rakePaid: 0, // YA PAGADO EN EL JUEGO
+                    grossAmount: finalStack,
+                    buyInAmount: buyIn,
                     timestamp: timestamp,
-                    metadata: {
-                        tableId,
-                        chips,
-                        // [AUDIT FIX]
-                        initialBuyIn,
-                        totalRebuys,
-                        netProfit
-                    }
+                    description: `Liquidación Final Mesa (Return: ${finalStack})`
                 });
             }
 
-            // C. Cerrar Sesiones Activas de esta mesa
-            // NOTA: Query dentro de transacción puede ser costosa. 
-            // Si confiamos en que processCashOut limpia, aquí es solo remanentes.
-            // Para simplificar en esta refactorización estricta:
-            // No podemos hacer query dinámica compleja dentro de tx fácilmente sin leer primero.
-            // Omitimos el cierre de sesiones en la transacción para evitar complejidad, 
-            // O lo hacemos fuera y luego actualizamos.
-            // MEJOR OPCIÓN: Actualizar la mesa a FINISHED primero.
-
+            // Cerrar mesa
             transaction.update(tableRef, {
+                players: players.map((p: any) => ({ ...p, chips: 0, inGame: false })),
                 status: 'FINISHED',
-                players: [], // Vaciar mesa
                 lastUpdated: timestamp
             });
         });
 
-        // Limpieza de sesiones fuera de transacción (Best Effort)
-        const activeSessions = await db.collection('poker_sessions')
-            .where('roomId', '==', tableId)
-            .where('status', '==', 'active')
-            .get();
-
-        const batch = db.batch();
-        activeSessions.docs.forEach(doc => {
-            batch.update(doc.ref, { status: 'completed', closedReason: 'table_closed' });
-        });
-        await batch.commit();
-
-        console.log(`[ECONOMY] Table ${tableId} settled and closed.`);
-        return { success: true };
+        console.log(`[UNIVERSAL_SETTLEMENT] ✅ Mesa ${tableId} liquidada sin doble tributación.`);
+        return { success: true, message: 'Table settled without double taxation.' };
 
     } catch (error: any) {
-        console.error(`[ECONOMY] Universal Settlement Error:`, error);
-        throw error instanceof functions.https.HttpsError ? error : new functions.https.HttpsError('internal', error.message);
+        console.error('[UNIVERSAL_SETTLEMENT] Error:', error);
+        throw new functions.https.HttpsError('internal', error.message);
     }
 };
 

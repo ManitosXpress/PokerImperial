@@ -280,39 +280,22 @@ export class PokerGame {
             console.log('🏆 Last Man Standing Condition Met: Only 1 active player remaining.');
             const winner = activePlayers[0];
 
-            // Detener cualquier timer activo
+            // Detener timer
             if (this.turnTimer) {
                 clearTimeout(this.turnTimer);
                 this.turnTimer = null;
             }
-
-            // Invalidar turno actual
             this.currentTurnIndex = -1;
 
-            // Force Game End: Otorgar bote actual al ganador
+            // FIX CRÍTICO: Usar endHand para procesar Rake correctamente y generar eventos
             if (this.pot > 0) {
-                console.log(`💰 Otorgando bote de ${this.pot} fichas a ${winner.name} (Last Man Standing)`);
-                winner.chips += this.pot;
-                this.pot = 0;
+                console.log(`💰 Procesando victoria de ${winner.name} a través de endHand (Rake processing)`);
+                this.endHand(winner);
+            } else {
+                // Si el bote está vacío, solo reiniciamos
+                this.activePlayers = [];
+                this.round = 'pre-flop';
             }
-
-            // Emit Victory Event con reason 'last_man_standing' para que RoomManager cierre la mesa
-            if (this.onSystemEvent) {
-                this.onSystemEvent('game_finished', {
-                    winnerId: winner.id,
-                    winnerUid: winner.uid, // Incluir UID si está disponible
-                    reason: 'last_man_standing', // Cambiado de 'walkover' a 'last_man_standing'
-                    message: "¡Ganaste! Todos los rivales se retiraron o se quedaron sin fichas.",
-                    finalChips: winner.chips,
-                    totalRakePaid: winner.totalRakePaid || 0
-                });
-            }
-
-            // Reset state
-            this.activePlayers = [];
-            this.round = 'pre-flop';
-
-            // Nota: closeTableAndCashOut será llamado por RoomManager al recibir el evento 'game_finished'
             return;
         }
 
