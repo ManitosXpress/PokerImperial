@@ -67,92 +67,101 @@ export class PokerGame {
         this.startRound();
     }
 
+    /**
+     * Mueve el botón de Dealer al siguiente jugador elegible.
+     * Debe llamarse ANTES de iniciar una nueva mano.
+     */
+    private rotateDealerButton() {
+        if (this.players.length < 2) return;
+
+        let attempts = 0;
+        do {
+            this.dealerIndex = (this.dealerIndex + 1) % this.players.length;
+            const potentialDealer = this.players[this.dealerIndex];
+            if (potentialDealer.status !== 'WAITING_FOR_REBUY' && (potentialDealer.chips > 0 || potentialDealer.isBot)) {
+                break;
+            }
+            attempts++;
+        } while (attempts < this.players.length);
+
+        console.log(`🔘 Dealer Button movido a: ${this.players[this.dealerIndex].name}`);
+    }
+
     private startRound() {
-        // Filter valid players for the next round
-        const eligiblePlayers = this.players.filter(p => p.chips > 0 && p.status !== 'WAITING_FOR_REBUY');
+        const eligiblePlayers = this.players.filter(p =>
+            p.status !== 'WAITING_FOR_REBUY' &&
+            p.status !== 'ELIMINATED' &&
+            (p.chips > 0 || p.isBot)
+        );
 
         if (eligiblePlayers.length < 2) {
-            console.log('Not enough eligible players to start round. Waiting for rebuys or joins.');
-
-            // Check for Last Man Standing condition
-            // If we have 1 eligible player and NO one waiting for rebuy, they win.
-            const playersWaitingRebuy = this.players.filter(p => p.status === 'WAITING_FOR_REBUY');
-            if (eligiblePlayers.length === 1 && playersWaitingRebuy.length === 0) {
-                console.log('Last Man Standing detected!');
-                // Wait, if it's just one player and game hasn't started, it's not a win, it's "waiting for opponents".
-                // But if this follows a hand end or player removal, it might be a win.
-                // The prompt asks specifically for: "Cada vez que un jugador sale... verifica... Si activePlayers.length == 1... Victoria por Abandono"
-                // This check needs to be in checkActivePlayers which is called on exit.
-                // Here in startRound we handle "Can we start NEXT round?".
-                // If we can't, we just wait.
-                // But if there is a pot sitting there? No, startRound resets pot.
-                // However, if the game was "active" and suddenly everyone leaves but one, 
-                // removePlayer calls this.
-
-                // We should let checkActivePlayers handle the immediate win trigger.
-                // But if we fall through here, ensure we don't clear pot if it wasn't distributed?
-                // startRound calls this.pot = 0;
-                // We must ensure startRound isn't called if we are in a Walkover state.
-            }
+            console.log('⏳ Esperando más jugadores para iniciar ronda...');
             return;
         }
+
+        // ROTACIÓN DEL DEALER
+        this.rotateDealerButton();
 
         if (this.turnTimer) {
             clearTimeout(this.turnTimer);
             this.turnTimer = null;
         }
 
-        this.isHandProcessing = false; // 🔓 Reset security flag for new round
-
         this.initializeDeck();
         this.pot = 0;
-        this.sidePots = []; // Reset side pots for new hand
-        this.playerTotalContributions.clear(); // Reset contribution tracking
+        this.sidePots = [];
+        this.playerTotalContributions.clear();
         this.communityCards = [];
         this.round = 'pre-flop';
         this.currentBet = this.bigBlindAmount;
 
         this.activePlayers = [...eligiblePlayers];
 
-        // Reset player states for new round (only for active players)
         this.activePlayers.forEach(p => {
             p.hand = [];
             p.isFolded = false;
             p.currentBet = 0;
-            p.isAllIn = false; // Reset all-in status para nueva ronda
+            p.isAllIn = false;
             p.status = 'PLAYING';
-            p.hasActed = false; // CRÍTICO: Reset hasActed al inicio de cada ronda
-            // Note: We do NOT reset isSitOut here; it persists until user returns
+            p.hasActed = false;
         });
 
-        // Deal cards
         this.activePlayers.forEach(p => {
             p.hand = this.deal(2);
         });
 
-        // Blinds logic (simplified for dynamic player count)
-        const dealerActiveIndex = 0;
-        let sbIndex: number;
-        let bbIndex: number;
+        // LÓGICA DE CIEGAS Y POSICIONES
+        const dealerId = this.players[this.dealerIndex].id;
+        let activeDealerIndex = this.activePlayers.findIndex(p => p.id === dealerId);
+
+        if (activeDealerIndex === -1) {
+            activeDealerIndex = 0;
+        }
+
+        let sbIndex = 0;
+        let bbIndex = 0;
+        let firstActionIndex = 0;
 
         if (this.activePlayers.length === 2) {
-            // HEADS-UP RULES: Dealer is Small Blind, Other is Big Blind
-            sbIndex = dealerActiveIndex;
-            bbIndex = (dealerActiveIndex + 1) % this.activePlayers.length;
+            // Heads Up: Dealer es SB y habla primero Pre-flop
+            sbIndex = activeDealerIndex;
+            bbIndex = (activeDealerIndex + 1) % this.activePlayers.length;
+            firstActionIndex = sbIndex;
         } else {
-            // STANDARD RULES (3+ Players): SB is left of Dealer, BB is left of SB
-            sbIndex = (dealerActiveIndex + 1) % this.activePlayers.length;
-            bbIndex = (dealerActiveIndex + 2) % this.activePlayers.length;
+            // Mesa Normal
+            sbIndex = (activeDealerIndex + 1) % this.activePlayers.length;
+            bbIndex = (activeDealerIndex + 2) % this.activePlayers.length;
+            firstActionIndex = (activeDealerIndex + 3) % this.activePlayers.length;
         }
+
+        console.log(`🃏 Round Info: Dealer=${this.activePlayers[activeDealerIndex].name}, SB=${this.activePlayers[sbIndex].name}, BB=${this.activePlayers[bbIndex].name}`);
 
         this.placeBet(this.activePlayers[sbIndex], this.smallBlindAmount);
         this.placeBet(this.activePlayers[bbIndex], this.bigBlindAmount);
 
-        // Restablecer currentTurnIndex para nueva ronda (ya no es -1)
-        this.currentTurnIndex = (bbIndex + 1) % this.activePlayers.length;
+        this.currentTurnIndex = firstActionIndex;
         this.lastAggressorIndex = bbIndex;
 
-        // Start the turn flow
         this.startTurnTimer();
 
         if (this.onGameStateChange) {
@@ -725,18 +734,28 @@ export class PokerGame {
     }
 
     private nextRound() {
-        this.currentTurnIndex = (this.dealerIndex + 1) % this.activePlayers.length;
-        while (this.activePlayers[this.currentTurnIndex].isFolded) {
-            this.currentTurnIndex = (this.currentTurnIndex + 1) % this.activePlayers.length;
-        }
-
-        // CRÍTICO: Resetear apuestas y estado de acciones para nueva ronda
         this.activePlayers.forEach(p => {
             p.currentBet = 0;
-            p.hasActed = false; // Resetear hasActed para nueva ronda de apuestas
+            p.hasActed = false;
         });
         this.currentBet = 0;
-        this.lastAggressorIndex = this.currentTurnIndex;
+
+        // DETERMINAR TURNO POST-FLOP (Izquierda del Dealer)
+        const dealerId = this.players[this.dealerIndex].id;
+        let activeDealerIndex = this.activePlayers.findIndex(p => p.id === dealerId);
+
+        if (activeDealerIndex === -1) activeDealerIndex = 0;
+
+        let nextToActIndex = (activeDealerIndex + 1) % this.activePlayers.length;
+
+        let attempts = 0;
+        while ((this.activePlayers[nextToActIndex].isFolded || this.activePlayers[nextToActIndex].isAllIn) && attempts < this.activePlayers.length) {
+            nextToActIndex = (nextToActIndex + 1) % this.activePlayers.length;
+            attempts++;
+        }
+
+        this.currentTurnIndex = nextToActIndex;
+        this.lastAggressorIndex = nextToActIndex;
 
         switch (this.round) {
             case 'pre-flop':
@@ -757,15 +776,12 @@ export class PokerGame {
                 return;
         }
 
-        // BUG FIX: Después de repartir cartas, verificar si todos están all-in
-        // Si todos están all-in (0 o 1 jugador con fichas), saltar al showdown
-        // Esto solo se verifica DESPUÉS de repartir cartas y cuando todos ya actuaron en la ronda anterior
+        // Auto-Showdown check
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
         const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
 
-        // Si todos están all-in (0 o 1 jugador con fichas), saltar al showdown
         if (activeNonFolded.length > 1 && playersWithChips.length <= 1) {
-            console.log('🔥 Todos los jugadores están ALL-IN después de repartir cartas. Saltando al showdown...');
+            console.log('🔥 Todos All-In post-reparto. Saltando a Showdown.');
             this.autoAdvanceToShowdown();
             return;
         }
