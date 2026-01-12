@@ -249,6 +249,143 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
+ * 1.5 REBUY - RECARGA DE FICHAS (ADD-ON)
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+interface RebuyRequest {
+    tableId: string;
+    amount: number;
+}
+
+export const rebuy = async (data: RebuyRequest, context: functions.https.CallableContext) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
+    }
+
+    const uid = context.auth.uid;
+    const db = getDb();
+    const { tableId, amount } = data;
+
+    if (!tableId || !amount || amount <= 0) {
+        throw new functions.https.HttpsError('invalid-argument', 'Invalid tableId or amount.');
+    }
+
+    console.log(`[ECONOMY] Player ${uid} requesting rebuy of ${amount} in table ${tableId}`);
+
+    try {
+        const result = await db.runTransaction(async (transaction) => {
+            // 1. Validaciones Previas (Lecturas)
+            const userRef = db.collection('users').doc(uid);
+            const tableRef = db.collection('poker_tables').doc(tableId);
+
+            const [userDoc, tableDoc] = await Promise.all([
+                transaction.get(userRef),
+                transaction.get(tableRef)
+            ]);
+
+            if (!userDoc.exists) throw new functions.https.HttpsError('not-found', 'User not found.');
+            if (!tableDoc.exists) throw new functions.https.HttpsError('not-found', 'Table not found.');
+
+            const userData = userDoc.data();
+            const tableData = tableDoc.data();
+
+            // Verificar que el usuario está en la mesa
+            if (userData?.currentTableId !== tableId) {
+                throw new functions.https.HttpsError('failed-precondition', 'User is not in this table.');
+            }
+
+            // Verificar fondos
+            const currentCredit = Number(userData?.credit) || 0;
+            if (currentCredit < amount) {
+                throw new functions.https.HttpsError('failed-precondition', `Insufficient funds. Need ${amount}, have ${currentCredit}.`);
+            }
+
+            // Verificar límites de la mesa
+            const maxBuyIn = Number(tableData?.maxBuyIn) || 10000;
+            const players = Array.isArray(tableData?.players) ? tableData.players : [];
+            const playerIndex = players.findIndex((p: any) => p.id === uid || p.uid === uid);
+
+            if (playerIndex === -1) {
+                throw new functions.https.HttpsError('failed-precondition', 'Player not found in table roster.');
+            }
+
+            const currentChips = Number(players[playerIndex].chips) || 0;
+            const newStack = currentChips + amount;
+
+            if (newStack > maxBuyIn) {
+                throw new functions.https.HttpsError(
+                    'invalid-argument',
+                    `Rebuy exceeds max stack. Max: ${maxBuyIn}, Current: ${currentChips}, Requested: ${amount}`
+                );
+            }
+
+            // Buscar sesión activa
+            const sessionQuery = await db.collection('poker_sessions')
+                .where('userId', '==', uid)
+                .where('roomId', '==', tableId)
+                .where('status', '==', 'active')
+                .limit(1)
+                .get();
+
+            if (sessionQuery.empty) {
+                throw new functions.https.HttpsError('failed-precondition', 'Active session not found.');
+            }
+            const sessionDoc = sessionQuery.docs[0];
+
+            // 2. EJECUCIÓN (Escrituras)
+            const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+            // A. Descontar Crédito y Aumentar MoneyInPlay
+            transaction.update(userRef, {
+                credit: admin.firestore.FieldValue.increment(-amount),
+                moneyInPlay: admin.firestore.FieldValue.increment(amount),
+                lastUpdated: timestamp
+            });
+
+            // B. Actualizar Mesa (Chips del jugador)
+            transaction.update(tableRef, {
+                [`players.${playerIndex}.chips`]: admin.firestore.FieldValue.increment(amount)
+            });
+
+            // C. Actualizar Sesión (Total Rebuys)
+            transaction.update(sessionDoc.ref, {
+                totalRebuys: admin.firestore.FieldValue.increment(amount),
+                currentChips: admin.firestore.FieldValue.increment(amount), // Sync aproximado
+                lastActive: timestamp
+            });
+
+            // D. Log Transacción
+            const txLogRef = db.collection('transaction_logs').doc();
+            transaction.set(txLogRef, {
+                userId: uid,
+                amount: -amount,
+                type: 'debit',
+                reason: `Poker Rebuy - Table ${tableId}`,
+                timestamp: timestamp,
+                beforeBalance: currentCredit,
+                afterBalance: currentCredit - amount,
+                metadata: {
+                    sessionId: sessionDoc.id,
+                    tableId,
+                    rebuyAmount: amount,
+                    newStack
+                }
+            });
+
+            return { newStack, balance: currentCredit - amount };
+        });
+
+        console.log(`[ECONOMY] Rebuy successful for ${uid}. New Stack: ${result.newStack}`);
+        return { success: true, newStack: result.newStack, message: 'Rebuy successful' };
+
+    } catch (error: any) {
+        console.error(`[ECONOMY] Rebuy Error:`, error);
+        throw error instanceof functions.https.HttpsError ? error : new functions.https.HttpsError('internal', error.message);
+    }
+};
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
  * 2. SETTLE GAME ROUND - EL MOTOR FINANCIERO (POT RAKE)
  * ═══════════════════════════════════════════════════════════════════════════
  * 
@@ -797,15 +934,7 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                 const userInfo = userMap.get(playerId);
                 if (!userInfo) continue;
 
-                // 1. Devolución ÍNTEGRA (Tax-Free)
-                transaction.update(userInfo.ref, {
-                    credit: admin.firestore.FieldValue.increment(finalStack),
-                    moneyInPlay: 0,
-                    currentTableId: null,
-                    lastUpdated: timestamp
-                });
-
-                // 2. Cerrar sesiones
+                // 1. Obtener datos de sesión previos (Necesario para cálculos)
                 const sessions = sessionsByUser.get(playerId) || [];
                 let initialBuyIn = 0;
                 if (sessions.length > 0) {
@@ -814,36 +943,95 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                 } else {
                     initialBuyIn = Number(tableData?.minBuyIn) || 0;
                 }
-                const netResult = finalStack - initialBuyIn;
 
-                sessions.forEach((session, idx) => {
-                    transaction.update(session.ref, {
-                        status: 'completed',
-                        currentChips: idx === 0 ? finalStack : 0,
-                        netResult: idx === 0 ? netResult : 0,
-                        endTime: timestamp,
-                        closedReason: 'table_settlement'
-                    });
+                const displayName = userInfo.data.displayName || 'Unknown';
+                const userRef = userInfo.ref;
+
+                // PASO A: LIMPIEZA VISUAL OBLIGATORIA (CRÍTICO)
+                transaction.update(userRef, {
+                    moneyInPlay: 0,
+                    currentTableId: null,
+                    lastUpdated: timestamp
                 });
 
-                // 3. Ledger de Cierre
+                // PASO B: Cálculo Financiero (SIN RAKE ADICIONAL)
+                // En liquidación universal, devolvemos lo que hay en la mesa.
+                // El rake ya se cobró mano a mano en settleGameRound.
+                const netResult = finalStack - initialBuyIn;
+                const payout = finalStack; // El usuario recibe exactamente lo que tiene en fichas
+                // const rake = 0; // NO cobrar rake de salida (Removed to fix unused var error)
+
+                // Actualizar crédito del usuario
+                transaction.update(userRef, {
+                    credit: admin.firestore.FieldValue.increment(payout)
+                });
+
+                console.log(`[UNIVERSAL_SETTLEMENT] ${playerId} PROCESADO. BuyIn: ${initialBuyIn}, FinalStack: ${finalStack}, NetResult: ${netResult}, Payout: ${payout}`);
+
+                // CRÍTICO: Cerrar TODAS las sesiones del usuario
+                for (let j = 0; j < sessions.length; j++) {
+                    const session = sessions[j];
+                    const isPrimary = j === 0;
+
+                    transaction.update(session.ref, {
+                        status: 'completed',
+                        currentChips: isPrimary ? finalStack : 0,
+                        totalRakePaid: 0, // El rake se registra en las manos, no en la sesión
+                        netResult: isPrimary ? netResult : 0,
+                        endTime: timestamp,
+                        closedReason: isPrimary ? 'universal_settlement' : 'duplicate_cleanup'
+                    });
+                }
+
+                // Registrar en ledger (Tipo SESSION_END unificado)
                 const ledgerRef = db.collection('financial_ledger').doc();
+
                 transaction.set(ledgerRef, {
                     type: 'SESSION_END',
                     userId: playerId,
-                    userName: userInfo.data.displayName || 'Unknown',
+                    userName: displayName,
                     tableId: tableId,
-                    amount: finalStack,
-                    netAmount: finalStack,
-                    netProfit: netResult,
+                    amount: payout,       // Lo que entra a la wallet
+                    netAmount: payout,    // Idem
+                    netProfit: netResult, // Ganancia/Pérdida neta
                     grossAmount: finalStack,
-                    rakePaid: 0, // YA SE PAGÓ EN CADA MANO
+                    rakePaid: 0,          // 0 porque ya se pagó en las manos
                     buyInAmount: initialBuyIn,
                     timestamp: timestamp,
-                    description: `Cierre Mesa (Tax-Free) - Retorno: ${finalStack}`
+                    description: `Liquidación Universal - Mesa ${tableId}. Stack: ${finalStack}, Resultado: ${netResult}`,
+                    duplicateSessionsClosed: sessions.length > 1 ? sessions.length : undefined
                 });
 
-                processedPlayers.push({ userId: playerId, finalStack });
+                // Registrar en transaction_logs
+                const txLogRef = db.collection('transaction_logs').doc();
+                transaction.set(txLogRef, {
+                    userId: playerId,
+                    amount: payout,
+                    type: 'credit',
+                    reason: `Cierre Mesa ${tableId}: ${netResult >= 0 ? '+' : ''}${netResult} (Stack: ${finalStack})`,
+                    timestamp: timestamp,
+                    beforeBalance: 0,
+                    afterBalance: 0,
+                    metadata: {
+                        tableId: tableId,
+                        sessionType: 'poker_settlement',
+                        grossStack: finalStack,
+                        buyInAmount: initialBuyIn,
+                        rakePaid: 0,
+                        netProfit: netResult
+                    }
+                });
+
+                processedPlayers.push({
+                    userId: playerId,
+                    displayName,
+                    finalStack,
+                    initialBuyIn,
+                    netResult,
+                    payout,
+                    rake: 0,
+                    type: netResult >= 0 ? 'GAME_WIN' : 'GAME_LOSS' // Esto es solo para el log de retorno, no afecta lógica
+                });
             }
 
             // Cerrar la mesa
