@@ -959,14 +959,14 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                 // El rake ya se cobró mano a mano en settleGameRound.
                 const netResult = finalStack - initialBuyIn;
                 const payout = finalStack; // El usuario recibe exactamente lo que tiene en fichas
-                // const rake = 0; // NO cobrar rake de salida (Removed to fix unused var error)
+                const rake = 0; // NO cobrar rake de salida
 
                 // Actualizar crédito del usuario
                 transaction.update(userRef, {
                     credit: admin.firestore.FieldValue.increment(payout)
                 });
 
-                console.log(`[UNIVERSAL_SETTLEMENT] ${playerId} PROCESADO. BuyIn: ${initialBuyIn}, FinalStack: ${finalStack}, NetResult: ${netResult}, Payout: ${payout}`);
+                console.log(`[UNIVERSAL_SETTLEMENT] ${playerId} PROCESADO. BuyIn: ${initialBuyIn}, FinalStack: ${finalStack}, NetResult: ${netResult}, Payout: ${payout}, Rake: ${rake}`);
 
                 // CRÍTICO: Cerrar TODAS las sesiones del usuario
                 for (let j = 0; j < sessions.length; j++) {
@@ -995,7 +995,7 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
                     netAmount: payout,    // Idem
                     netProfit: netResult, // Ganancia/Pérdida neta
                     grossAmount: finalStack,
-                    rakePaid: 0,          // 0 porque ya se pagó en las manos
+                    rakePaid: rake,       // 0 porque ya se pagó en las manos
                     buyInAmount: initialBuyIn,
                     timestamp: timestamp,
                     description: `Liquidación Universal - Mesa ${tableId}. Stack: ${finalStack}, Resultado: ${netResult}`,
