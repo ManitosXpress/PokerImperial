@@ -15,8 +15,11 @@ import 'screens/setup_account_screen.dart';
 import 'firebase_options.dart';
 import 'dart:async';
 
+import 'package:intl/date_symbol_data_local.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting();
   
   // Initialize Firebase with options
   await Firebase.initializeApp(
