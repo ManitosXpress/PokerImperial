@@ -305,6 +305,24 @@ export class PokerGame {
                 this.activePlayers = [];
                 this.round = 'pre-flop';
             }
+
+            // 🔒 FIX: Si este es el ÚNICO jugador en la sala (todos los demás se fueron), cerrar la mesa
+            // Esto previene que el ganador se quede "atrapado" solo en la sala
+            if (this.players.length === 1 && this.onSystemEvent) {
+                console.log(`🔒 [AUTO-CLOSE] Player ${winner.name} is the last one in the room. Closing table.`);
+                setTimeout(() => {
+                    if (this.onSystemEvent) {
+                        this.onSystemEvent('TABLE_CLOSED', {
+                            tableId: this.roomId,
+                            reason: 'LAST_MAN_STANDING',
+                            winnerUid: winner.uid,
+                            winnerId: winner.id,
+                            finalChips: winner.chips
+                        });
+                    }
+                }, 2000); // Pequeño delay para permitir que se procese el endHand primero
+            }
+
             return;
         }
 

@@ -801,6 +801,40 @@ export class RoomManager {
                 }
             }
 
+            // 🎯 NUEVO: TABLE_CLOSED - Handle auto-close from PokerGame
+            if (event === 'TABLE_CLOSED') {
+                console.log(`🎯 [TABLE_CLOSED] Processing auto-close for room ${roomId}`);
+                const { winnerUid, finalChips, reason } = data;
+
+                // 1. Cashout the winner
+                if (winnerUid) {
+                    try {
+                        await this.triggerSecureCashout(
+                            winnerUid,
+                            roomId,
+                            finalChips || 0,
+                            reason || 'TABLE_CLOSED'
+                        );
+                        console.log(`✅ Cashout triggered for winner ${winnerUid}`);
+                    } catch (error) {
+                        console.error(`❌ Failed to trigger cashout for winner ${winnerUid}:`, error);
+                    }
+                }
+
+                // 2. Notify Frontend
+                if (this.emitCallback) {
+                    this.emitCallback(roomId, 'table_closed', {
+                        reason: reason || 'GAME_OVER',
+                        redirect: true
+                    });
+                }
+
+                // 3. Delete Room (with small delay to allow frontend to receive event)
+                setTimeout(() => {
+                    this.deleteRoom(roomId);
+                }, 1000);
+            }
+
             // BUG FIX: Manejar correctamente el evento game_finished para Last Man Standing
             if (event === 'game_finished') {
                 if (data.reason === 'last_man_standing' || data.reason === 'walkover') {
@@ -858,7 +892,7 @@ export class RoomManager {
             /*
             if (event === 'distribute_rake') {
                 console.log(`💰 [RAKE] Forwarding distribute_rake event to emitCallback for room ${roomId}`);
-
+    
                 // Forward event to index.ts through emitCallback
                 if (this.emitCallback) {
                     this.emitCallback(roomId, 'distribute_rake', data);
