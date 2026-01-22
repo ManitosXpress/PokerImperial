@@ -1,5 +1,6 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import { PokerGame } from '../game/PokerGame';
 
 // Lazy initialization de Firestore para evitar timeout en deploy
 const getDb = () => {
@@ -318,3 +319,52 @@ export const getInGameBalance = async (data: any, context: functions.https.Calla
         );
     }
 };
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * WATCHDOG TRIGGER (Deadlock Prevention)
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * Detecta turnos expirados cuando ocurre cualquier actualización en la mesa.
+ * Si el turno ha expirado, fuerza un FOLD para desbloquear el juego.
+ */
+export const onTableWatchdog = functions.firestore
+    .document('poker_tables/{tableId}')
+    .onUpdate(async (change, context) => {
+        const after = change.after.data();
+        const tableId = context.params.tableId;
+
+        // 1. Validar estado activo
+        if (!after || after.status !== 'active') return;
+
+        // 2. Validar expiración del turno
+        const turnExpiresAt = after.turnExpiresAt || 0;
+        if (turnExpiresAt === 0) return;
+
+        // Margen de seguridad de 2 segundos para evitar race conditions con el cliente
+        if (Date.now() > (turnExpiresAt + 2000)) {
+            console.log(`[WATCHDOG] 🚨 Turn expired for table ${tableId}. Forcing fold.`);
+
+            try {
+                // 3. Instanciar y cargar estado del juego
+                const game = new PokerGame();
+                game.roomId = tableId; // Importante para firmas y rake
+                game.loadState(after);
+
+                // 4. Forzar Fold
+                // Esto avanzará el turno y actualizará turnExpiresAt
+                game.forceCurrentPlayerFold();
+
+                // 5. Obtener nuevo estado
+                const newState = game.getPublicState();
+
+                // 6. Guardar cambios
+                // Usamos update para no sobrescribir campos no gestionados por PokerGame
+                await change.after.ref.update(newState);
+
+                console.log(`[WATCHDOG] ✅ Game state updated. New turn index: ${newState.currentTurnIndex}`);
+            } catch (error) {
+                console.error(`[WATCHDOG] ❌ Error forcing fold:`, error);
+            }
+        }
+    });

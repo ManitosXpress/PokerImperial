@@ -13,7 +13,7 @@ import { ownerTransferCredit, sellerTransferCredit } from './functions/clubWalle
 import { createClubInvite, completeInvitationRegistration } from './functions/invitations';
 import { onUserCreate } from './functions/auth';
 import { adminSetUserRole, adminMintCredits, getSystemStats, bootstrapAdmin, repairStuckSessions, getUserTransactionHistory, clearAllFirestoreData, adminDeleteUser, cleanWelcomeBonusUsers, adminCreateUser, cleanStuckMoneyInPlay, cleanupCorruptedSessions } from './functions/admin';
-import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, getInGameBalance } from './functions/table';
+import { createPublicTable, createClubTableFunction as _createClubTableFunction, startGameFunction as _startGameFunction, getInGameBalance, onTableWatchdog } from './functions/table';
 import { dailyEconomyCron } from './functions/cron';
 import { dailyEconomyCron as newDailyEconomyCron, triggerDailyStats } from './functions/scheduled_functions';
 import { getTopHolders, getTopWinners24h, get24hMetrics, getWeeklyTrends, getCurrentLiquidity, getTotalRake } from './functions/analytics';
@@ -96,6 +96,7 @@ export const createPublicTableFunction = createPublicTable;
 export const createClubTableFunctionExport = _createClubTableFunction; // Keep for backward compatibility
 export const createClubTableFunction = _createClubTableFunction;
 export const startGameFunction = _startGameFunction;
+export const onTableWatchdogFunction = onTableWatchdog;
 
 export const universalTableSettlementFunction = functions.https.onCall(universalTableSettlement);
 export const joinTableFunction = functions.https.onCall(joinTable);

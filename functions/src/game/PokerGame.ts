@@ -1,6 +1,6 @@
-import { Player, Room } from '../types';
+import { Player } from './types';
 import * as crypto from 'crypto';
-import { processRakeLocal } from '../utils/localRake';
+import { processRakeLocal } from './utils/localRake';
 const Hand = require('pokersolver').Hand;
 
 const GAME_SECRET = process.env.GAME_SECRET || 'default-secret-change-in-production-2024';
@@ -17,7 +17,7 @@ export class PokerGame {
     private round: 'pre-flop' | 'flop' | 'turn' | 'river' | 'showdown' = 'pre-flop';
     private players: Player[] = [];
     private activePlayers: Player[] = []; // Players currently in the hand
-    private lastAggressorIndex: number = 0;
+    // private lastAggressorIndex: number = 0;
     private isHandProcessing: boolean = false; // 🔒 Security Flag: Prevent double spending on race conditions
     public turnExpiresAt: number = 0; // 🕒 Timestamp when current turn expires
 
@@ -30,7 +30,7 @@ export class PokerGame {
     private readonly REBUY_TIMEOUT_SECONDS = 30;
 
     // Rake System
-    private isPublicRoom: boolean = true; // Default to public
+    // private isPublicRoom: boolean = true; // Default to public
     public roomId: string = ''; // ID de la sala para firma criptográfica
     private isPrivate: boolean = false; // 🔒 Flag for private table (100% rake to platform)
     private clubId?: string; // Club ID for rake distribution
@@ -53,7 +53,7 @@ export class PokerGame {
     public startGame(players: Player[], isPublic: boolean = true, roomId: string = '', clubId?: string, sellerId?: string) {
         if (players.length < 2) throw new Error('Not enough players');
         this.players = players;
-        this.isPublicRoom = isPublic;
+        // this.isPublicRoom = isPublic;
         this.roomId = roomId;
         this.isPrivate = !isPublic; // 🔒 Convert to isPrivate flag
         this.clubId = clubId;
@@ -161,7 +161,7 @@ export class PokerGame {
         this.placeBet(this.activePlayers[bbIndex], this.bigBlindAmount);
 
         this.currentTurnIndex = firstActionIndex;
-        this.lastAggressorIndex = bbIndex;
+        // this.lastAggressorIndex = bbIndex;
 
         this.startTurnTimer();
 
@@ -455,7 +455,7 @@ export class PokerGame {
 
                 // Si la apuesta es mayor que currentBet, actualizar y marcar como agresor
                 if (amount > this.currentBet) {
-                    this.lastAggressorIndex = this.currentTurnIndex;
+                    // this.lastAggressorIndex = this.currentTurnIndex;
                     this.currentBet = amount;
                     console.log(`💰 ${player.name} aumenta apuesta a ${amount}. Apuesta máxima ahora: ${this.currentBet}`);
                 } else if (amount === this.currentBet) {
@@ -470,7 +470,7 @@ export class PokerGame {
                 player.isAllIn = true;
                 player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
                 if (allInAmount > this.currentBet) {
-                    this.lastAggressorIndex = this.currentTurnIndex;
+                    // this.lastAggressorIndex = this.currentTurnIndex;
                     this.currentBet = allInAmount;
                 }
                 console.log(`🔥 ${player.name} va ALL-IN con ${allInAmount} fichas. Apuesta máxima ahora: ${this.currentBet}`);
@@ -704,26 +704,26 @@ export class PokerGame {
 
         // Repartir cartas restantes secuencialmente
         const cardsToDeal: string[] = [];
-        let targetRound: 'flop' | 'turn' | 'river' | 'showdown' = 'showdown';
+        // let targetRound: 'flop' | 'turn' | 'river' | 'showdown' = 'showdown';
 
         if (this.round === 'pre-flop') {
             // Repartir Flop, Turn y River
             cardsToDeal.push(...this.deal(3)); // Flop
             cardsToDeal.push(...this.deal(1)); // Turn
             cardsToDeal.push(...this.deal(1)); // River
-            targetRound = 'showdown';
+            // targetRound = 'showdown';
         } else if (this.round === 'flop') {
             // Repartir Turn y River
             cardsToDeal.push(...this.deal(1)); // Turn
             cardsToDeal.push(...this.deal(1)); // River
-            targetRound = 'showdown';
+            // targetRound = 'showdown';
         } else if (this.round === 'turn') {
             // Repartir River
             cardsToDeal.push(...this.deal(1)); // River
-            targetRound = 'showdown';
+            // targetRound = 'showdown';
         } else if (this.round === 'river') {
             // Ya estamos en river, solo evaluar
-            targetRound = 'showdown';
+            // targetRound = 'showdown';
         }
 
         // Agregar cartas al mazo comunitario
@@ -800,7 +800,7 @@ export class PokerGame {
         }
 
         this.currentTurnIndex = nextToActIndex;
-        this.lastAggressorIndex = nextToActIndex;
+        // this.lastAggressorIndex = nextToActIndex;
 
         switch (this.round) {
             case 'pre-flop':
@@ -1070,7 +1070,7 @@ export class PokerGame {
                 const potWinners = eligibleHands.filter(ph => winningHands.includes(ph.hand));
 
                 // Calcular rake para este pot
-                const { totalRake, netPot, distribution } = this.calculateRakeDistribution(pot.amount);
+                const { totalRake, netPot } = this.calculateRakeDistribution(pot.amount);
                 totalRakeCollected += totalRake;
 
                 // Distribuir el pot entre ganadores
@@ -1123,7 +1123,7 @@ export class PokerGame {
                 }
             });
 
-            const mainWinnerHand = playerHands.find(ph => ph.player.id === mainWinner.id)?.hand;
+            // const mainWinnerHand = playerHands.find(ph => ph.player.id === mainWinner.id)?.hand;
 
             // Construir respuesta con detalles de side pots
             const gameState: any = this.getGameState();
@@ -1587,7 +1587,7 @@ export class PokerGame {
     }
 
     private checkForBankruptPlayers() {
-        let hasBankruptPlayers = false;
+        // let hasBankruptPlayers = false;
 
         this.players.forEach(p => {
             if (p.chips === 0 && p.status !== 'WAITING_FOR_REBUY') {
@@ -1598,7 +1598,7 @@ export class PokerGame {
                 } else {
                     console.log(`💸 Player ${p.name} is bankrupt. Waiting for Rebuy.`);
                     p.status = 'WAITING_FOR_REBUY';
-                    hasBankruptPlayers = true;
+                    // hasBankruptPlayers = true;
 
                     // Trigger Rebuy Timer
                     this.startRebuyTimer(p);

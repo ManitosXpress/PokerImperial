@@ -42,11 +42,11 @@ export class RoomManager {
         this.emitCallback = callback;
     }
 
-    public createPracticeRoom(hostId: string, hostName: string): Room {
-        return this.createRoom(hostId, hostName, undefined, 1000, undefined, { addHostAsPlayer: true, isPublic: true });
+    public async createPracticeRoom(hostId: string, hostName: string): Promise<Room> {
+        return await this.createRoom(hostId, hostName, undefined, 1000, undefined, { addHostAsPlayer: true, isPublic: true });
     }
 
-    public createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean, minBuyIn?: number, maxBuyIn?: number, clubId?: string, sellerId?: string, role?: 'admin' | 'club_owner' | 'seller' | 'player' } = {}): Room {
+    public async createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean, minBuyIn?: number, maxBuyIn?: number, clubId?: string, sellerId?: string, role?: 'admin' | 'club_owner' | 'seller' | 'player' } = {}): Promise<Room> {
         const roomId = customRoomId || this.generateRoomId();
         const { addHostAsPlayer = true, isPublic = true, hostUid, isTournament = false, minBuyIn = 1000, maxBuyIn = 10000, clubId, sellerId, role = 'player' } = options;
 
@@ -77,12 +77,50 @@ export class RoomManager {
             currentTurn: players.length > 0 ? players[0].id : '',
             dealerId: players.length > 0 ? players[0].id : '',
             isPublic: isPublic,
-            hostId: hostUid || hostId
+            hostId: hostUid || hostId,
+            isTournament: isTournament,
+            minBuyIn: minBuyIn,
+            maxBuyIn: maxBuyIn,
+            clubId: clubId,
+            sellerId: sellerId
         };
 
         this.rooms.set(roomId, newRoom);
         this.games.set(roomId, new PokerGame());
 
+        // 🔒 PERSIST TO FIRESTORE (prevents null errors in frontend)
+        try {
+            const db = admin.firestore();
+            await db.collection('poker_tables').doc(roomId).set({
+                roomId: roomId,
+                hostId: hostUid || hostId,
+                isPublic: isPublic,
+                isTournament: isTournament || false,
+                maxPlayers: 8,
+                minBuyIn: minBuyIn,
+                maxBuyIn: maxBuyIn,
+                smallBlind: 10,
+                bigBlind: 20,
+                clubId: clubId || null,
+                sellerId: sellerId || null,
+                status: 'waiting',
+                players: players.map(p => ({
+                    id: p.id,
+                    uid: p.uid,
+                    name: p.name,
+                    chips: p.chips
+                })),
+                activePlayers: players.map(p => p.id),
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastActionTime: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`✅ [FIRESTORE] Room ${roomId} persisted to database`);
+        } catch (err) {
+            console.error(`❌ [FIRESTORE] Failed to persist room ${roomId}:`, err);
+            // Continue anyway - room exists in memory
+        }
+
+        console.log(`✅ Room created: ${roomId}`);
         return newRoom;
     }
 
