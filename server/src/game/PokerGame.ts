@@ -209,21 +209,38 @@ export class PokerGame {
     }
 
     private handleTurnTimeout() {
-        const currentPlayer = this.activePlayers[this.currentTurnIndex];
-        if (!currentPlayer) return;
-
-        console.log(`⏰ Timeout for ${currentPlayer.name}. Marking as SIT OUT.`);
-        currentPlayer.isSitOut = true;
-
-        const canCheck = currentPlayer.currentBet === this.currentBet;
-        const action = canCheck ? 'check' : 'fold';
-
+        // 🛡️ SURGICAL FIX: Wrap entire logic in try/catch
         try {
+            // 1. Clear timer first
+            if (this.turnTimer) {
+                clearTimeout(this.turnTimer);
+                this.turnTimer = null;
+            }
+
+            // 2. Verify player existence
+            const currentPlayer = this.activePlayers[this.currentTurnIndex];
+
+            if (!currentPlayer) {
+                console.warn(`⏰ handleTurnTimeout: Player at index ${this.currentTurnIndex} is undefined. Aborting.`);
+                return;
+            }
+
+            console.log(`⏰ Timeout for ${currentPlayer.name} (ID: ${currentPlayer.id}). Marking as SIT OUT.`);
+            currentPlayer.isSitOut = true;
+
+            const canCheck = currentPlayer.currentBet === this.currentBet;
+            const action = canCheck ? 'check' : 'fold';
+
             this.handleAction(currentPlayer.id, action);
+
         } catch (e) {
-            console.error('Error executing auto-action:', e);
-            if (action !== 'fold') {
-                this.handleAction(currentPlayer.id, 'fold');
+            console.error('❌ CRITICAL ERROR in handleTurnTimeout:', e);
+            // 🛡️ SURGICAL FIX: Attempt recovery
+            try {
+                // If we failed, try to move to next turn blindly to unblock
+                this.nextTurn();
+            } catch (e2) {
+                console.error('❌ FAILED TO RECOVER from timeout error:', e2);
             }
         }
     }
@@ -411,9 +428,12 @@ export class PokerGame {
             case 'fold':
                 player.isFolded = true;
                 player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
-                this.activePlayers = this.activePlayers.filter(p => !p.isFolded);
-                if (this.activePlayers.length === 1) {
-                    this.endHand(this.activePlayers[0]);
+                // FIX: No eliminar del array activePlayers para mantener índices estables
+                // this.activePlayers = this.activePlayers.filter(p => !p.isFolded);
+
+                const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
+                if (activeNonFolded.length === 1) {
+                    this.endHand(activeNonFolded[0]);
                     return;
                 }
                 break;
@@ -619,55 +639,31 @@ export class PokerGame {
         }
 
         // 3. Find Next Player (Circular Loop)
+        // 🛡️ SURGICAL FIX: do...while loop with safety counter
         let nextIndex = this.currentTurnIndex;
         let foundNext = false;
         const playerCount = this.activePlayers.length;
+        let attempts = 0;
+        const maxAttempts = playerCount * 2; // Safety limit: 2 full loops
 
-        // Loop through players starting from next index
-        for (let i = 1; i <= playerCount; i++) {
-            const checkIndex = (this.currentTurnIndex + i) % playerCount;
-            const player = this.activePlayers[checkIndex];
+        do {
+            nextIndex = (nextIndex + 1) % playerCount;
+            const player = this.activePlayers[nextIndex];
+            attempts++;
 
-            // Skip invalid players
+            // Validation logic
             if (!player) continue;
+            if (player.isFolded) continue; // Skip folded players
+            if (player.chips === 0) continue; // All-in players don't act
+            if (player.isSitOut) continue; // Skip sit-out
 
-            // Skip Folded players
-            if (player.isFolded) continue;
-
-            // Skip All-In players (they can't act)
-            if (player.chips === 0) continue;
-
-            // Skip Sitting Out players (unless we want to auto-fold them, handled in timer)
-            // But for nextTurn selection, we generally treat them as active until their timer hits?
-            // User requirement: "skips players who are status === 'sitting_out'"
-            if (player.isSitOut) {
-                // If they have a bet to match, they technically need to act (to fold), 
-                // but usually sit-out logic auto-folds them. 
-                // If we skip them here, who folds them?
-                // The "Watchdog" or "Timer" handles the current player.
-                // If we skip them, they never become the current player.
-                // So we should probably NOT skip them if they need to act, 
-                // OR we auto-fold them immediately here.
-
-                // Let's implement robust skipping:
-                // If they are sitting out, they shouldn't be selected as the *next* player to act manually.
-                // We should probably auto-check/fold them.
-                continue;
-            }
-
-            // Found a valid player
-            nextIndex = checkIndex;
             foundNext = true;
             break;
-        }
+
+        } while (attempts < maxAttempts);
 
         if (!foundNext) {
-            // Edge case: No one found to act. 
-            // This implies everyone else is folded, all-in, or sitting out.
-            // If everyone is all-in/folded, we should have caught it in step 1 or 2.
-            // If only sit-out players remain?
-            console.warn('⚠️ No next player found. Forcing next round or showdown.');
-
+            console.warn('⚠️ nextTurn: No active player found after loop. Forcing next round/showdown.');
             if (this.areAllPlayersAllIn()) {
                 this.autoAdvanceToShowdown();
             } else {
@@ -778,6 +774,8 @@ export class PokerGame {
         }
     }
 
+
+
     private nextRound() {
         this.activePlayers.forEach(p => {
             p.currentBet = 0;
@@ -786,21 +784,73 @@ export class PokerGame {
         this.currentBet = 0;
 
         // DETERMINAR TURNO POST-FLOP (Izquierda del Dealer)
+        // 🛡️ SURGICAL FIX: Validate Dealer Index
+        if (!this.players[this.dealerIndex]) {
+            console.error(`🛑 Critical: Dealer index ${this.dealerIndex} is invalid. Resetting to 0.`);
+            this.dealerIndex = 0;
+        }
+
+        // Double check after reset
+        if (!this.players[this.dealerIndex]) {
+            console.error('🛑 Critical: No valid dealer found even after reset. Aborting round.');
+            // If we can't find a dealer, the game state is likely corrupted or empty.
+            return;
+        }
+
         const dealerId = this.players[this.dealerIndex].id;
         let activeDealerIndex = this.activePlayers.findIndex(p => p.id === dealerId);
 
         if (activeDealerIndex === -1) activeDealerIndex = 0;
 
+        // Find next player to act
         let nextToActIndex = (activeDealerIndex + 1) % this.activePlayers.length;
 
+        // 🛡️ SURGICAL FIX: Robust Loop to find next valid player
         let attempts = 0;
-        while ((this.activePlayers[nextToActIndex].isFolded || this.activePlayers[nextToActIndex].isAllIn) && attempts < this.activePlayers.length) {
+        const maxAttempts = this.activePlayers.length * 2;
+
+        while (attempts < maxAttempts) {
+            const player = this.activePlayers[nextToActIndex];
+            if (player && !player.isFolded && !player.isAllIn) {
+                break;
+            }
             nextToActIndex = (nextToActIndex + 1) % this.activePlayers.length;
             attempts++;
         }
 
+        // Set the index
         this.currentTurnIndex = nextToActIndex;
-        this.lastAggressorIndex = nextToActIndex;
+
+        // 🛡️ SURGICAL FIX: Validate the new currentTurnIndex
+        const activePlayer = this.activePlayers[this.currentTurnIndex];
+
+        if (!activePlayer) {
+            console.error(`🛑 Critical: nextRound calculated invalid index ${this.currentTurnIndex}. Resetting to 0.`);
+            this.currentTurnIndex = 0;
+
+            // Re-validate after reset
+            if (!this.activePlayers[this.currentTurnIndex]) {
+                console.error('🛑 Critical: Still invalid after reset. Triggering endHand safety.');
+                // If we have at least one player, try to end hand with them as winner? 
+                // Or just abort to avoid crash.
+                if (this.activePlayers.length > 0) {
+                    this.endHand(this.activePlayers[0]);
+                }
+                return;
+            }
+        }
+
+        // Check if we have enough active players to continue
+        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
+        if (activeNonFolded.length < 2) {
+            console.log('⚠️ nextRound: Less than 2 active players. Ending hand.');
+            if (activeNonFolded.length === 1) {
+                this.endHand(activeNonFolded[0]);
+            }
+            return;
+        }
+
+        // this.lastAggressorIndex = nextToActIndex;
 
         switch (this.round) {
             case 'pre-flop':
@@ -822,10 +872,10 @@ export class PokerGame {
         }
 
         // Auto-Showdown check
-        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
-        const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
+        const activeNonFoldedForShowdown = this.activePlayers.filter(p => !p.isFolded);
+        const playersWithChips = activeNonFoldedForShowdown.filter(p => p.chips > 0);
 
-        if (activeNonFolded.length > 1 && playersWithChips.length <= 1) {
+        if (activeNonFoldedForShowdown.length > 1 && playersWithChips.length <= 1) {
             console.log('🔥 Todos All-In post-reparto. Saltando a Showdown.');
             this.autoAdvanceToShowdown();
             return;
@@ -1000,19 +1050,19 @@ export class PokerGame {
                 this.turnTimer = null;
             }
 
-            const activePlayers = this.activePlayers.filter(p => !p.isFolded);
+            const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
 
             // Caso especial: solo queda un jugador (todos se retiraron)
-            if (activePlayers.length === 1) {
-                this.endHand(activePlayers[0]);
+            if (activeNonFolded.length === 1) {
+                this.endHand(activeNonFolded[0]);
                 return;
             }
 
             // Calcular side pots antes de evaluar ganadores
             this.calculateSidePots();
 
-            // Evaluar manos de todos los jugadores activos
-            const playerHands = activePlayers.map(player => {
+            // Evaluar manos de todos los jugadores activos (NO FOLDED)
+            const playerHands = activeNonFolded.map(player => {
                 try {
                     if (!player.hand || player.hand.length === 0) {
                         console.error(`Player ${player.name} has no hand! Folding them.`);
@@ -1030,8 +1080,8 @@ export class PokerGame {
 
             if (playerHands.length === 0) {
                 console.error('No valid hands found. Refunding pot.');
-                const split = Math.floor(this.pot / activePlayers.length);
-                activePlayers.forEach(p => p.chips += split);
+                const split = Math.floor(this.pot / activeNonFolded.length);
+                activeNonFolded.forEach(p => p.chips += split);
                 this.pot = 0;
                 setTimeout(() => this.checkForBankruptPlayers(), 5000);
                 return;
@@ -1046,7 +1096,7 @@ export class PokerGame {
             if (this.sidePots.length === 0) {
                 this.sidePots = [{
                     amount: this.pot,
-                    eligiblePlayerIds: new Set(activePlayers.map(p => p.id)),
+                    eligiblePlayerIds: new Set(activeNonFolded.map(p => p.id)),
                     maxContribution: this.pot
                 }];
             }
@@ -1114,7 +1164,7 @@ export class PokerGame {
             });
 
             // Encontrar el ganador principal (el que más ganó)
-            let mainWinner = activePlayers[0];
+            let mainWinner = activeNonFolded[0];
             let maxWinnings = 0;
             playerWinnings.forEach((amount, playerId) => {
                 if (amount > maxWinnings) {
@@ -1453,137 +1503,145 @@ export class PokerGame {
         }
         this.isHandProcessing = true;
 
-        // CRÍTICO: Detener el timer de turno inmediatamente cuando termina la mano
-        if (this.turnTimer) {
-            clearTimeout(this.turnTimer);
-            this.turnTimer = null;
-            console.log('⏹️ Timer de turno detenido - Mano terminada');
-        }
+        try {
+            // CRÍTICO: Detener el timer de turno inmediatamente cuando termina la mano
+            if (this.turnTimer) {
+                clearTimeout(this.turnTimer);
+                this.turnTimer = null;
+                console.log('⏹️ Timer de turno detenido - Mano terminada');
+            }
 
-        // Limpiar el turno actual para evitar que se pueda actuar
-        this.currentTurnIndex = -1; // Invalidar turno actual
+            // Limpiar el turno actual para evitar que se pueda actuar
+            this.currentTurnIndex = -1; // Invalidar turno actual
 
-        let finalAmount = wonAmount;
-        let rakeAmount = 0;
-        let distribution = rakeDistribution;
+            let finalAmount = wonAmount;
+            let rakeAmount = 0;
+            let distribution = rakeDistribution;
 
-        if (finalAmount === undefined) {
-            const result = this.calculateRakeDistribution(this.pot);
-            rakeAmount = result.totalRake;
-            finalAmount = result.netPot;
-            distribution = result.distribution;
+            if (finalAmount === undefined) {
+                const result = this.calculateRakeDistribution(this.pot);
+                rakeAmount = result.totalRake;
+                finalAmount = result.netPot;
+                distribution = result.distribution;
 
-            winner.totalRakePaid = (winner.totalRakePaid || 0) + rakeAmount;
-        } else {
-            rakeAmount = this.pot - finalAmount;
-        }
+                winner.totalRakePaid = (winner.totalRakePaid || 0) + rakeAmount;
+            } else {
+                rakeAmount = this.pot - finalAmount;
+            }
 
-        winner.chips += finalAmount;
+            winner.chips += finalAmount;
 
-        // Obtener estado del juego (currentTurn será undefined porque currentTurnIndex = -1)
-        const gameState: any = this.getGameState();
+            // Obtener estado del juego (currentTurn será undefined porque currentTurnIndex = -1)
+            const gameState: any = this.getGameState();
 
-        // Establecer el estado a showdown para que el cliente muestre todas las cartas
-        gameState.stage = 'showdown';
-        gameState.status = 'finished';
+            // Establecer el estado a showdown para que el cliente muestre todas las cartas
+            gameState.stage = 'showdown';
+            gameState.status = 'finished';
 
-        // Actualizar jugadores en gameState con handRank
-        if (playerHands && playerHands.length > 0) {
-            const playerHandsMap = new Map<string, any>();
-            playerHands.forEach(ph => {
-                playerHandsMap.set(ph.player.id, ph.hand);
+            // Actualizar jugadores en gameState con handRank
+            if (playerHands && playerHands.length > 0) {
+                const playerHandsMap = new Map<string, any>();
+                playerHands.forEach(ph => {
+                    playerHandsMap.set(ph.player.id, ph.hand);
+                });
+
+                gameState.players = gameState.players.map((p: any) => {
+                    const hand = playerHandsMap.get(p.id);
+                    if (hand && !p.isFolded) {
+                        return {
+                            ...p,
+                            handRank: hand.descr || hand.name
+                        };
+                    }
+                    return p;
+                });
+            }
+
+            // 🔐 GENERAR FIRMA CRIPTOGRÁFICA
+            const finalPlayerStacks: { [uid: string]: number } = {};
+            this.players.forEach(p => {
+                if (p.uid) finalPlayerStacks[p.uid] = p.chips;
             });
 
-            gameState.players = gameState.players.map((p: any) => {
-                const hand = playerHandsMap.get(p.id);
-                if (hand && !p.isFolded) {
-                    return {
-                        ...p,
-                        handRank: hand.descr || hand.name
-                    };
-                }
-                return p;
-            });
-        }
-
-        // 🔐 GENERAR FIRMA CRIPTOGRÁFICA
-        const finalPlayerStacks: { [uid: string]: number } = {};
-        this.players.forEach(p => {
-            if (p.uid) finalPlayerStacks[p.uid] = p.chips;
-        });
-
-        const authPayload = {
-            tableId: this.roomId,
-            gameId: `hand_${Date.now()}`,
-            winnerUid: winner.uid || null, // ✅ FIX: Nunca undefined, usar null para bots
-            potTotal: (finalAmount || 0) + rakeAmount, // Reconstruir pot total
-            rakeTaken: rakeAmount,
-            finalPlayerStacks: finalPlayerStacks,
-            timestamp: Date.now()
-        };
-
-        const payloadString = JSON.stringify(authPayload);
-        const signature = crypto.createHmac('sha256', GAME_SECRET)
-            .update(payloadString)
-            .digest('hex');
-
-        if (this.onGameStateChange) {
-            this.onGameStateChange({
-                type: 'hand_winner',
-                winner: {
-                    id: winner.id,
-                    uid: winner.uid || null, // CRÍTICO: Exponer UID del ganador
-                    name: winner.name,
-                    amount: finalAmount,
-                    handDescription: winnerHand ? (winnerHand.descr || winnerHand.name) : null
-                },
-                rake: rakeAmount,
-                rakeDistribution: distribution,
-                players: this.players.map(p => ({
-                    id: p.id,
-                    uid: p.uid, // CRÍTICO: Exponer UID
-                    name: p.name,
-                    isFolded: p.isFolded,
-                    hand: p.isFolded ? null : p.hand,
-                    handDescription: !p.isFolded && p.hand ?
-                        Hand.solve([...p.hand, ...this.communityCards]).descr ||
-                        Hand.solve([...p.hand, ...this.communityCards]).name
-                        : null
-                })),
-                gameState: gameState,
-                // 🔐 CAMPOS DE SEGURIDAD
-                authPayload: payloadString,
-                securitySignature: signature
-            });
-        }
-
-        // 🎯 EVENTO EXPLÍCITO: GAME_ENDED - Para integración con Firestore
-        // Este evento señala al RoomManager que debe llamar a settleGameRound
-        if (this.onSystemEvent) {
-            const playersInvolved = this.players
-                .filter(p => p.uid) // Solo jugadores con UID registrado
-                .map(p => p.uid!);
-
-            this.onSystemEvent('GAME_ENDED', {
+            const authPayload = {
                 tableId: this.roomId,
                 gameId: `hand_${Date.now()}`,
-                potTotal: (finalAmount || 0) + rakeAmount,
+                winnerUid: winner.uid || null, // ✅ FIX: Nunca undefined, usar null para bots
+                potTotal: (finalAmount || 0) + rakeAmount, // Reconstruir pot total
                 rakeTaken: rakeAmount,
-                rakeAmount: rakeAmount,     // [REQUESTED] Lo que se queda la casa
-                winnerAmount: finalAmount || 0, // [REQUESTED] Lo que recibe el jugador
-                winnerUid: winner.uid || null,
-                playersInvolved: playersInvolved,
-                authPayload: payloadString,
-                signature: signature
-            });
-            console.log(`🎯 [GAME_ENDED] Event emitted - Pot: ${(finalAmount || 0) + rakeAmount}, Rake: ${rakeAmount}`);
+                finalPlayerStacks: finalPlayerStacks,
+                timestamp: Date.now()
+            };
+
+            const payloadString = JSON.stringify(authPayload);
+            const signature = crypto.createHmac('sha256', GAME_SECRET)
+                .update(payloadString)
+                .digest('hex');
+
+            if (this.onGameStateChange) {
+                this.onGameStateChange({
+                    type: 'hand_winner',
+                    winner: {
+                        id: winner.id,
+                        uid: winner.uid || null, // CRÍTICO: Exponer UID del ganador
+                        name: winner.name,
+                        amount: finalAmount,
+                        handDescription: winnerHand ? (winnerHand.descr || winnerHand.name) : null
+                    },
+                    rake: rakeAmount,
+                    rakeDistribution: distribution,
+                    players: this.players.map(p => ({
+                        id: p.id,
+                        uid: p.uid, // CRÍTICO: Exponer UID
+                        name: p.name,
+                        isFolded: p.isFolded,
+                        hand: p.isFolded ? null : p.hand,
+                        handDescription: !p.isFolded && p.hand ?
+                            Hand.solve([...p.hand, ...this.communityCards]).descr ||
+                            Hand.solve([...p.hand, ...this.communityCards]).name
+                            : null
+                    })),
+                    gameState: gameState,
+                    // 🔐 CAMPOS DE SEGURIDAD
+                    authPayload: payloadString,
+                    securitySignature: signature
+                });
+            }
+
+            // 🎯 EVENTO EXPLÍCITO: GAME_ENDED - Para integración con Firestore
+            // Este evento señala al RoomManager que debe llamar a settleGameRound
+            if (this.onSystemEvent) {
+                const playersInvolved = this.players
+                    .filter(p => p.uid) // Solo jugadores con UID registrado
+                    .map(p => p.uid!);
+
+                this.onSystemEvent('GAME_ENDED', {
+                    tableId: this.roomId,
+                    gameId: `hand_${Date.now()}`,
+                    potTotal: (finalAmount || 0) + rakeAmount,
+                    rakeTaken: rakeAmount,
+                    rakeAmount: rakeAmount,     // [REQUESTED] Lo que se queda la casa
+                    winnerAmount: finalAmount || 0, // [REQUESTED] Lo que recibe el jugador
+                    winnerUid: winner.uid || null,
+                    playersInvolved: playersInvolved,
+                    authPayload: payloadString,
+                    signature: signature
+                });
+                console.log(`🎯 [GAME_ENDED] Event emitted - Pot: ${(finalAmount || 0) + rakeAmount}, Rake: ${rakeAmount}`);
+            }
+
+            console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
+
+            setTimeout(() => {
+                this.checkForBankruptPlayers();
+            }, 5000);
+
+        } catch (e) {
+            console.error('❌ CRITICAL ERROR in endHand:', e);
+        } finally {
+            // 🛡️ DEFENSIVE: Release lock
+            this.isHandProcessing = false;
         }
-
-        console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
-
-        setTimeout(() => {
-            this.checkForBankruptPlayers();
-        }, 5000);
     }
 
     private checkForBankruptPlayers() {
