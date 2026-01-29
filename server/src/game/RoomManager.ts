@@ -128,10 +128,34 @@ export class RoomManager {
         const room = this.rooms.get(roomId);
         if (!room) return null;
 
-        const existingPlayer = room.players.find(p => p.id === playerId);
-        if (existingPlayer) {
-            if (sessionId) existingPlayer.pokerSessionId = sessionId;
+        // 1. Check for existing player by Socket ID (Standard check)
+        const existingPlayerById = room.players.find(p => p.id === playerId);
+        if (existingPlayerById) {
+            if (sessionId) existingPlayerById.pokerSessionId = sessionId;
             return room;
+        }
+
+        // 2. Check for existing player by UID (Reconnection check)
+        if (uid) {
+            const existingPlayerByUid = room.players.find(p => p.uid === uid);
+            if (existingPlayerByUid) {
+                console.log(`♻️ RECONNECTION DETECTED: Player ${existingPlayerByUid.name} (UID: ${uid}) reconnected.`);
+                console.log(`   Old Socket ID: ${existingPlayerByUid.id}`);
+                console.log(`   New Socket ID: ${playerId}`);
+
+                // Update ID in Room
+                const oldId = existingPlayerByUid.id;
+                existingPlayerByUid.id = playerId;
+
+                // Update ID in Game Instance
+                const game = this.games.get(roomId);
+                if (game) {
+                    game.updatePlayerId(oldId, playerId);
+                }
+
+                if (sessionId) existingPlayerByUid.pokerSessionId = sessionId;
+                return room;
+            }
         }
 
         if (room.players.length >= room.maxPlayers) throw new Error('Room is full');

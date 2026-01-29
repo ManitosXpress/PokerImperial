@@ -274,6 +274,50 @@ export class PokerGame {
         }
     }
 
+    /**
+     * Actualiza el ID de un jugador (Reconexión)
+     * Migra todo el estado del ID antiguo al nuevo.
+     */
+    public updatePlayerId(oldId: string, newId: string) {
+        console.log(`🔄 PokerGame: Updating Player ID from ${oldId} to ${newId}`);
+
+        // 1. Update in main players list
+        const player = this.players.find(p => p.id === oldId);
+        if (player) {
+            player.id = newId;
+        }
+
+        // 2. Update in active players list
+        const activePlayer = this.activePlayers.find(p => p.id === oldId);
+        if (activePlayer) {
+            activePlayer.id = newId;
+        }
+
+        // 3. Update Rebuy Timers
+        if (this.rebuyTimers.has(oldId)) {
+            const timer = this.rebuyTimers.get(oldId)!;
+            this.rebuyTimers.delete(oldId);
+            this.rebuyTimers.set(newId, timer);
+        }
+
+        // 4. Update Player Total Contributions
+        if (this.playerTotalContributions.has(oldId)) {
+            const contribution = this.playerTotalContributions.get(oldId)!;
+            this.playerTotalContributions.delete(oldId);
+            this.playerTotalContributions.set(newId, contribution);
+        }
+
+        // 5. Update Side Pots Eligibility
+        this.sidePots.forEach(pot => {
+            if (pot.eligiblePlayerIds.has(oldId)) {
+                pot.eligiblePlayerIds.delete(oldId);
+                pot.eligiblePlayerIds.add(newId);
+            }
+        });
+
+        console.log(`✅ PokerGame: Player ID updated successfully.`);
+    }
+
     public removePlayer(playerId: string) {
         // 1. Remove from lists
         this.players = this.players.filter(p => p.id !== playerId);
