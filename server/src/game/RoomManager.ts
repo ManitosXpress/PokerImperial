@@ -361,7 +361,7 @@ export class RoomManager {
         }
     }
 
-    public handleGameAction(roomId: string, playerId: string, action: 'bet' | 'call' | 'fold' | 'check', amount?: number) {
+    public handleGameAction(roomId: string, playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount?: number) {
         const game = this.games.get(roomId);
         if (!game) throw new Error('Game not found');
         game.handleAction(playerId, action, amount);

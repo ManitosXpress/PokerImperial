@@ -687,13 +687,17 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('game_action', ({ roomId, action, amount }: { roomId: string, action: 'bet' | 'call' | 'fold' | 'check', amount?: number }) => {
+    socket.on('game_action', ({ roomId, action, amount }: { roomId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount?: number }) => {
         try {
-            console.log(`🎲 game_action received: roomId=${roomId}, playerId=${socket.id}, action=${action}, amount=${amount}`);
+            const userId = (socket as any).userId;
+            const playerId = userId || socket.id;
+
+            console.log(`🎲 game_action received: roomId=${roomId}, playerId=${playerId} (Socket: ${socket.id}), action=${action}, amount=${amount}`);
 
             // OPTIMIZACIÓN: Socket First, Database Later
             // 1. Actualizar estado en memoria (RAM) inmediatamente
-            const gameState = roomManager.handleGameAction(roomId, socket.id, action, amount);
+            // FIX: Usar playerId (que puede ser el UID) en lugar de siempre socket.id
+            const gameState = roomManager.handleGameAction(roomId, playerId, action, amount);
             console.log(`✅ Action processed successfully. Current turn: ${gameState.currentTurn}`);
 
             // 2. La emisión por socket ahora la maneja RoomManager (handleGameAction -> nextTurn -> onGameStateChange)
