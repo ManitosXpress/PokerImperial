@@ -11,6 +11,10 @@ export class RoomManager {
     // Callbacks
     public emitCallback?: (roomId: string, event: string, data: any, targetPlayerId?: string) => void;
 
+    // Disconnect Timers
+    private disconnectTimers: Map<string, NodeJS.Timeout> = new Map();
+    private readonly DISCONNECT_GRACE_PERIOD_MS = 60000; // 60s grace period
+
     constructor() {
         this.startCleanupInterval();
     }
@@ -147,6 +151,18 @@ export class RoomManager {
                 const oldId = existingPlayerByUid.id;
                 existingPlayerByUid.id = playerId;
 
+                // 🔄 RECONNECT: Clear disconnect timer if exists
+                if (this.disconnectTimers.has(oldId)) {
+                    console.log(`⏱️ Clearing disconnect timer for ${oldId} (New ID: ${playerId})`);
+                    clearTimeout(this.disconnectTimers.get(oldId)!);
+                    this.disconnectTimers.delete(oldId);
+                }
+                // Also check if timer was set on the new ID (unlikely but safe)
+                if (this.disconnectTimers.has(playerId)) {
+                    clearTimeout(this.disconnectTimers.get(playerId)!);
+                    this.disconnectTimers.delete(playerId);
+                }
+
                 // Update ID in Game Instance
                 const game = this.games.get(roomId);
                 if (game) {
@@ -179,6 +195,12 @@ export class RoomManager {
     }
 
     public removePlayer(playerId: string): { roomId: string, player: Player } | null {
+        // Clear disconnect timer if exists
+        if (this.disconnectTimers.has(playerId)) {
+            clearTimeout(this.disconnectTimers.get(playerId)!);
+            this.disconnectTimers.delete(playerId);
+        }
+
         for (const [roomId, room] of this.rooms) {
             const index = room.players.findIndex(p => p.id === playerId);
             if (index !== -1) {
@@ -408,6 +430,46 @@ export class RoomManager {
     public addChips(roomId: string, playerId: string, amount: number) {
         const game = this.games.get(roomId);
         if (game) game.addChips(playerId, amount);
+    }
+
+    public handleDisconnect(playerId: string) {
+        // Find room and player
+        for (const [roomId, room] of this.rooms) {
+            const player = room.players.find(p => p.id === playerId);
+            if (player) {
+                console.log(`🔌 Player ${player.name} (${playerId}) disconnected. Starting grace period timer (${this.DISCONNECT_GRACE_PERIOD_MS}ms).`);
+
+                // If timer already exists, define logic (refresh it?)
+                if (this.disconnectTimers.has(playerId)) {
+                    clearTimeout(this.disconnectTimers.get(playerId)!);
+                }
+
+                const timer = setTimeout(() => {
+                    console.log(`🔌 Grace period expired for ${player.name} (${playerId}). Removing from room.`);
+                    this.disconnectTimers.delete(playerId);
+
+                    const result = this.removePlayer(playerId);
+
+                    if (result && this.emitCallback) {
+                        // Notify index.ts to handle Exit Fees and Socket events
+                        this.emitCallback(roomId, 'player_timeout_leave', {
+                            playerId,
+                            player: result.player,
+                            roomId
+                        });
+
+                        // Notify Room
+                        this.emitCallback(roomId, 'player_left', {
+                            id: playerId,
+                            reason: 'timeout'
+                        });
+                    }
+                }, this.DISCONNECT_GRACE_PERIOD_MS);
+
+                this.disconnectTimers.set(playerId, timer);
+                return;
+            }
+        }
     }
 
     private generateRoomId(): string {

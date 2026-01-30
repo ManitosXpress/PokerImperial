@@ -454,96 +454,114 @@ export class PokerGame {
 
         const player = this.activePlayers[this.currentTurnIndex];
 
-        // 1. Validar Autoridad (Identity & Turn)
-        if (!player || player.id !== playerId) {
-            console.error(`[TURN_ERROR] Acción denegada. Turno: ${player?.id} vs Request: ${playerId}`);
-            throw new Error('Not your turn');
+        // 🔒 CONCURRENCY LOCK: Check if another action is processing
+        if (this.isHandProcessing) {
+            console.warn(`🔒 Race Condition prevented: Action ignored for ${playerId} while processing.`);
+            return; // Fail silently or throw, but better strict ignore to prevent state corruption
         }
 
-        if (player.isSitOut) {
-            console.log(`👋 Player ${player.name} returned! Clearing SIT OUT status.`);
-            player.isSitOut = false;
-        }
+        this.isHandProcessing = true; // Lock
 
-        if (this.turnTimer) {
-            clearTimeout(this.turnTimer);
-            this.turnTimer = null;
-        }
+        try {
 
-        // 2. Ejecutar Lógica de Acción
-        switch (action) {
-            case 'fold':
-                player.isFolded = true;
-                player.hasActed = true; // CRÍTICO
+            // 1. Validar Autoridad (Identity & Turn)
+            // Allow matching by Socket ID OR Firebase UID
+            if (!player || (player.id !== playerId && player.uid !== playerId)) {
+                console.error(`[TURN_ERROR] Acción denegada. Turno: ${player?.id} (UID: ${player?.uid}) vs Request: ${playerId}`);
+                throw new Error('Not your turn');
+            }
 
-                const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
-                if (activeNonFolded.length === 1) {
-                    this.endHand(activeNonFolded[0]);
-                    return;
-                }
-                break;
-            case 'call':
-                const callAmount = this.currentBet - player.currentBet;
-                this.placeBet(player, callAmount);
-                player.hasActed = true; // CRÍTICO
-                break;
-            case 'bet':
-                const minRaise = this.currentBet + this.bigBlindAmount;
-                const totalBetNeeded = amount - player.currentBet;
+            if (player.isSitOut) {
+                console.log(`👋 Player ${player.name} returned! Clearing SIT OUT status.`);
+                player.isSitOut = false;
+            }
 
-                if (totalBetNeeded > player.chips) {
-                    throw new Error(`No tienes suficientes fichas.`);
-                }
-                if (amount < minRaise && player.chips >= (minRaise - player.currentBet)) {
-                    throw new Error(`Apuesta mínima es ${minRaise}.`);
-                }
+            if (this.turnTimer) {
+                clearTimeout(this.turnTimer);
+                this.turnTimer = null;
+            }
 
-                if (amount > player.currentBet + player.chips) {
-                    amount = player.currentBet + player.chips;
+            // 2. Ejecutar Lógica de Acción
+            switch (action) {
+                case 'fold':
+                    player.isFolded = true;
+                    player.hasActed = true; // CRÍTICO
+
+                    const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
+                    if (activeNonFolded.length === 1) {
+                        this.endHand(activeNonFolded[0]);
+                        return;
+                    }
+                    break;
+                case 'call':
+                    const callAmount = this.currentBet - player.currentBet;
+                    this.placeBet(player, callAmount);
+                    player.hasActed = true; // CRÍTICO
+                    break;
+                case 'bet':
+                    const minRaise = this.currentBet + this.bigBlindAmount;
+                    const totalBetNeeded = amount - player.currentBet;
+
+                    if (totalBetNeeded > player.chips) {
+                        throw new Error(`No tienes suficientes fichas.`);
+                    }
+                    if (amount < minRaise && player.chips >= (minRaise - player.currentBet)) {
+                        throw new Error(`Apuesta mínima es ${minRaise}.`);
+                    }
+
+                    if (amount > player.currentBet + player.chips) {
+                        amount = player.currentBet + player.chips;
+                        player.isAllIn = true;
+                    }
+
+                    const betAmount = amount - player.currentBet;
+                    this.placeBet(player, betAmount);
+                    player.hasActed = true; // CRÍTICO
+
+                    if (amount > this.currentBet) {
+                        this.lastAggressorIndex = this.currentTurnIndex;
+                        this.currentBet = amount;
+                    }
+                    break;
+                case 'allin':
+                    const allInAmount = player.currentBet + player.chips;
+                    this.placeBet(player, player.chips);
                     player.isAllIn = true;
-                }
+                    player.hasActed = true; // CRÍTICO
+                    if (allInAmount > this.currentBet) {
+                        this.lastAggressorIndex = this.currentTurnIndex;
+                        this.currentBet = allInAmount;
+                    }
+                    break;
+                case 'check':
+                    if (player.currentBet < this.currentBet) throw new Error('Cannot check, must call');
+                    player.hasActed = true; // CRÍTICO
+                    break;
+            }
 
-                const betAmount = amount - player.currentBet;
-                this.placeBet(player, betAmount);
-                player.hasActed = true; // CRÍTICO
+            // 3. ¿La ronda de apuestas ha terminado?
+            if (this.canAdvancePhase()) {
+                this.nextRound();
+            } else {
+                this.moveToNextActivePlayer();
+            }
 
-                if (amount > this.currentBet) {
-                    this.lastAggressorIndex = this.currentTurnIndex;
-                    this.currentBet = amount;
-                }
-                break;
-            case 'allin':
-                const allInAmount = player.currentBet + player.chips;
-                this.placeBet(player, player.chips);
-                player.isAllIn = true;
-                player.hasActed = true; // CRÍTICO
-                if (allInAmount > this.currentBet) {
-                    this.lastAggressorIndex = this.currentTurnIndex;
-                    this.currentBet = allInAmount;
-                }
-                break;
-            case 'check':
-                if (player.currentBet < this.currentBet) throw new Error('Cannot check, must call');
-                player.hasActed = true; // CRÍTICO
-                break;
-        }
+            // Broadcast State
+            if (this.onGameStateChange) {
+                this.onGameStateChange(this.getGameState());
+            }
 
-        // 3. ¿La ronda de apuestas ha terminado?
-        if (this.canAdvancePhase()) {
-            this.nextRound();
-        } else {
-            this.moveToNextActivePlayer();
-        }
-
-        // Broadcast State
-        if (this.onGameStateChange) {
-            this.onGameStateChange(this.getGameState());
+        } catch (error) {
+            throw error;
+        } finally {
+            this.isHandProcessing = false; // Unlock
         }
     }
 
     private moveToNextActivePlayer(): void {
-        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
+        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded && p.status === 'PLAYING');
 
+        // Check if only one player left (Winner)
         if (activeNonFolded.length <= 1) {
             this.endHand(activeNonFolded[0]);
             return;
@@ -558,7 +576,12 @@ export class PokerGame {
             nextIndex = (nextIndex + 1) % this.activePlayers.length;
             const p = this.activePlayers[nextIndex];
 
-            // Buscamos al siguiente que no esté Folded ni All-in
+            // STRICT SKIPPING LOGIC:
+            // Skip if:
+            // 1. Player is undefined (safety)
+            // 2. Status is NOT 'PLAYING' (e.g. 'SIT_OUT', 'WAITING_FOR_REBUY')
+            // 3. Player is Folded
+            // 4. Player is All-In (All-in players do not act anymore)
             if (p && p.status === 'PLAYING' && !p.isFolded && !p.isAllIn) {
                 found = true;
                 break;
@@ -568,29 +591,58 @@ export class PokerGame {
 
         if (found) {
             this.currentTurnIndex = nextIndex;
+            console.log(`➡️ Turn moved to ${this.activePlayers[nextIndex].name} (Seat ${nextIndex})`);
             // IMPORTANTE: Start Timer para el nuevo turno
             this.startTurnTimer();
         } else {
-            // Si no encontramos a nadie y canAdvancePhase fue false...
-            // Podría ser que todos están All-In
+            // If no active player found to act...
+            // It could be that everyone else is All-in.
             if (this.areAllPlayersAllIn()) {
+                console.log('🔄 No active player found. All-in condition met. Advancing.');
                 this.autoAdvanceToShowdown();
             } else {
                 console.warn('moveToNextActivePlayer: No active player found. Forcing next round check.');
-                this.nextRound();
+                // Safety net: Try to advance round. If that fails, game might be stuck, but this tries to unstuck it.
+                if (this.canAdvancePhase()) {
+                    this.nextRound();
+                } else {
+                    // Critical failure state? Or maybe just race condition where state hasn't updated.
+                    // Log state for debugging.
+                    console.error('CRITICAL: Stuck in turn loop. Logic mismatch.');
+                }
             }
         }
     }
 
     private canAdvancePhase(): boolean {
+        // 1. Get all players who are still in the hand (not folded) and playing
         const activeNonFolded = this.activePlayers.filter(p => p.status === 'PLAYING' && !p.isFolded);
+
+        // 2. Identify players who MUST act (not All-in)
         const playersWhoCanAct = activeNonFolded.filter(p => !p.isAllIn);
 
-        // Si todos los que pueden actuar ya igualaron la apuesta más alta y actuaron
+        // 3. Check if all eligible players have acted AND matched the max bet
         const maxBet = this.currentBet;
-        const allMatched = playersWhoCanAct.every(p => p.currentBet === maxBet && p.hasActed);
 
-        return allMatched || playersWhoCanAct.length === 0;
+        // Every player who can act must have:
+        // A) Matched the current highest bet
+        // B) Acted at least once in this round (hasActed = true)
+        const allMatchedAndActed = playersWhoCanAct.every(p => {
+            // Special case: Big Blind pre-flop might have matched but not "acted" if no one raised? 
+            // Actually, usually BB needs to "Check" if no raise. If they just sit there, it's not over.
+            // Our code sets hasActed=true on actions.
+            return p.currentBet === maxBet && p.hasActed;
+        });
+
+        // Debug log for troubleshooting phase blocks
+        // console.log(`Stats - Active: ${activeNonFolded.length}, CanAct: ${playersWhoCanAct.length}, AllMatched: ${allMatchedAndActed}`);
+
+        // Phase can advance if:
+        // 1. Everyone who can act has matched and acted.
+        // OR
+        // 2. No one can act (everyone is All-In) -> Handled by autoAdvance usually, but this confirms "Phase Complete" aspect.
+
+        return allMatchedAndActed || playersWhoCanAct.length === 0;
     }
 
     /**

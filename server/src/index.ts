@@ -195,6 +195,78 @@ roomManager.setEmitCallback((roomId, event, data, targetPlayerId) => {
             }
         });
     }
+
+    // 🔌 Handle Delayed Disconnect (Timeout) -> Process Exit Fee
+    if (event === 'player_timeout_leave') {
+        const { playerId, player, roomId } = data;
+        const uid = player.uid; // Prioritize UID from player object
+
+        console.log(`🔌 [TIMEOUT] Processing Exit Fee for ${player.name} (${uid || playerId}) in room ${roomId}`);
+
+        setImmediate(async () => {
+            let minBuyIn = 1000;
+            try {
+                const tableDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
+                if (tableDoc.exists) {
+                    const tableData = tableDoc.data();
+                    if (tableData && tableData.minBuyIn) {
+                        minBuyIn = tableData.minBuyIn;
+                    }
+                }
+            } catch (err) {
+                console.error(`Error getting minBuyIn for room ${roomId}:`, err);
+            }
+
+            if (player.pokerSessionId && uid) {
+                // CRÍTICO: Determinar exit fee basado en el estado de la mesa
+                let exitFee = 0;
+                let tableStatus = 'unknown';
+
+                try {
+                    const tableDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
+                    if (tableDoc.exists) {
+                        tableStatus = tableDoc.data()?.status || 'unknown';
+                    }
+                } catch (err) {
+                    console.error(`[DISCONNECT] Error obteniendo estado de mesa ${roomId}:`, err);
+                }
+
+                // Si la mesa ya terminó (finished/inactive), no hay exit fee
+                if (tableStatus === 'finished' || tableStatus === 'inactive') {
+                    exitFee = 0;
+                    console.log(`[DISCONNECT] Jugador ${uid} eliminado por timeout - Mesa ${tableStatus}, sin exit fee`);
+                } else if (player.chips === 0) {
+                    // Ya perdió todo, no hay exit fee
+                    exitFee = 0;
+                    console.log(`[DISCONNECT] Jugador ${uid} eliminado por timeout con 0 chips - Sin exit fee (ya perdió)`);
+                } else {
+                    // Mesa activa y jugador tiene fichas - Salida temprana, exit fee aplica
+                    exitFee = minBuyIn; // Cobrar minBuyIn (ej 1000) como penalidad
+                    console.log(`[DISCONNECT] Jugador ${uid} eliminado por timeout con ${player.chips} chips - Exit fee: ${exitFee} (salida temprana)`);
+                }
+
+                // Importar helper para finalizar sesión
+                const { endPokerSession } = await import('./middleware/firebaseAuth');
+                // Llamar a endPokerSession con el exitFee calculado
+                // Nota: endPokerSession debe manejar la deducción del exit fee del crédito devuelto
+                // Actualmente endPokerSession devuelve los chips restantes.
+                // Si queremos cobrar exit fee, debemos deducirlo de los chips O pasarlo como parametro.
+                // Asumiremos que endPokerSession maneja credit updates.
+
+                // Si la implementación de endPokerSession no soporta exitFee, debemos manejarlo manualmente aquí o actualizar endPokerSession logic.
+                // Por ahora usamos la lógica estándar pero pasando el exitFee como metadata si es posible, o asumiendo que el sistema lo maneja.
+
+                // FIX: El sistema actual parece devolver `player.chips` al usuario.
+                // Si hay exitFee, deberíamos restar.
+                // const finalCredit = Math.max(0, player.chips - exitFee);
+
+                // Llamar a endPokerSession
+                // Signature: (uid, sessionId, currentChips, rakePaid, exitFee)
+                await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, exitFee);
+                console.log(`✅ Session ${player.pokerSessionId} ended. Chips: ${player.chips}, Fee: ${exitFee}`);
+            }
+        });
+    }
 });
 
 io.on('connection', (socket) => {
@@ -749,110 +821,15 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', async () => {
         console.log('User disconnected:', socket.id);
-        const result = await roomManager.removePlayer(socket.id);
-        if (result) {
-            const { roomId, player } = result;
-            const uid = (socket as any).userId;
 
-            let minBuyIn = 1000;
-            try {
-                const tableDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
-                if (tableDoc.exists) {
-                    const tableData = tableDoc.data();
-                    if (tableData && tableData.minBuyIn) {
-                        minBuyIn = tableData.minBuyIn;
-                    }
-                }
-            } catch (err) {
-                console.error(`Error getting minBuyIn for room ${roomId}:`, err);
-            }
-
-            if (player.pokerSessionId && uid) {
-                // CRÍTICO: Determinar exit fee basado en el estado de la mesa
-                // - Si la mesa está 'finished' o 'inactive': No hay exit fee (juego terminó)
-                // - Si la mesa está 'active' y jugador tiene 0 chips: No hay exit fee (ya perdió)
-                // - Si la mesa está 'active' y jugador tiene fichas: Exit fee aplica (salida temprana)
-
-                let exitFee = 0;
-                let tableStatus = 'unknown';
-
-                try {
-                    const tableDoc = await admin.firestore().collection('poker_tables').doc(roomId).get();
-                    if (tableDoc.exists) {
-                        tableStatus = tableDoc.data()?.status || 'unknown';
-                    }
-                } catch (err) {
-                    console.error(`[DISCONNECT] Error obteniendo estado de mesa ${roomId}:`, err);
-                }
-
-                // Si la mesa ya terminó (finished/inactive), no hay exit fee
-                if (tableStatus === 'finished' || tableStatus === 'inactive') {
-                    exitFee = 0;
-                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó - Mesa ${tableStatus}, sin exit fee`);
-                } else if (player.chips === 0) {
-                    // Ya perdió todo, no hay exit fee
-                    exitFee = 0;
-                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó con 0 chips - Sin exit fee (ya perdió)`);
-                } else {
-                    // Mesa activa y jugador tiene fichas - Salida temprana, exit fee aplica
-                    exitFee = minBuyIn;
-                    console.log(`[DISCONNECT] Jugador ${uid} se desconectó con ${player.chips} chips - Exit fee: ${exitFee} (salida temprana de mesa activa)`);
-                }
-
-                await endPokerSession(uid, player.pokerSessionId, player.chips, player.totalRakePaid || 0, exitFee);
-            }
-
-            if (uid) {
-                try {
-                    const tableRef = admin.firestore().collection('poker_tables').doc(roomId);
-                    const tableDoc = await tableRef.get();
-
-                    if (tableDoc.exists) {
-                        const tableData = tableDoc.data();
-                        if (tableData) {
-                            const players = Array.isArray(tableData.players) ? [...tableData.players] : [];
-                            const updatedPlayers = players.filter((p: any) => {
-                                const playerId = typeof p === 'object' ? p.id : p;
-                                return playerId !== uid;
-                            });
-
-                            const readyPlayers = Array.isArray(tableData.readyPlayers) ? [...tableData.readyPlayers] : [];
-                            const updatedReadyPlayers = readyPlayers.filter((id: string) => id !== uid);
-
-                            await tableRef.update({
-                                players: updatedPlayers,
-                                readyPlayers: updatedReadyPlayers
-                            });
-
-                            console.log(`Removed player ${uid} from Firestore table ${roomId}`);
-                        }
-                    }
-                } catch (error) {
-                    console.error(`Error updating Firestore when player left: ${error}`);
-                }
-            }
-
-            const room = roomManager.getRoom(roomId);
-            if (room) {
-                // Create sanitized room data
-                const roomSafe = {
-                    id: room.id,
-                    players: room.players.map(p => ({
-                        id: p.id,
-                        name: p.name,
-                        chips: p.chips,
-                        isFolded: p.isFolded,
-                        currentBet: p.currentBet,
-                        status: p.status
-                    })),
-                    gameState: room.gameState,
-                    isPublic: room.isPublic ?? false,
-                    hostId: room.hostId
-                };
-                io.to(roomId).emit('player_left', roomSafe);
-            }
-        }
+        // 🔄 RECONNECTION RECOVERY:
+        // Do NOT remove player immediately. Start grace period timer.
+        // If they reconnect, the timer is cleared.
+        // If timeout, 'player_timeout_leave' event is emitted which handles Exit Fee.
+        roomManager.handleDisconnect(socket.id);
     });
+
+
 
     socket.on('request_top_up', async ({ roomId, amount, token }: { roomId: string, amount: number, token?: string }) => {
         try {
