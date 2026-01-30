@@ -584,6 +584,7 @@ export class PokerGame {
         } catch (error) {
             throw error;
         } finally {
+            // 🔥 CRITICAL FIX: ALWAYS reset the lock, even if endHand() was called
             this.isHandProcessing = false; // Unlock
         }
     }
