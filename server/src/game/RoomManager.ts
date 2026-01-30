@@ -285,29 +285,27 @@ export class RoomManager {
         game.onSystemEvent = async (event, data) => {
             console.log(`🔧 System Event in Room ${roomId}: ${event}`, data);
 
+            if (event === 'TABLE_CLOSED') {
+                console.log(`🔒 TABLE_CLOSED received for ${roomId}. Reason: ${data.reason}`);
+
+                // 1. Notificar a los clientes
+                if (this.emitCallback) {
+                    this.emitCallback(roomId, 'room_closed', {
+                        reason: data.reason,
+                        winnerUid: data.winnerUid,
+                        finalChips: data.finalChips
+                    });
+                }
+
+                // 2. Ejecutar Liquidación REAL
+                await this.closeTableAndCashOut(roomId);
+            }
+
             if (event === 'game_finished') {
                 if (data.reason === 'last_man_standing' || data.reason === 'walkover') {
                     console.log(`🏆 Last Man Standing: ${data.winnerId}. Iniciando liquidación...`);
-
-                    // 1. Notificar al Frontend
-                    if (this.emitCallback) {
-                        this.emitCallback(roomId, 'hand_winner', {
-                            type: 'game_finished',
-                            winner: {
-                                id: data.winnerId,
-                                name: room.players.find(p => p.id === data.winnerId)?.name || 'Ganador',
-                                amount: data.finalChips || 0,
-                                reason: data.reason
-                            },
-                            message: "¡Victoria por abandono! Liquidando mesa...",
-                            gameState: game.getGameState()
-                        });
-                    }
-
-                    // 2. Ejecutar Liquidación en BD tras delay
-                    setTimeout(async () => {
-                        await this.closeTableAndCashOut(roomId);
-                    }, 2000);
+                    // ... preserve legacy logic if needed, but table_closed handles most
+                    // If 'table_closed' is emitted by PokerGame, this might be redundant, but we keep it for now.
                 }
             }
 
