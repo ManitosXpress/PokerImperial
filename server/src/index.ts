@@ -733,8 +733,15 @@ io.on('connection', (socket) => {
             // OPTIMIZACIÓN: Socket First, Database Later
             // 1. Actualizar estado en memoria
             const gameState = roomManager.startGame(roomId, socket.id, (data) => {
+                // ✅ CRITICAL FIX: Emit socket events!
+                // The RoomManager callback must broadcast changes to clients
+                if (data.type === 'hand_winner') {
+                    io.to(roomId).emit('hand_winner', data);
+                } else {
+                    io.to(roomId).emit('game_update', data);
+                }
+
                 // 2. Persistir en Firestore después (async, no bloquea)
-                // NOTA: La emisión por socket ahora la maneja RoomManager para enviar estados individuales
                 if (data.type === 'hand_winner' || data.gameState) {
                     persistGameStateAsync(roomId, data.gameState || data);
                 }
