@@ -10,6 +10,7 @@ export class PokerGame {
     private pot: number = 0;
     private communityCards: string[] = [];
     private currentTurnIndex: number = 0;
+    private currentTurn: string = ''; // ✅ CRITICAL: Store UID of player whose turn it is
     private dealerIndex: number = 0;
     private smallBlindAmount: number = 10;
     private bigBlindAmount: number = 20;
@@ -161,8 +162,10 @@ export class PokerGame {
         this.placeBet(this.activePlayers[bbIndex], this.bigBlindAmount);
 
         this.currentTurnIndex = firstActionIndex;
+        this.currentTurn = this.activePlayers[firstActionIndex]?.uid || this.activePlayers[firstActionIndex]?.id || ''; // ✅ Set UID
         this.lastAggressorIndex = bbIndex;
 
+        console.log(`[TURN_INIT] Starting turn for ${this.activePlayers[firstActionIndex]?.name} (UID: ${this.currentTurn})`);
         this.startTurnTimer();
 
         if (this.onGameStateChange) {
@@ -226,7 +229,12 @@ export class PokerGame {
             }
 
             console.log(`⏰ Timeout for ${currentPlayer.name} (ID: ${currentPlayer.id}). Marking as SIT OUT.`);
+
+            // ✅ FIX: Don't immediately kill session, just mark as SIT OUT
+            // This allows reconnection with new socket to restore the player
             currentPlayer.isSitOut = true;
+
+            console.log(`[SIT_OUT] Player ${currentPlayer.name} (UID: ${currentPlayer.uid}) marked as SIT OUT. Session preserved for reconnection.`);
 
             const canCheck = currentPlayer.currentBet === this.currentBet;
             const action = canCheck ? 'check' : 'fold';
@@ -431,8 +439,8 @@ export class PokerGame {
             })),
 
             // Additional fields for compatibility
-            // CRITICAL FIX: Use UID (persistent) instead of socket.id (volatile) for turn validation
-            currentTurn: this.currentTurnIndex === -1 ? undefined : (this.activePlayers[this.currentTurnIndex]?.uid || this.activePlayers[this.currentTurnIndex]?.id),
+            // CRITICAL: Return UID directly from this.currentTurn variable
+            currentTurn: this.currentTurn || undefined,
             dealerId: this.players[this.dealerIndex]?.id,
             currentBet: this.currentBet,
             minBet: this.currentBet + Math.max(this.bigBlindAmount, this.currentBet),
@@ -465,15 +473,28 @@ export class PokerGame {
 
         try {
 
-            // 1. Validar Autoridad (Identity & Turn)
-            // Allow matching by Socket ID OR Firebase UID
-            // CRITICAL LOGGING: Show exact comparison for debugging
-            console.log(`[TURN_CHECK] Current player: ${player?.name} | UID: ${player?.uid} | Socket ID: ${player?.id}`);
-            console.log(`[TURN_CHECK] Action requested by: ${playerId}`);
-            console.log(`[TURN_CHECK] Match by UID: ${player?.uid === playerId} | Match by Socket ID: ${player?.id === playerId}`);
+            // 1. Validar Autoridad (Identity & Turn) - UID-BASED VALIDATION
+            // Find player by Socket ID OR Firebase UID
+            const actingPlayer = this.activePlayers.find(p => p.id === playerId || p.uid === playerId);
 
-            if (!player || (player.id !== playerId && player.uid !== playerId)) {
-                console.error(`[TURN_ERROR] Acción denegada. Player en turno: ${player?.name} (UID: ${player?.uid}, Socket: ${player?.id}) | Jugador intentando: ${playerId}`);
+            // CRITICAL LOGGING: Show exact UID comparison
+            console.log(`[TURN_SYNC] Turn of UID: ${this.currentTurn} | Actor UID: ${actingPlayer?.uid || 'undefined'}`);
+            console.log(`[TURN_CHECK] Current player: ${player?.name} (UID: ${player?.uid})`);
+            console.log(`[TURN_CHECK] Action requested by: ${playerId} (Acting player: ${actingPlayer?.name}, UID: ${actingPlayer?.uid})`);
+
+            // Validate turn using UID (primary) with socket.id fallback
+            if (!actingPlayer) {
+                console.error(`[TURN_ERROR] Player not found: ${playerId}`);
+                throw new Error('Player not found');
+            }
+
+            if (this.currentTurn !== actingPlayer.uid && this.currentTurn !== actingPlayer.id) {
+                console.error(`[TURN_ERROR] Not your turn. Current: ${this.currentTurn} | Attempting: ${actingPlayer.uid || actingPlayer.id}`);
+                throw new Error('Not your turn');
+            }
+
+            if (!player || player !== actingPlayer) {
+                console.error(`[TURN_ERROR] Index mismatch detected`);
                 throw new Error('Not your turn');
             }
 
@@ -597,7 +618,8 @@ export class PokerGame {
 
         if (found) {
             this.currentTurnIndex = nextIndex;
-            console.log(`➡️ Turn moved to ${this.activePlayers[nextIndex].name} (Seat ${nextIndex})`);
+            this.currentTurn = this.activePlayers[nextIndex]?.uid || this.activePlayers[nextIndex]?.id || ''; // ✅ Update UID
+            console.log(`➡️ Turn moved to ${this.activePlayers[nextIndex].name} (UID: ${this.currentTurn}, Seat ${nextIndex})`);
             // IMPORTANTE: Start Timer para el nuevo turno
             this.startTurnTimer();
         } else {
@@ -821,6 +843,8 @@ export class PokerGame {
 
         // 4. Update Turn
         this.currentTurnIndex = nextIndex;
+        this.currentTurn = this.activePlayers[nextIndex]?.uid || this.activePlayers[nextIndex]?.id || ''; // ✅ Update UID
+        console.log(`➡️ [TURN_UPDATE] Turn advanced to ${this.activePlayers[nextIndex]?.name} (UID: ${this.currentTurn})`);
 
         if (this.onGameStateChange) {
             this.onGameStateChange(this.getGameState());
