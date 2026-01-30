@@ -447,14 +447,16 @@ export class PokerGame {
     }
 
     public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0) {
-        // Verificar que el juego no haya terminado (currentTurnIndex inválido)
+        // Verificar que el juego no haya terminado
         if (this.currentTurnIndex === -1) {
             throw new Error('La mano ya terminó. No se pueden realizar más acciones.');
         }
 
         const player = this.activePlayers[this.currentTurnIndex];
 
-        if (!this.validateTurn(playerId)) {
+        // 1. Validar Autoridad (Identity & Turn)
+        if (!player || player.id !== playerId) {
+            console.error(`[TURN_ERROR] Acción denegada. Turno: ${player?.id} vs Request: ${playerId}`);
             throw new Error('Not your turn');
         }
 
@@ -468,12 +470,11 @@ export class PokerGame {
             this.turnTimer = null;
         }
 
+        // 2. Ejecutar Lógica de Acción
         switch (action) {
             case 'fold':
                 player.isFolded = true;
-                player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
-                // FIX: No eliminar del array activePlayers para mantener índices estables
-                // this.activePlayers = this.activePlayers.filter(p => !p.isFolded);
+                player.hasActed = true; // CRÍTICO
 
                 const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
                 if (activeNonFolded.length === 1) {
@@ -484,68 +485,112 @@ export class PokerGame {
             case 'call':
                 const callAmount = this.currentBet - player.currentBet;
                 this.placeBet(player, callAmount);
-                player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
+                player.hasActed = true; // CRÍTICO
                 break;
             case 'bet':
-                // Calcular apuesta mínima (raise mínimo)
-                // Regla estándar: raise mínimo = apuesta actual + bigBlind (o el tamaño del último raise, lo que sea mayor)
-                // Para simplificar, usamos: currentBet + bigBlind
                 const minRaise = this.currentBet + this.bigBlindAmount;
-
-                // Validar que la apuesta sea suficiente
                 const totalBetNeeded = amount - player.currentBet;
+
                 if (totalBetNeeded > player.chips) {
-                    throw new Error(`No tienes suficientes fichas. Necesitas ${totalBetNeeded}, tienes ${player.chips}`);
+                    throw new Error(`No tienes suficientes fichas.`);
                 }
-
-                // Si la apuesta es menor al mínimo raise Y el jugador tiene fichas para el raise mínimo, rechazar
                 if (amount < minRaise && player.chips >= (minRaise - player.currentBet)) {
-                    throw new Error(`Apuesta mínima es ${minRaise}. Tienes ${player.chips} fichas disponibles.`);
+                    throw new Error(`Apuesta mínima es ${minRaise}.`);
                 }
 
-                // Si el jugador intenta apostar más de lo que tiene, tratarlo como all-in
                 if (amount > player.currentBet + player.chips) {
                     amount = player.currentBet + player.chips;
                     player.isAllIn = true;
-                    console.log(`⚠️ ${player.name} intentó apostar más de lo que tiene. Tratado como ALL-IN: ${amount}`);
                 }
 
-                // Realizar la apuesta
                 const betAmount = amount - player.currentBet;
                 this.placeBet(player, betAmount);
+                player.hasActed = true; // CRÍTICO
 
-                // CRÍTICO: Marcar que el jugador ya actuó
-                player.hasActed = true;
-
-                // Si la apuesta es mayor que currentBet, actualizar y marcar como agresor
                 if (amount > this.currentBet) {
                     this.lastAggressorIndex = this.currentTurnIndex;
                     this.currentBet = amount;
-                    console.log(`💰 ${player.name} aumenta apuesta a ${amount}. Apuesta máxima ahora: ${this.currentBet}`);
-                } else if (amount === this.currentBet) {
-                    // Si iguala exactamente, es un call, no un raise
-                    console.log(`📞 ${player.name} iguala apuesta de ${amount}`);
                 }
                 break;
             case 'allin':
                 const allInAmount = player.currentBet + player.chips;
                 this.placeBet(player, player.chips);
-                // Marcar jugador como all-in
                 player.isAllIn = true;
-                player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
+                player.hasActed = true; // CRÍTICO
                 if (allInAmount > this.currentBet) {
                     this.lastAggressorIndex = this.currentTurnIndex;
                     this.currentBet = allInAmount;
                 }
-                console.log(`🔥 ${player.name} va ALL-IN con ${allInAmount} fichas. Apuesta máxima ahora: ${this.currentBet}`);
                 break;
             case 'check':
                 if (player.currentBet < this.currentBet) throw new Error('Cannot check, must call');
-                player.hasActed = true; // CRÍTICO: Marcar que el jugador ya actuó
+                player.hasActed = true; // CRÍTICO
                 break;
         }
 
-        this.nextTurn();
+        // 3. ¿La ronda de apuestas ha terminado?
+        if (this.canAdvancePhase()) {
+            this.nextRound();
+        } else {
+            this.moveToNextActivePlayer();
+        }
+
+        // Broadcast State
+        if (this.onGameStateChange) {
+            this.onGameStateChange(this.getGameState());
+        }
+    }
+
+    private moveToNextActivePlayer(): void {
+        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
+
+        if (activeNonFolded.length <= 1) {
+            this.endHand(activeNonFolded[0]);
+            return;
+        }
+
+        let nextIndex = this.currentTurnIndex;
+        let found = false;
+        let attempts = 0;
+        const maxAttempts = this.activePlayers.length * 2;
+
+        do {
+            nextIndex = (nextIndex + 1) % this.activePlayers.length;
+            const p = this.activePlayers[nextIndex];
+
+            // Buscamos al siguiente que no esté Folded ni All-in
+            if (p && p.status === 'PLAYING' && !p.isFolded && !p.isAllIn) {
+                found = true;
+                break;
+            }
+            attempts++;
+        } while (attempts < maxAttempts);
+
+        if (found) {
+            this.currentTurnIndex = nextIndex;
+            // IMPORTANTE: Start Timer para el nuevo turno
+            this.startTurnTimer();
+        } else {
+            // Si no encontramos a nadie y canAdvancePhase fue false...
+            // Podría ser que todos están All-In
+            if (this.areAllPlayersAllIn()) {
+                this.autoAdvanceToShowdown();
+            } else {
+                console.warn('moveToNextActivePlayer: No active player found. Forcing next round check.');
+                this.nextRound();
+            }
+        }
+    }
+
+    private canAdvancePhase(): boolean {
+        const activeNonFolded = this.activePlayers.filter(p => p.status === 'PLAYING' && !p.isFolded);
+        const playersWhoCanAct = activeNonFolded.filter(p => !p.isAllIn);
+
+        // Si todos los que pueden actuar ya igualaron la apuesta más alta y actuaron
+        const maxBet = this.currentBet;
+        const allMatched = playersWhoCanAct.every(p => p.currentBet === maxBet && p.hasActed);
+
+        return allMatched || playersWhoCanAct.length === 0;
     }
 
     /**
