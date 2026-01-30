@@ -38,9 +38,13 @@ class PlayerSeat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Responsive scaling based on screen size to prevent UI overlap
+    final screenHeight = MediaQuery.of(context).size.height;
+    final scaleFactor = (screenHeight / 800).clamp(0.8, 1.2); // Base reference: 800px
+    
     // Use unified scale for consistent aspect ratios
     // Larger avatar for "Me" player
-    final double avatarSize = ResponsiveUtils.scale(context, isMe ? 65 : 45); 
+    final double avatarSize = ResponsiveUtils.scale(context, isMe ? 65 : 45) * scaleFactor; 
     
     // Balanced card size for "Me" - wider as requested
     final double cardWidth = ResponsiveUtils.scale(context, isMe ? 70 : 28);
@@ -179,7 +183,11 @@ class PlayerSeat extends StatelessWidget {
               Positioned(
                 bottom: 0,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  // ✅ Responsive padding based on screen height
+                  padding: EdgeInsets.symmetric(
+                    horizontal: (screenHeight * 0.012).clamp(8.0, 14.0),
+                    vertical: (screenHeight * 0.005).clamp(3.0, 6.0),
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(0.9),
                     borderRadius: BorderRadius.circular(15),

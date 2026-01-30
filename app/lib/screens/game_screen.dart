@@ -997,7 +997,12 @@ class _GameScreenState extends State<GameScreen> {
         return;
       }
 
-      if (gameState!['currentTurn'] == myId) {
+      // ✅ CRITICAL FIX: Check both socket ID and Firebase UID for turn validation
+      final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
+      final serverTurn = gameState!['currentTurn'];
+      final isMyTurn = (serverTurn == myId) || (currentUserUid != null && serverTurn == currentUserUid);
+      
+      if (isMyTurn) {
         if (_turnTimer == null || !_turnTimer!.isActive) {
           _startTurnTimer();
         }
@@ -1152,9 +1157,12 @@ class _GameScreenState extends State<GameScreen> {
     final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
     final userRole = clubProvider.currentUserRole ?? 'player';
     
+    // ✅ CRITICAL FIX: Check both socket ID and Firebase UID for turn validation
     bool isTurn = false;
+    final currentUserUid = user?.uid;
     if (currentTurn != null) {
-      isTurn = currentTurn == myId;
+      isTurn = (currentTurn == myId) || (currentUserUid != null && currentTurn == currentUserUid);
+      print('🔘 UI Turn Debug: ServerCurrentTurn($currentTurn) == MySocketID($myId) || MyUID($currentUserUid) => isTurn=$isTurn');
     }
 
     // Dynamic Spectator Detection
@@ -1536,8 +1544,10 @@ class _GameScreenState extends State<GameScreen> {
                     );
                   },
                 )
-                            : Stack(
-                  children: [
+                            // ✅ SafeArea wrapper to prevent overlap with system UI
+                            : SafeArea(
+                  child: Stack(
+                    children: [
                     // Table
                     Positioned(
                       top: screenH * (isMobile ? 0.35 : 0.4) -
@@ -1707,7 +1717,12 @@ class _GameScreenState extends State<GameScreen> {
                       currentBet: safeGameState['currentBet'] ?? 0,
                       myCurrentBet: () {
                         if (playersList.isEmpty) return 0;
-                        final idx = playersList.indexWhere((p) => p?['id'] == myId);
+                        // ✅ FIX: Check by socket ID or UID for player lookup
+                        final currentUserUid = user?.uid;
+                        final idx = playersList.indexWhere((p) => 
+                          p?['id'] == myId || 
+                          (currentUserUid != null && p?['uid'] == currentUserUid)
+                        );
                         return idx >= 0 ? (playersList[idx]?['currentBet'] ?? 0) : 0;
                       }(),
                       secondsRemaining: _secondsRemaining,
@@ -1730,6 +1745,7 @@ class _GameScreenState extends State<GameScreen> {
                             : null,
                       ),
                   ],
+                  ),
                 ),
           ),
         ),

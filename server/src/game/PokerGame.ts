@@ -480,6 +480,15 @@ export class PokerGame {
             // Find player by Socket ID OR Firebase UID
             const actingPlayer = this.activePlayers.find(p => p.id === playerId || p.uid === playerId);
 
+            // ✅ ENHANCED DIAGNOSTIC LOGGING for turn validation debugging
+            console.log(`[TURN_SYNC] 🔍 Turn Validation Debug:
+  - currentTurn (stored UID): ${this.currentTurn}
+  - actingPlayer.uid: ${actingPlayer?.uid}
+  - actingPlayer.id (socket): ${actingPlayer?.id}
+  - playerId (received): ${playerId}
+  - Match by UID: ${this.currentTurn === actingPlayer?.uid}
+  - Match by Socket: ${this.currentTurn === actingPlayer?.id}`);
+
             // CRITICAL LOGGING: Show exact UID comparison
             console.log(`[TURN_SYNC] Turn of UID: ${this.currentTurn} | Actor UID: ${actingPlayer?.uid || 'undefined'}`);
             console.log(`[TURN_CHECK] Current player: ${player?.name} (UID: ${player?.uid})`);
