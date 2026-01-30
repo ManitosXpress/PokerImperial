@@ -230,25 +230,20 @@ export class PokerGame {
 
             console.log(`⏰ Timeout for ${currentPlayer.name} (ID: ${currentPlayer.id}). Marking as SIT OUT.`);
 
-            // ✅ FIX: Don't immediately kill session, just mark as SIT OUT
-            // This allows reconnection with new socket to restore the player
-            currentPlayer.isSitOut = true;
+            // ✅ FIX: Do NOT mark as SIT OUT immediately on timeout.
+            // This prevents active (but slow) players from being kicked to spectator mode.
+            // currentPlayer.isSitOut = true; 
 
-            console.log(`[SIT_OUT] Player ${currentPlayer.name} (UID: ${currentPlayer.uid}) marked as SIT OUT. Session preserved for reconnection.`);
-
+            // Only Check/Fold
             const canCheck = currentPlayer.currentBet === this.currentBet;
             const action = canCheck ? 'check' : 'fold';
 
-            // 🔥 CRITICAL: Pass UID instead of socket.id for new validation system
             const playerIdentifier = currentPlayer.uid || currentPlayer.id;
-            console.log(`[TIMEOUT_ACTION] Auto-${action} for ${currentPlayer.name} using identifier: ${playerIdentifier}`);
+            console.log(`[TIMEOUT_ACTION] Auto-${action} for ${currentPlayer.name} (No Sit-Out enforcement)`);
             this.handleAction(playerIdentifier, action);
-
         } catch (e) {
             console.error('❌ CRITICAL ERROR in handleTurnTimeout:', e);
-            // 🛡️ SURGICAL FIX: Attempt recovery
             try {
-                // If we failed, try to move to next turn blindly to unblock
                 this.nextTurn();
             } catch (e2) {
                 console.error('❌ FAILED TO RECOVER from timeout error:', e2);
@@ -664,38 +659,30 @@ export class PokerGame {
     }
 
     private canAdvancePhase(): boolean {
-        // 1. Get all players who are still in the hand (not folded) and playing
-        const activeNonFolded = this.activePlayers.filter(p => p.status === 'PLAYING' && !p.isFolded);
-
-        // 2. Identify players who MUST act (not All-in)
+        const activeNonFolded = this.activePlayers.filter(p => !p.isFolded && p.status === 'PLAYING');
         const playersWhoCanAct = activeNonFolded.filter(p => !p.isAllIn);
-
-        // 3. Check if all eligible players have acted AND matched the max bet
         const maxBet = this.currentBet;
 
-        // Validacion Estricta:
-        // Todos los que pueden actuar deben haber:
-        // A) Igualado la apuesta maxima (currentBet === maxBet)
-        // B) Marcado hasActed = true
+        // 1. All-in Scenario: If only 1 player can act (others all-in) and they matched bet -> Advance
+        // Or if everyone is all-in
+        if (playersWhoCanAct.length <= 1) {
+            const allMatched = activeNonFolded.every(p => p.currentBet === maxBet || (p.chips === 0 && p.currentBet > 0));
+            if (allMatched && playersWhoCanAct.length === 0) return true; // Everyone All-in
+            if (allMatched && playersWhoCanAct.length === 1 && playersWhoCanAct[0].hasActed) return true; // 1 Active + others All-in
+        }
+
+        // 2. Standard Scenario: Everyone must match maxBet AND have acted
+        // Exception: Big Blind Pre-flop (handled by hasActed=false initially, but if everyone calls, BB acts, then hasActed=true)
         const allMatchedAndActed = playersWhoCanAct.every(p => {
             return p.currentBet === maxBet && p.hasActed;
         });
 
-        // 🛡️ EXCEPCIÓN ESPECIAL PRE-FLOP (Big Blind Option)
-        // Si estamos en pre-flop y nadie subio (maxBet == Big Blind), el BB tiene opcion de check/raise.
-        // Si BB ya igualó (puesto ciega) pero NO ha actuado (hasActed == false), debemos esperar.
-        // PERO si todos hicieron call y llega al BB, el BB tendra turno.
-        // This function checks if we are "done". 
-
-        // Logica para debugging
-        if (!allMatchedAndActed) {
-            // const waitingFor = playersWhoCanAct.filter(p => p.currentBet !== maxBet || !p.hasActed).map(p => p.name);
-            // console.log(`[PHASE_CHECK] Waiting for: ${waitingFor.join(', ')}`);
-        } else {
-            console.log(`[PHASE_CHECK] All matched and acted. Ready to advance.`);
+        if (allMatchedAndActed) {
+            console.log(`✅ [PHASE_CHECK] All eligible players matched & acted. Validating advance.`);
+            return true;
         }
 
-        return allMatchedAndActed || playersWhoCanAct.length === 0;
+        return false;
     }
 
     /**
@@ -1019,6 +1006,13 @@ export class PokerGame {
 
         // Set the index
         this.currentTurnIndex = nextToActIndex;
+
+        // Update currentTurn UID immediately
+        const nextPlayer = this.activePlayers[nextToActIndex];
+        if (nextPlayer) {
+            this.currentTurn = nextPlayer.uid || nextPlayer.id || '';
+            console.log(`➡️ [ROUND_START] Turn set to Left of Dealer: ${nextPlayer.name} (UID: ${this.currentTurn})`);
+        }
 
         // 🛡️ SURGICAL FIX: Validate the new currentTurnIndex
         const activePlayer = this.activePlayers[this.currentTurnIndex];

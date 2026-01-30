@@ -43,8 +43,8 @@ class PlayerSeat extends StatelessWidget {
     final scaleFactor = (screenHeight / 800).clamp(0.8, 1.2); // Base reference: 800px
     
     // Use unified scale for consistent aspect ratios
-    // Larger avatar for "Me" player
-    final double avatarSize = ResponsiveUtils.scale(context, isMe ? 65 : 45) * scaleFactor; 
+    // Larger avatar for "Me" player - REDUCED by 15% as requested for small screens
+    final double avatarSize = ResponsiveUtils.scale(context, isMe ? (isMobile ? 55 : 65) : 45) * scaleFactor; 
     
     // Balanced card size for "Me" - wider as requested
     final double cardWidth = ResponsiveUtils.scale(context, isMe ? 70 : 28);
@@ -110,9 +110,12 @@ class PlayerSeat extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: const Color(0xFF2A2A2A),
+                  // ✅ NEON GREEN TURN INDICATOR
                   border: Border.all(
-                    color: isActive ? const Color(0xFFFFD700) : Colors.grey.shade800,
-                    width: isActive ? 3 : 2,
+                    color: isActive 
+                        ? (isMe ? const Color(0xFF39FF14) : const Color(0xFFFFD700)) // Neon Green for ME, Gold for others
+                        : Colors.grey.shade800,
+                    width: isActive ? (isMe ? 4 : 3) : 2, // Thicker border for ME
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -201,14 +204,16 @@ class PlayerSeat extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                      FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                       ),
                       const SizedBox(height: 2),
                       // Player Stack
