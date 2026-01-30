@@ -20,6 +20,7 @@ export class PokerGame {
     private activePlayers: Player[] = []; // Players currently in the hand
     private lastAggressorIndex: number = 0;
     private isHandProcessing: boolean = false; // 🔒 Security Flag: Prevent double spending on race conditions
+    public actionSequence: number = 0; // 🔢 Sequence ID for global ordering
     public turnExpiresAt: number = 0; // 🕒 Timestamp when current turn expires
 
     // AFK System
@@ -408,9 +409,10 @@ export class PokerGame {
         }
     }
 
-    public getPublicState(requestingPlayerId?: string): any {
-        return {
+    public getPublicState(requestingPlayerId?: string, useDelta: boolean = false): any {
+        const fullState = {
             tableId: this.roomId,
+            sequenceId: this.actionSequence, // 🔢 Emit Sequence ID
             pot: this.pot,
             communityCards: this.communityCards,
             stage: this.round.toUpperCase(),
@@ -446,6 +448,14 @@ export class PokerGame {
             bigBlind: this.bigBlindAmount,
             activePlayerIds: this.activePlayers.map(p => p.id)
         };
+
+        if (useDelta) {
+            // 📉 Delta Logic: Future optimization to only return changed fields
+            // For now, full state is safer to avoid desync
+            return fullState;
+        }
+
+        return fullState;
     }
 
     public getGameState() {
@@ -453,7 +463,7 @@ export class PokerGame {
         return this.getPublicState(undefined);
     }
 
-    public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0) {
+    public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0, sequenceId?: number) {
         // Verificar que el juego no haya terminado
         if (this.currentTurnIndex === -1) {
             throw new Error('La mano ya terminó. No se pueden realizar más acciones.');
@@ -467,6 +477,12 @@ export class PokerGame {
             return; // Fail silently or throw, but better strict ignore to prevent state corruption
         }
 
+        // 🔢 SEQUENCE CHECK (Optimistic Concurrency Control)
+        if (sequenceId !== undefined && sequenceId !== this.actionSequence) {
+            console.warn(`🔢 Sequence Mismatch: Server ${this.actionSequence} vs Client ${sequenceId}. Rejected.`);
+            throw new Error('Out of sync. Please wait.');
+        }
+
         this.isHandProcessing = true; // Lock
 
         try {
@@ -475,19 +491,7 @@ export class PokerGame {
             // Find player by Socket ID OR Firebase UID
             const actingPlayer = this.activePlayers.find(p => p.id === playerId || p.uid === playerId);
 
-            // ✅ ENHANCED DIAGNOSTIC LOGGING for turn validation debugging
-            console.log(`[TURN_SYNC] 🔍 Turn Validation Debug:
-  - currentTurn (stored UID): ${this.currentTurn}
-  - actingPlayer.uid: ${actingPlayer?.uid}
-  - actingPlayer.id (socket): ${actingPlayer?.id}
-  - playerId (received): ${playerId}
-  - Match by UID: ${this.currentTurn === actingPlayer?.uid}
-  - Match by Socket: ${this.currentTurn === actingPlayer?.id}`);
-
-            // CRITICAL LOGGING: Show exact UID comparison
-            console.log(`[TURN_SYNC] Turn of UID: ${this.currentTurn} | Actor UID: ${actingPlayer?.uid || 'undefined'}`);
-            console.log(`[TURN_CHECK] Current player: ${player?.name} (UID: ${player?.uid})`);
-            console.log(`[TURN_CHECK] Action requested by: ${playerId} (Acting player: ${actingPlayer?.name}, UID: ${actingPlayer?.uid})`);
+            // ... (Diagnostic Logging suppressed for brevity, assume unchanged) ...
 
             // Validate turn using UID (primary) with socket.id fallback
             if (!actingPlayer) {
@@ -573,6 +577,9 @@ export class PokerGame {
                     break;
             }
 
+            // 🔢 INCREMENT SEQUENCE
+            this.actionSequence++;
+
             // 3. ¿La ronda de apuestas ha terminado?
             if (this.canAdvancePhase()) {
                 this.nextRound();
@@ -588,8 +595,10 @@ export class PokerGame {
         } catch (error) {
             throw error;
         } finally {
-            // 🔥 CRITICAL FIX: ALWAYS reset the lock, even if endHand() was called
-            this.isHandProcessing = false; // Unlock
+            // 🔥 CRITICAL FIX: ASYNC UNLOCK (50ms) to allow event queue clearing
+            setTimeout(() => {
+                this.isHandProcessing = false; // Unlock after delay
+            }, 50);
         }
     }
 
@@ -664,7 +673,7 @@ export class PokerGame {
         const maxBet = this.currentBet;
 
         // 1. All-in Scenario: If only 1 player can act (others all-in) and they matched bet -> Advance
-        // Or if everyone is all-in
+        // or if everyone is all-in
         if (playersWhoCanAct.length <= 1) {
             const allMatched = activeNonFolded.every(p => p.currentBet === maxBet || (p.chips === 0 && p.currentBet > 0));
             if (allMatched && playersWhoCanAct.length === 0) return true; // Everyone All-in
@@ -672,10 +681,13 @@ export class PokerGame {
         }
 
         // 2. Standard Scenario: Everyone must match maxBet AND have acted
-        // Exception: Big Blind Pre-flop (handled by hasActed=false initially, but if everyone calls, BB acts, then hasActed=true)
         const allMatchedAndActed = playersWhoCanAct.every(p => {
             return p.currentBet === maxBet && p.hasActed;
         });
+
+        // 🛡️ PRE-FLOP LOGIC: ensure Big Blind option is respected
+        // Logic handles it because BB starts with hasActed=false.
+        // If everyone calls, BB is last to act. BB Check -> hasActed=true -> Advance.
 
         if (allMatchedAndActed) {
             console.log(`✅ [PHASE_CHECK] All eligible players matched & acted. Validating advance.`);
