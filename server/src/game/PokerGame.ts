@@ -239,7 +239,10 @@ export class PokerGame {
             const canCheck = currentPlayer.currentBet === this.currentBet;
             const action = canCheck ? 'check' : 'fold';
 
-            this.handleAction(currentPlayer.id, action);
+            // 🔥 CRITICAL: Pass UID instead of socket.id for new validation system
+            const playerIdentifier = currentPlayer.uid || currentPlayer.id;
+            console.log(`[TIMEOUT_ACTION] Auto-${action} for ${currentPlayer.name} using identifier: ${playerIdentifier}`);
+            this.handleAction(playerIdentifier, action);
 
         } catch (e) {
             console.error('❌ CRITICAL ERROR in handleTurnTimeout:', e);
