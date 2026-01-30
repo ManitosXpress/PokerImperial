@@ -15,11 +15,12 @@ export class PokerGame {
     private smallBlindAmount: number = 10;
     private bigBlindAmount: number = 20;
     private currentBet: number = 0;
-    private round: 'pre-flop' | 'flop' | 'turn' | 'river' | 'showdown' = 'pre-flop';
+    private round: 'pre-flop' | 'flop' | 'turn' | 'river' | 'showdown' | 'waiting' = 'pre-flop'; // 🆕 Added 'waiting' state
     private players: Player[] = [];
     private activePlayers: Player[] = []; // Players currently in the hand
     private lastAggressorIndex: number = 0;
     private isHandProcessing: boolean = false; // 🔒 Security Flag: Prevent double spending on race conditions
+    private isHandEnding: boolean = false; // 🔒 Hand Lock: Prevent duplicate victory logic
     public actionSequence: number = 0; // 🔢 Sequence ID for global ordering
     public turnExpiresAt: number = 0; // 🕒 Timestamp when current turn expires
 
@@ -89,8 +90,18 @@ export class PokerGame {
 
         console.log(`🔘 Dealer Button movido a: ${this.players[this.dealerIndex].name}`);
     }
-
     private startRound() {
+        // RESET HAND LOCK
+        this.isHandEnding = false;
+
+        // 🧹 RESET STATE immediately (Ensure clean slate even if we go to waiting)
+        this.initializeDeck();
+        this.pot = 0;
+        this.sidePots = [];
+        this.playerTotalContributions.clear();
+        this.communityCards = [];
+        this.round = 'pre-flop'; // Default, will change to waiting if needed
+
         const eligiblePlayers = this.players.filter(p =>
             p.status !== 'WAITING_FOR_REBUY' &&
             p.status !== 'ELIMINATED' &&
@@ -99,6 +110,8 @@ export class PokerGame {
 
         if (eligiblePlayers.length < 2) {
             console.log('⏳ Esperando más jugadores para iniciar ronda...');
+            this.round = 'waiting'; // Explicitly set waiting state
+            this.activePlayers = []; // Ensure no active players
             return;
         }
 
@@ -110,12 +123,6 @@ export class PokerGame {
             this.turnTimer = null;
         }
 
-        this.initializeDeck();
-        this.pot = 0;
-        this.sidePots = [];
-        this.playerTotalContributions.clear();
-        this.communityCards = [];
-        this.round = 'pre-flop';
         this.currentBet = this.bigBlindAmount;
 
         this.activePlayers = [...eligiblePlayers];
@@ -1701,6 +1708,13 @@ export class PokerGame {
     }
 
     private endHand(winner: Player, wonAmount?: number, winnerHand?: any, playerHands?: Array<{ player: Player, hand: any }>, rakeDistribution?: any) {
+        // 🔒 HAND LOCK: Prevent duplicate victory events
+        if (this.isHandEnding) {
+            console.warn(`🛑 [HAND_LOCK] endHand called but hand is already terminating. Ignoring duplicate call.`);
+            return;
+        }
+        this.isHandEnding = true;
+
         // 🔒 SECURITY CHECK: Prevent race conditions (Double Spending)
         if (this.isHandProcessing) {
             console.warn(`🛑 [RACE_CONDITION] endHand called but hand is already processing for table ${this.roomId}. Ignoring.`);
@@ -1718,6 +1732,8 @@ export class PokerGame {
 
             // Limpiar el turno actual para evitar que se pueda actuar
             this.currentTurnIndex = -1; // Invalidar turno actual
+            this.currentTurn = ''; // 🛑 Force Waiting State in UI (No active turn)
+            this.round = 'waiting'; // 🛑 Force Waiting State
 
             let finalAmount = wonAmount;
             let rakeAmount = 0;
@@ -1786,6 +1802,7 @@ export class PokerGame {
             if (this.onGameStateChange) {
                 this.onGameStateChange({
                     type: 'hand_winner',
+                    gameId: authPayload.gameId, // 🆔 Unique Hand ID for Frontend Deduplication
                     winner: {
                         id: winner.id,
                         uid: winner.uid || null, // CRÍTICO: Exponer UID del ganador

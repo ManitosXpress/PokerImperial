@@ -76,6 +76,7 @@ class _GameScreenState extends State<GameScreen> {
   // Victory screen state
   bool _showVictoryScreen = false;
   Map<String, dynamic>? _winnerData;
+  String? _lastHandId; // 🛡️ Prevent duplicate victory messages
 
   // Audio Player
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -841,6 +842,14 @@ class _GameScreenState extends State<GameScreen> {
 
   Future<void> _handleHandWinner(dynamic data) async {
       if (!mounted) return;
+
+      // 🛡️ DUPLICATE CHECK
+      final handId = data['gameId'];
+      if (handId != null && handId == _lastHandId) {
+         print('🚫 Victory Ignored: Duplicate Hand ID $handId');
+         return;
+      }
+      if (handId != null) _lastHandId = handId;
       
       setState(() {
           // Actualizar el estado del juego con las cartas y handRank de todos los jugadores
