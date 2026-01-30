@@ -321,7 +321,8 @@ export class RoomManager {
             }
         };
 
-        game.startGame(room.players, room.isPublic);
+        // 🔥 CRITICAL FIX: Pass roomId to PokerGame to prevent "table ." errors
+        game.startGame(room.players, room.isPublic, roomId, room.clubId, room.sellerId);
         room.gameState = 'playing';
 
         if (this.emitCallback) {
