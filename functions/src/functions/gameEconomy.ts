@@ -565,14 +565,15 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
             let sellerShare = 0;
 
             if (clubId && clubOwnerId) {
-                // MESA DE CLUB: 30% Club, 20% Seller (si existe), 50% Platform
-                clubShare = Math.floor(rakeAmount * 0.30);
+                // MESA DE CLUB (PÚBLICA): 25% Platform, 25% Club, 50% Seller
+                // Nuevo modelo para priorizar captación de clientes a través de Sellers
+                clubShare = Math.floor(rakeAmount * 0.25);
 
                 if (sellerId) {
-                    sellerShare = Math.floor(rakeAmount * 0.20);
+                    sellerShare = Math.floor(rakeAmount * 0.50);
                 }
 
-                // Platform se lleva el resto
+                // Platform se lleva el resto (25% + remainder por redondeo)
                 platformShare = rakeAmount - clubShare - sellerShare;
 
                 // Pagar al Dueño del Club
@@ -676,8 +677,20 @@ export const settleGameRound = async (data: SettleRoundRequest, context: functio
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * 3. PROCESS CASH OUT - SALIDA LIMPIA (SIN RAKE)
+ * 3. PROCESS CASH OUT - SALIDA LIMPIA (MODELO: RAKE COBRADO POR MANO)
  * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * MODELO ECONÓMICO: El rake se cobra exclusivamente en settleGameRound (8% por bote).
+ * Esta función NO aplica ninguna deducción adicional.
+ * 
+ * REGLA FUNDAMENTAL: Payout = FichasFinales (sin deducciones)
+ * - El usuario recibe exactamente las fichas que tiene en poker_tables/{tableId}.players[].chips
+ * - No hay cálculo de rake, exitFee, ni comisiones de salida
+ * - El campo netProfit se calcula solo para auditoría, NO afecta el payout
+ * 
+ * LIMPIEZA DE ESTADO (Regla Inquebrantable):
+ * - moneyInPlay debe ser 0 al finalizar
+ * - currentTableId debe ser null al finalizar
  * 
  * IMPORTANTE: Ahora soporta cashouts iniciados por el servidor con firma HMAC.
  * El servidor puede forzar el cierre de sesión sin depender del cliente.
@@ -774,7 +787,9 @@ export const processCashOut = async (data: ProcessCashOutRequest, context?: func
                 }
             }
 
-            // 3. TRANSFERENCIA FINANCIERA
+            // 3. TRANSFERENCIA FINANCIERA (RAKE-FREE)
+            // ✅ MODELO: Payout = FichasFinales (SIN deducción de rake)
+            // El rake ya fue cobrado mano a mano en settleGameRound
             const userRef = db.collection('users').doc(targetUserId);
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
@@ -786,7 +801,9 @@ export const processCashOut = async (data: ProcessCashOutRequest, context?: func
                 lastUpdated: timestamp
             });
 
-            // [AUDIT FIX] Calcular NetProfit para fines informativos (sin afectar payout)
+            // [AUDIT] Calcular NetProfit SOLO para fines informativos
+            // ⚠️ IMPORTANTE: Este cálculo NO afecta el payout (que es siempre = chipsToTransfer)
+            // Se registra en metadata únicamente para análisis de rentabilidad del jugador
             let initialBuyIn = 0;
             let totalRebuys = 0;
             let netProfit = 0;
@@ -1108,9 +1125,11 @@ export const distributeHandRake = functions.https.onCall(async (data, context) =
             if (data.isPrivate === true) {
                 platformShare = data.rakeTotal;
             } else {
-                platformShare = Math.floor(data.rakeTotal * 0.50);
-                clubShare = Math.floor(data.rakeTotal * 0.30);
-                sellerShare = data.rakeTotal - platformShare - clubShare;
+                // MESA PÚBLICA: 25% Platform, 25% Club, 50% Seller
+                platformShare = Math.floor(data.rakeTotal * 0.25);
+                clubShare = Math.floor(data.rakeTotal * 0.25);
+                sellerShare = Math.floor(data.rakeTotal * 0.50);
+                // Remainder se asigna implícitamente cuando sea necesario
             }
 
             // 3. 💸 EJECUTAR TRANSFERENCIA AL ADMIN (TESORERÍA)
@@ -1304,21 +1323,21 @@ export const distributePot = functions.https.onCall(async (data: DistributePotRe
                 platformShare = rakeAmount;
                 console.log(`[DISTRIBUTE_POT] 🔒 Private table: 100% (${platformShare}) to platform`);
             } else {
-                // PUBLIC TABLE: 50% Platform / 30% Club / 20% Seller
-                platformShare = Math.floor(rakeAmount * 0.50);
+                // PUBLIC TABLE: 25% Platform / 25% Club / 50% Seller
+                platformShare = Math.floor(rakeAmount * 0.25);
 
                 if (data.clubId) {
-                    clubShare = Math.floor(rakeAmount * 0.30);
+                    clubShare = Math.floor(rakeAmount * 0.25);
                 } else {
-                    // No club → 30% goes to platform
-                    platformShare += Math.floor(rakeAmount * 0.30);
+                    // No club → 25% goes to platform
+                    platformShare += Math.floor(rakeAmount * 0.25);
                 }
 
                 if (data.sellerId) {
-                    sellerShare = Math.floor(rakeAmount * 0.20);
+                    sellerShare = Math.floor(rakeAmount * 0.50);
                 } else {
-                    // No seller → 20% goes to platform
-                    platformShare += Math.floor(rakeAmount * 0.20);
+                    // No seller → 50% goes to platform
+                    platformShare += Math.floor(rakeAmount * 0.50);
                 }
 
                 // Handle rounding (remaining centavos go to platform)

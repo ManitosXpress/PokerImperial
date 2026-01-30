@@ -764,13 +764,16 @@ io.on('connection', (socket) => {
             const userId = (socket as any).userId;
             const playerId = userId || socket.id;
 
-            console.log(`🎲 game_action received: roomId=${roomId}, playerId=${playerId} (Socket: ${socket.id}), action=${action}, amount=${amount}`);
+            console.log(`🎲 [GAME_ACTION] ========== ACTION RECEIVED ==========`);
+            console.log(`🎲 [GAME_ACTION] Room: ${roomId} | Action: ${action} | Amount: ${amount}`);
+            console.log(`🎲 [GAME_ACTION] Socket ID: ${socket.id} | Firebase UID: ${userId}`);
+            console.log(`🎲 [GAME_ACTION] Effective Player ID (for validation): ${playerId}`);
 
             // OPTIMIZACIÓN: Socket First, Database Later
             // 1. Actualizar estado en memoria (RAM) inmediatamente
             // FIX: Usar playerId (que puede ser el UID) en lugar de siempre socket.id
             const gameState = roomManager.handleGameAction(roomId, playerId, action, amount);
-            console.log(`✅ Action processed successfully. Current turn: ${gameState.currentTurn}`);
+            console.log(`✅ [GAME_ACTION] Action processed successfully. Current turn: ${gameState.currentTurn}`);
 
             // 2. La emisión por socket ahora la maneja RoomManager (handleGameAction -> nextTurn -> onGameStateChange)
             // No emitimos aquí para evitar duplicados y permitir estados privados

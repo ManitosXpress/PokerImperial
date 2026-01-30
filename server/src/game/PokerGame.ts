@@ -431,7 +431,8 @@ export class PokerGame {
             })),
 
             // Additional fields for compatibility
-            currentTurn: this.currentTurnIndex === -1 ? undefined : this.activePlayers[this.currentTurnIndex]?.id,
+            // CRITICAL FIX: Use UID (persistent) instead of socket.id (volatile) for turn validation
+            currentTurn: this.currentTurnIndex === -1 ? undefined : (this.activePlayers[this.currentTurnIndex]?.uid || this.activePlayers[this.currentTurnIndex]?.id),
             dealerId: this.players[this.dealerIndex]?.id,
             currentBet: this.currentBet,
             minBet: this.currentBet + Math.max(this.bigBlindAmount, this.currentBet),
@@ -466,8 +467,13 @@ export class PokerGame {
 
             // 1. Validar Autoridad (Identity & Turn)
             // Allow matching by Socket ID OR Firebase UID
+            // CRITICAL LOGGING: Show exact comparison for debugging
+            console.log(`[TURN_CHECK] Current player: ${player?.name} | UID: ${player?.uid} | Socket ID: ${player?.id}`);
+            console.log(`[TURN_CHECK] Action requested by: ${playerId}`);
+            console.log(`[TURN_CHECK] Match by UID: ${player?.uid === playerId} | Match by Socket ID: ${player?.id === playerId}`);
+
             if (!player || (player.id !== playerId && player.uid !== playerId)) {
-                console.error(`[TURN_ERROR] Acción denegada. Turno: ${player?.id} (UID: ${player?.uid}) vs Request: ${playerId}`);
+                console.error(`[TURN_ERROR] Acción denegada. Player en turno: ${player?.name} (UID: ${player?.uid}, Socket: ${player?.id}) | Jugador intentando: ${playerId}`);
                 throw new Error('Not your turn');
             }
 

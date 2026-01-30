@@ -62,14 +62,15 @@ Usuario tiene 1300 fichas en poker_tables/{tableId}.players[].chips
 **Reglas Inquebrantables:**
 - ✅ Las fichas en `poker_tables` son la **ÚNICA fuente de verdad**
 - ✅ `poker_sessions.currentChips` es solo para auditoría, NO para cálculos financieros
-- ✅ El rake se calcula sobre la **ganancia bruta** (GrossProfit = FichasFinales - BuyIn)
+- ✅ El rake se calcula sobre el **bote ganado** (8% de cada pot), NO sobre el profit al salir
+- ✅ **NO se cobra rake adicional durante el cashout** - solo se cobró en cada mano ganada
 
 **Distribución del Rake (settleGameRound):**
 - **Mesa Privada:** 100% del rake → `system_stats/economy.accumulated_rake`
 - **Mesa Pública:** 
-  - 50% → `system_stats/economy.accumulated_rake` (Plataforma)
-  - 30% → `clubs/{clubId}.walletBalance` (Club Owner)
-  - 20% → `users/{sellerId}.credit` (Seller)
+  - 25% → `system_stats/economy.accumulated_rake` (Plataforma)
+  - 25% → `clubs/{clubId}.walletBalance` (Club Owner)
+  - 50% → `users/{sellerId}.credit` (Seller) ← **Incentivo prioritario**
 
 **Colecciones Afectadas:**
 - `poker_tables/{tableId}.players[].chips`: Fichas actualizadas en tiempo real
@@ -85,7 +86,7 @@ Usuario tiene 1300 fichas en poker_tables/{tableId}.players[].chips
 
 **Destino del Dinero:**
 - El dinero vuelve a la **billetera del usuario** (`users/{uid}.credit`)
-- Se calcula el `payout` = FichasFinales - Rake
+- **PAYOUT = FICHAS FINALES** (sin deducción de rake)
 - Se limpia el estado: `moneyInPlay: 0`, `currentTableId: null`
 
 **Proceso:**
@@ -97,35 +98,33 @@ processCashOut() → Lee fichas de la mesa (FUENTE DE VERDAD)
 Cálculo:
   - BuyInOriginal: 1000 (de poker_sessions)
   - FichasFinales: 1500 (de poker_tables)
-  - GrossProfit: 1500 - 1000 = 500
-  - Rake: 500 * 0.08 = 40
-  - Payout: 1500 - 40 = 1460
+  - Payout: 1500 (SIN deducción - el rake ya fue cobrado en cada mano)
     ↓
-Distribución del Rake:
-  - Plataforma: 20 (50% si pública, 100% si privada)
-  - Club: 12 (30% si pública)
-  - Seller: 8 (20% si pública)
-    ↓
-Usuario (credit: 10460, moneyInPlay: 0, currentTableId: null)
+Usuario (credit: 10500, moneyInPlay: 0, currentTableId: null)
     ↓
 poker_sessions/{sessionId} → status: 'completed'
+    ↓
+Cálculo de NetProfit (solo para auditoría):
+  - NetProfit: 1500 - 1000 = 500 (informativo, NO afecta el payout)
 ```
+
+**Modelo de Rake:**
+- ✅ El rake se cobra **exclusivamente en `settleGameRound`** (8% por bote ganado)
+- ✅ **NO hay deducción de rake en el cashout**
+- ✅ El usuario recibe exactamente las fichas que tiene en la mesa
 
 **Reglas Inquebrantables:**
 - ✅ **NUNCA** crear una nueva sesión al hacer cashout
 - ✅ Las fichas se leen de `poker_tables`, NO de `poker_sessions`
 - ✅ Si el jugador no está en la mesa y no se proporcionan fichas, ERROR
 - ✅ **LIMPIEZA OBLIGATORIA:** `moneyInPlay: 0`, `currentTableId: null`
+- ✅ **PAYOUT = FICHAS FINALES** (modelo de rake por mano)
 
 **Colecciones Afectadas:**
-- `users/{uid}`: `credit` aumenta, `moneyInPlay: 0`, `currentTableId: null`
-- `poker_sessions/{sessionId}`: `status: 'completed'`, `netResult`, `exitFee`
+- `users/{uid}`: `credit` aumenta por el monto exacto de fichas finales, `moneyInPlay: 0`, `currentTableId: null`
+- `poker_sessions/{sessionId}`: `status: 'completed'`, `netResult` (solo informativo)
 - `poker_tables/{tableId}.players[].chips`: Se establece a 0
-- `system_stats/economy.accumulated_rake`: Rake de plataforma
-- `clubs/{clubId}.walletBalance`: Rake de club (si aplica)
-- `users/{sellerId}.credit`: Rake de seller (si aplica)
-- `financial_ledger`: Registro de cashout
-- `transaction_logs`: Registro de crédito
+- `transaction_logs`: Registro de crédito con el monto completo de fichas
 
 ---
 
@@ -137,14 +136,15 @@ poker_sessions/{sessionId} → status: 'completed'
 |-------|------|-------------|---------|
 | `buyInAmount` | `number` | Monto original que el usuario pagó para entrar | `1000` |
 | `currentChips` | `number` | Fichas actuales (solo auditoría, NO fuente de verdad) | `1500` |
-| `totalRakePaid` | `number` | Rake total pagado durante la sesión | `40` |
-| `netResult` | `number` | Ganancia/pérdida neta = FichasFinales - BuyInOriginal | `500` (puede ser negativo) |
-| `exitFee` | `number` | Rake cobrado al salir (igual a `totalRakePaid` si solo hay un cashout) | `40` |
+| `totalRakePaid` | `number` | Rake total pagado durante todas las manos de la sesión | `40` |
+| `netResult` | `number` | Ganancia/pérdida neta = FichasFinales - BuyInOriginal (solo auditoría) | `500` (puede ser negativo) |
 | `status` | `'active' \| 'completed'` | Estado de la sesión | `'active'` |
 
 **⚠️ IMPORTANTE:** 
 - `currentChips` en `poker_sessions` es solo para auditoría
 - La **fuente de verdad** son las fichas en `poker_tables/{tableId}.players[].chips`
+- `totalRakePaid` acumula el rake cobrado **durante el juego** en `settleGameRound`, NO en el cashout
+- `netResult` es informativo y NO afecta el payout (que siempre es igual a las fichas finales)
 
 ---
 
@@ -216,16 +216,16 @@ poker_sessions/{sessionId} → status: 'completed'
 
 2. JUEGO (settleGameRound)
    Mesa: players[].chips se actualiza
-   Rake: Se calcula y distribuye
-   Plataforma: accumulated_rake += rake (50% o 100%)
-   Club: walletBalance += rake (30% si pública)
-   Seller: credit += rake (20% si pública)
+   Rake: Se calcula 8% del pot y se distribuye
+   Plataforma: accumulated_rake += rake (25% o 100%)
+   Club: walletBalance += rake (25% si pública)
+   Seller: credit += rake (50% si pública)
 
 3. SALIDA (processCashOut)
-   Usuario: credit += payout (FichasFinales - Rake)
+   Usuario: credit += FichasFinales (SIN deducción de rake)
    Usuario: moneyInPlay = 0 ✅
    Usuario: currentTableId = null ✅
-   Sesión: status = 'completed'
+   Sesión: status = 'completed', netResult (solo auditoría)
    Mesa: players[].chips = 0
 ```
 
@@ -255,21 +255,23 @@ poker_sessions/{sessionId} → status: 'completed'
 - **Colecciones:** `poker_tables`, `poker_sessions`, `system_stats`, `clubs`, `users`, `financial_ledger`
 
 ### `processCashOut(data, context)`
-- **Propósito:** Salida del usuario de la mesa
-- **Regla:** Fuente de verdad en `poker_tables`, nunca crear sesiones nuevas
-- **Colecciones:** `users`, `poker_sessions`, `poker_tables`, `system_stats`, `clubs`, `users`, `financial_ledger`, `transaction_logs`
+- **Propósito:** Salida del usuario de la mesa (rake-free)
+- **Regla:** Payout = FichasFinales (fuente de verdad en `poker_tables`), nunca crear sesiones nuevas
+- **Colecciones:** `users`, `poker_sessions`, `poker_tables`, `transaction_logs`
 
 ---
 
 ## 📝 Notas Técnicas
 
 - Todas las operaciones financieras se realizan en **transacciones atómicas** de Firestore
-- El rake se calcula sobre la **ganancia bruta** (GrossProfit), NO sobre el stack total
+- El rake se calcula sobre el **bote ganado durante cada mano** (8% del pot), NO sobre el stack total ni sobre el profit al salir
+- **Modelo de Rake por Mano:** El rake se cobra exclusivamente en `settleGameRound`, NUNCA en `processCashOut`
 - Las sesiones (`poker_sessions`) son solo para **auditoría de tiempo**, no para cálculos financieros
 - La **fuente de verdad** para las fichas del usuario es siempre `poker_tables/{tableId}.players[].chips`
+- El payout al salir es exactamente igual a las fichas finales, sin deducciones adicionales
 
 ---
 
-**Última actualización:** 2025
-**Versión:** 1.0.0
+**Última actualización:** 2026
+**Versión:** 3.0.0 - Modelo 25/25/50 (prioridad a Sellers para captación)
 

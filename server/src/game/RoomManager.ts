@@ -185,12 +185,12 @@ export class RoomManager {
             pokerSessionId: sessionId,
             totalRakePaid: 0,
             status: 'PLAYING',
-            uid: uid
+            uid: uid // ✅ CRITICAL: Store Firebase UID for persistent turn validation
         };
 
         room.players.push(newPlayer);
 
-        console.log(`✅ Player ${playerId} (UID: ${uid || 'N/A'}) joined room ${roomId}`);
+        console.log(`[JOIN_ROOM] ✅ Player added: ${playerName} | UID: ${uid || 'N/A'} | Socket: ${playerId}`);
         return room;
     }
 
