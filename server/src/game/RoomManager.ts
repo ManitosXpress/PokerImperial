@@ -341,27 +341,42 @@ export class RoomManager {
     public async liquidateTableAtomic(roomId: string) {
         const room = this.rooms.get(roomId);
         if (!room) {
-            console.warn(`⚠️ Intento de liquidar mesa inexistente: ${roomId}`);
+            console.warn(`⚠️ Intento de liquidar mesa inexistente en RAM: ${roomId}`);
+            // Intentar marcar en DB como cerrada de todos modos si existe
             return;
         }
 
         console.log(`🔒 EJECUTANDO LIQUIDACIÓN ATÓMICA PARA MESA ${roomId}`);
+        console.log(`🔒 Jugadores en mesa: ${room.players.length}`);
 
         try {
             const db = admin.firestore();
-            const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
             // 1. Preparar Autoridad de Jugadores (Socket -> UID válido)
             // Mapa crítico para evitar usar socketId en /users
             const playerAuthorityMap: Map<string, string> = new Map();
+            const playersToRefund: { uid: string, chips: number, sessionId?: string, name: string }[] = [];
 
             for (const p of room.players) {
                 if (p.isBot) continue;
+
+                // CRÍTICO: Si no hay UID, buscarlo por todos los medios o loguear error fatal
                 if (!p.uid) {
-                    console.error(`❌ CRITICAL: Player ${p.name} (${p.id}) has no UID. Skipping liquidation for this user!`);
+                    console.error(`❌ CRITICAL: Player ${p.name} (${p.id}) has no UID. Skipping liquidation for this user! FUNDS AT RISK.`);
                     continue;
                 }
+
                 playerAuthorityMap.set(p.id, p.uid);
+
+                // Preparar datos para la transacción (Lectura en memoria)
+                if (p.chips > 0 || p.pokerSessionId) {
+                    playersToRefund.push({
+                        uid: p.uid,
+                        chips: p.chips,
+                        sessionId: p.pokerSessionId,
+                        name: p.name
+                    });
+                }
             }
 
             if (this.emitCallback) {
@@ -373,24 +388,22 @@ export class RoomManager {
 
             // 2. Transacción ACID (Todo o Nada)
             await db.runTransaction(async (transaction) => {
+                const timestamp = admin.firestore.FieldValue.serverTimestamp();
                 const tableRef = db.collection('poker_tables').doc(roomId);
                 const tableDoc = await transaction.get(tableRef);
 
-                if (!tableDoc.exists) throw new Error(`Table ${roomId} not found in DB during liquidation`);
+                if (!tableDoc.exists) {
+                    // Si la mesa no existe en DB, es un estado inconsistente grave.
+                    // Pero si tenemos los datos en RAM, ¿deberíamos intentar devolver los fondos de todos modos?
+                    // Por seguridad, sí. Usaremos los datos de RAM.
+                    console.warn(`⚠️ Table ${roomId} not found in DB during liquidation. Proceeding with RAM data.`);
+                }
 
-                // A. Procesar Jugadores
-                for (const player of room.players) {
-                    if (player.isBot) continue;
-
-                    const uid = playerAuthorityMap.get(player.id);
-                    if (!uid) continue; // Skip if no UID resolved (Safety)
-
-                    const userRef = db.collection('users').doc(uid); // USAR UID, NO SOCKET ID
-                    const sessionRef = player.pokerSessionId ? db.collection('poker_sessions').doc(player.pokerSessionId) : null;
+                // A. Procesar Devoluciones
+                for (const player of playersToRefund) {
+                    const userRef = db.collection('users').doc(player.uid); // USAR UID, NO SOCKET ID
+                    const sessionRef = player.sessionId ? db.collection('poker_sessions').doc(player.sessionId) : null;
                     const finalStack = player.chips;
-
-                    // Lectura previa para consistencia (opcional pero recomendada en ledger)
-                    // const userDoc = await transaction.get(userRef); 
 
                     // Update User Wallet
                     transaction.update(userRef, {
@@ -410,41 +423,50 @@ export class RoomManager {
                         });
                     }
 
-                    // Ledger Entry (Audit)
-                    const ledgerRef = db.collection('financial_ledger').doc();
-                    transaction.set(ledgerRef, {
-                        type: 'TABLE_RETURN',
-                        uid: uid,
-                        tableId: roomId,
-                        amount: finalStack,
-                        timestamp: timestamp,
-                        description: `Return from table ${roomId}`
-                    });
+                    // Ledger Entry (Audit) - Solo si hay devolución real > 0
+                    if (finalStack > 0) {
+                        const ledgerRef = db.collection('financial_ledger').doc();
+                        transaction.set(ledgerRef, {
+                            type: 'TABLE_RETURN',
+                            uid: player.uid,
+                            tableId: roomId,
+                            amount: finalStack,
+                            timestamp: timestamp,
+                            description: `Return from table ${roomId} (Atomic)`,
+                            metadata: {
+                                sessionId: player.sessionId || null,
+                                playerName: player.name
+                            }
+                        });
+                    }
 
-                    console.log(`💰 [ATOMIC] Scheduled return for ${player.name} (${uid}): +${finalStack}`);
+                    console.log(`💰 [ATOMIC] Scheduled return for ${player.name} (${player.uid}): +${finalStack}`);
                 }
 
                 // B. Cerrar Mesa
-                transaction.update(tableRef, {
+                transaction.set(tableRef, {
                     status: 'FINISHED',
                     players: [], // Clear players
-                    lastUpdated: timestamp
-                });
+                    activePlayers: [],
+                    lastUpdated: timestamp,
+                    closedAt: timestamp
+                }, { merge: true });
             });
 
             console.log(`✅ Liquidación Atómica Completada para ${roomId}`);
-            this.deleteRoom(roomId); // 3. Clean Memory
+
+            // 3. SOLO AHORA BORRAMOS DE MEMORIA
+            this.deleteRoom(roomId);
 
         } catch (error) {
             console.error(`❌ ERROR CRÍTICO EN LIQUIDACIÓN ATÓMICA (${roomId}):`, error);
-            // DANGER: If transaction failed, funds are stuck in table. 
-            // Do NOT delete room if ephemeral error? 
-            // For now, force delete to prevent zombie RAM usage, but log heavily.
-            this.deleteRoom(roomId);
+            console.error(`⚠️ LA SALA NO SERÁ BORRADA DE LA MEMORIA PARA PERMITIR REINTENTOS.`);
+            // NO llamar a deleteRoom(roomId) aquí.
+            // Esto permitirá que un administrador o un cron de "resguardo" reintente la operación.
         }
     }
 
-    // Alias wrapper for compatibility if needed, or just replace usages
+    // Alias wrapper for compatibility
     public async closeTableAndCashOut(roomId: string) {
         return this.liquidateTableAtomic(roomId);
     }
