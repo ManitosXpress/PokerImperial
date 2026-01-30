@@ -38,6 +38,9 @@ class PlayerSeat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Determine if it's a mobile device FIRST so it can be used in calculations
+    final bool isMobile = MediaQuery.of(context).size.width < 600;
+
     // ✅ Responsive scaling based on screen size to prevent UI overlap
     final screenHeight = MediaQuery.of(context).size.height;
     final scaleFactor = (screenHeight / 800).clamp(0.8, 1.2); // Base reference: 800px
@@ -50,8 +53,6 @@ class PlayerSeat extends StatelessWidget {
     final double cardWidth = ResponsiveUtils.scale(context, isMe ? 70 : 28);
     // Ensure height matches PokerCard aspect ratio (1.4) to prevent clipping
     final double cardHeight = cardWidth * 1.4;
-
-    final bool isMobile = MediaQuery.of(context).size.width < 600; // Determine if it's a mobile device
 
     return Column(
       mainAxisSize: MainAxisSize.min,

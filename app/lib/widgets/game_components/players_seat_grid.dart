@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'package:firebase_auth/firebase_auth.dart'; // ✅ Import for robust UID check
 import '../player_seat.dart';
 import '../chip_stack.dart';
 import '../../utils/responsive_utils.dart';
@@ -45,7 +46,16 @@ class PlayersSeatGrid extends StatelessWidget {
 
         // --- 1. CIRCULAR POSITIONING ---
         final playersList = players!;
-        final myIndex = playersList.indexWhere((p) => p['id'].toString() == myId.toString());
+        
+        // ✅ CRITICAL FIX: Robust "Me" detection using Socket ID OR Firebase UID
+        // This ensures table rotation works even if Socket ID changed (reconnection)
+        final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
+        
+        final myIndex = playersList.indexWhere((p) => 
+            p['id'].toString() == myId.toString() || 
+            (currentUserUid != null && p['uid'] == currentUserUid)
+        );
+        
         final int offset = myIndex != -1 ? myIndex : 0;
         int totalPlayers = playersList.length;
         
@@ -65,7 +75,9 @@ class PlayersSeatGrid extends StatelessWidget {
         final playerY = centerY + (rY * math.sin(angle)) - 45; // Center the 90px seat
 
         // Override "Me" Position to be perfectly centered at bottom
-        final bool isMe = player['id'].toString() == myId.toString();
+        final bool isMe = player['id'].toString() == myId.toString() || 
+                          (currentUserUid != null && player['uid'] == currentUserUid);
+                          
         double finalX = playerX;
         double finalY = playerY;
         

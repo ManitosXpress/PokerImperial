@@ -437,8 +437,8 @@ export class PokerGame {
             })),
 
             // Additional fields for compatibility
-            // CRITICAL: Return UID directly from this.currentTurn variable
-            currentTurn: this.currentTurn || undefined,
+            // CRITICAL: Return UID directly from this.currentTurn variable or derive it
+            currentTurn: this.currentTurn || (this.activePlayers[this.currentTurnIndex]?.uid || this.activePlayers[this.currentTurnIndex]?.id),
             dealerId: this.players[this.dealerIndex]?.id,
             currentBet: this.currentBet,
             minBet: this.currentBet + Math.max(this.bigBlindAmount, this.currentBet),
