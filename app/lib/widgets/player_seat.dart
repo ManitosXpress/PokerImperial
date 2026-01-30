@@ -98,7 +98,8 @@ class PlayerSeat extends StatelessWidget {
         // Avatar + Info Pill
         SizedBox(
           width: avatarSize * 2.0, // More width for the pill
-          height: avatarSize + 30,
+          // 📱 FIX: Increased height on mobile to allow aggressive bottom padding
+          height: avatarSize + (isMobile ? 45 : 30),
           child: Stack(
             alignment: Alignment.topCenter,
             children: [
@@ -181,7 +182,8 @@ class PlayerSeat extends StatelessWidget {
               
               // Info Pill (Name + Chips)
               Positioned(
-                bottom: 0,
+                // 📱 FIX: Aggressive bottom padding for mobile to avoid screen edge clipping
+                bottom: isMobile ? 12 : 0,
                 child: Container(
                   // ✅ Responsive padding based on screen height
                   padding: EdgeInsets.symmetric(

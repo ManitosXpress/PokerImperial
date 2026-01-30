@@ -612,16 +612,16 @@ export class PokerGame {
         let attempts = 0;
         const maxAttempts = this.activePlayers.length * 2;
 
+        // 🛡️ Busqueda de siguiente jugador habilitado
         do {
             nextIndex = (nextIndex + 1) % this.activePlayers.length;
             const p = this.activePlayers[nextIndex];
 
             // STRICT SKIPPING LOGIC:
-            // Skip if:
-            // 1. Player is undefined (safety)
-            // 2. Status is NOT 'PLAYING' (e.g. 'SIT_OUT', 'WAITING_FOR_REBUY')
-            // 3. Player is Folded
-            // 4. Player is All-In (All-in players do not act anymore)
+            // 1. Player exists
+            // 2. Status is 'PLAYING'
+            // 3. Not folded
+            // 4. Not All-In (All-in players cant act)
             if (p && p.status === 'PLAYING' && !p.isFolded && !p.isAllIn) {
                 found = true;
                 break;
@@ -630,27 +630,35 @@ export class PokerGame {
         } while (attempts < maxAttempts);
 
         if (found) {
+            const nextPlayer = this.activePlayers[nextIndex];
             this.currentTurnIndex = nextIndex;
-            this.currentTurn = this.activePlayers[nextIndex]?.uid || this.activePlayers[nextIndex]?.id || ''; // ✅ Update UID
-            console.log(`➡️ Turn moved to ${this.activePlayers[nextIndex].name} (UID: ${this.currentTurn}, Seat ${nextIndex})`);
-            // IMPORTANTE: Start Timer para el nuevo turno
+            this.currentTurn = nextPlayer.uid || nextPlayer.id || ''; // ✅ Update UID
+
+            // 📝 [DEBUG_TURN] Log solicitado explícitamente
+            console.log(`[DEBUG_TURN] Next actor: ${nextPlayer.name} (UID: ${this.currentTurn})`);
+
+            // Broadcast State IMMEDIATELY so frontend updates buttons
+            if (this.onGameStateChange) {
+                this.onGameStateChange(this.getGameState());
+            }
+
+            // Start Timer
             this.startTurnTimer();
         } else {
-            // If no active player found to act...
-            // It could be that everyone else is All-in.
+            // No se encontró jugador habilitado para actuar.
+            // Esto significa que todos los demás están Folded o All-In.
+            console.log('🔄 No provisional active players found (all folded or all-in). Checking phase advance...');
+
             if (this.areAllPlayersAllIn()) {
-                console.log('🔄 No active player found. All-in condition met. Advancing.');
+                console.log('🔄 All-in condition met. Advancing to Showdown.');
                 this.autoAdvanceToShowdown();
+            } else if (this.canAdvancePhase()) {
+                console.log('✅ Phase Complete. Advancing to next round.');
+                this.nextRound();
             } else {
-                console.warn('moveToNextActivePlayer: No active player found. Forcing next round check.');
-                // Safety net: Try to advance round. If that fails, game might be stuck, but this tries to unstuck it.
-                if (this.canAdvancePhase()) {
-                    this.nextRound();
-                } else {
-                    // Critical failure state? Or maybe just race condition where state hasn't updated.
-                    // Log state for debugging.
-                    console.error('CRITICAL: Stuck in turn loop. Logic mismatch.');
-                }
+                console.error('CRITICAL: Stuck in turn loop. No players can act, but canAdvancePhase() is false.');
+                // Failsafe: Force next round to unblock
+                this.nextRound();
             }
         }
     }
@@ -665,23 +673,27 @@ export class PokerGame {
         // 3. Check if all eligible players have acted AND matched the max bet
         const maxBet = this.currentBet;
 
-        // Every player who can act must have:
-        // A) Matched the current highest bet
-        // B) Acted at least once in this round (hasActed = true)
+        // Validacion Estricta:
+        // Todos los que pueden actuar deben haber:
+        // A) Igualado la apuesta maxima (currentBet === maxBet)
+        // B) Marcado hasActed = true
         const allMatchedAndActed = playersWhoCanAct.every(p => {
-            // Special case: Big Blind pre-flop might have matched but not "acted" if no one raised? 
-            // Actually, usually BB needs to "Check" if no raise. If they just sit there, it's not over.
-            // Our code sets hasActed=true on actions.
             return p.currentBet === maxBet && p.hasActed;
         });
 
-        // Debug log for troubleshooting phase blocks
-        // console.log(`Stats - Active: ${activeNonFolded.length}, CanAct: ${playersWhoCanAct.length}, AllMatched: ${allMatchedAndActed}`);
+        // 🛡️ EXCEPCIÓN ESPECIAL PRE-FLOP (Big Blind Option)
+        // Si estamos en pre-flop y nadie subio (maxBet == Big Blind), el BB tiene opcion de check/raise.
+        // Si BB ya igualó (puesto ciega) pero NO ha actuado (hasActed == false), debemos esperar.
+        // PERO si todos hicieron call y llega al BB, el BB tendra turno.
+        // This function checks if we are "done". 
 
-        // Phase can advance if:
-        // 1. Everyone who can act has matched and acted.
-        // OR
-        // 2. No one can act (everyone is All-In) -> Handled by autoAdvance usually, but this confirms "Phase Complete" aspect.
+        // Logica para debugging
+        if (!allMatchedAndActed) {
+            // const waitingFor = playersWhoCanAct.filter(p => p.currentBet !== maxBet || !p.hasActed).map(p => p.name);
+            // console.log(`[PHASE_CHECK] Waiting for: ${waitingFor.join(', ')}`);
+        } else {
+            console.log(`[PHASE_CHECK] All matched and acted. Ready to advance.`);
+        }
 
         return allMatchedAndActed || playersWhoCanAct.length === 0;
     }
@@ -961,9 +973,12 @@ export class PokerGame {
 
 
     private nextRound() {
+        console.log(`[PHASE_ADVANCE] Moving to next round...`);
+
+        // 🛡️ Limpieza de Flags hasActed y CurrentBet
         this.activePlayers.forEach(p => {
             p.currentBet = 0;
-            p.hasActed = false;
+            p.hasActed = false; // RESET CRÍTICO
         });
         this.currentBet = 0;
 
