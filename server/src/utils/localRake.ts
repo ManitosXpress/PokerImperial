@@ -433,6 +433,12 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
 
+                // 🌍 GLOBAL STATS (Total System Rake)
+                transaction.set(db.collection('system_stats').doc('global'), {
+                    totalRakeAccumulated: admin.firestore.FieldValue.increment(data.rakeTotal),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
                 const dateKey = new Date().toISOString().split('T')[0];
                 transaction.set(db.collection('stats_daily').doc(dateKey), {
                     dateKey,

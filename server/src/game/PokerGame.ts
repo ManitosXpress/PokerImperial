@@ -20,7 +20,7 @@ export class PokerGame {
     private activePlayers: Player[] = []; // Players currently in the hand
     private lastAggressorIndex: number = 0;
     private isHandProcessing: boolean = false; // 🔒 Security Flag: Prevent double spending on race conditions
-    private isProcessingEnd: boolean = false; // 🔒 Hand Lock (Renamed from isHandEnding): Prevent duplicate victory logic
+    private isProcessingEndHand: boolean = false; // 🔒 Hand Lock (Renamed as requested): Prevent duplicate victory logic
     private isHandEnding: boolean = false; // Kept for compatibility if used elsewhere, but logic moved to isProcessingEnd
     private handInProgress: boolean = false; // 🔒 Re-entry Guard: Prevent starting new hand while previous is active
     private isSettling: boolean = false; // 🚫 UI Lock: Prevent actions during hand settlement
@@ -102,7 +102,7 @@ export class PokerGame {
 
         // RESET HAND LOCK
         this.isHandEnding = false;
-        this.isProcessingEnd = false; // 🔓 Ensure clean slate
+        this.isProcessingEndHand = false; // 🔓 Ensure clean slate
 
         // ⏱️ AFK DETECTION: Auto-kick players sitting out for 3+ consecutive hands
         this.players.forEach(p => {
@@ -555,7 +555,7 @@ export class PokerGame {
 
                     // 🔐 SECURITY: Obfuscate cards for other players
                     // Show [null, null] instead of actual cards to prevent god-view
-                    // FIX: Return [] if hand is undefined to prevent Flutter null errors
+                    // STRICT OBFUSCATION: Only [null, null] for hidden cards
                     cards: shouldShowCards ? (p.hand || []) : [null, null],
                     hand: shouldShowCards ? (p.hand || []) : [null, null]
                 };
@@ -1896,11 +1896,11 @@ export class PokerGame {
 
     private endHand(winner: Player, wonAmount?: number, winnerHand?: any, playerHands?: Array<{ player: Player, hand: any }>, rakeDistribution?: any) {
         // 🔒 HAND LOCK: Prevent duplicate victory events
-        if (this.isProcessingEnd) {
-            console.warn(`🛑 [HAND_LOCK] endHand called but hand is already terminating. Ignoring duplicate call.`);
+        if (this.isProcessingEndHand) {
+            console.warn(`🛑 [HAND_LOCK] endHand called but hand is already terminating (isProcessingEndHand=true). Aborting immediately.`);
             return;
         }
-        this.isProcessingEnd = true;
+        this.isProcessingEndHand = true;
 
         // 🔒 SECURITY CHECK: Prevent race conditions (Double Spending)
         if (this.isHandProcessing) {
@@ -2059,7 +2059,7 @@ export class PokerGame {
             console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
 
             setTimeout(() => {
-                this.isProcessingEnd = false; // 🔓 RESET HAND LOCK (Delayed)
+                this.isProcessingEndHand = false; // 🔓 RESET HAND LOCK (Delayed)
                 this.checkForBankruptPlayers();
             }, 5000);
 

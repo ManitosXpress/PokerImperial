@@ -181,3 +181,99 @@ export const sanitizeMoneyInPlay = functions.https.onCall(async (data, context) 
         throw new functions.https.HttpsError('internal', `Sanitation script failed: ${error.message || 'Unknown error'}`);
     }
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * TRIGGER: CLEANUP ON SESSION DELETE
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * Se dispara cuando una sesión es eliminada (por timeout, desconexión o cleanup).
+ * Propósito: Asegurar que el dinero en juego (moneyInPlay) se devuelva al crédito
+ * del usuario si no se procesó un cashout formal.
+ */
+export const cleanupOnSessionDelete = functions.firestore
+    .document('poker_sessions/{sessionId}')
+    .onDelete(async (snap, context) => {
+        const sessionData = snap.data();
+        const userId = sessionData?.userId;
+        const roomId = sessionData?.roomId;
+        const sessionId = context.params.sessionId;
+
+        if (!userId) {
+            console.log(`[CLEANUP] ⚠️ Session ${sessionId} deleted without userId. Skipping.`);
+            return;
+        }
+
+        console.log(`[CLEANUP] 🧹 Session ${sessionId} deleted for user ${userId}. Checking for stranded funds...`);
+
+        const db = admin.firestore();
+
+        try {
+            await db.runTransaction(async (transaction) => {
+                const userRef = db.collection('users').doc(userId);
+                const userDoc = await transaction.get(userRef);
+
+                if (!userDoc.exists) return;
+
+                const userData = userDoc.data();
+                const moneyInPlay = Number(userData?.moneyInPlay) || 0;
+                const currentCredit = Number(userData?.credit) || 0;
+                // Verificar si la tabla coincide (opcional, pero seguro)
+                const userTableId = userData?.currentTableId;
+
+                // Solo actuar si hay dinero atrapado y el usuario "piensa" que está en esta mesa (o null)
+                // Si está en otra mesa, no tocamos nada (podría ser una nueva sesión válida)
+                if (moneyInPlay > 0 && (userTableId === roomId || userTableId === null)) {
+                    console.log(`[CLEANUP] 💰 Found ${moneyInPlay} stranded chips for ${userId}. Refunding.`);
+
+                    // 1. Devolver dinero
+                    transaction.update(userRef, {
+                        credit: currentCredit + moneyInPlay,
+                        moneyInPlay: 0,
+                        currentTableId: null, // Liberar mesa
+                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // 2. Crear Ledger Entry
+                    const ledgerRef = db.collection('financial_ledger').doc();
+                    transaction.set(ledgerRef, {
+                        type: 'REFUND_DISCONNECT',
+                        userId: userId,
+                        amount: moneyInPlay,
+                        roomId: roomId || 'unknown',
+                        sessionId: sessionId,
+                        reason: 'Session deleted (timeout/disconnect) with active moneyInPlay',
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        description: `Auto-refund of ${moneyInPlay} due to session deletion`
+                    });
+
+                    // 3. Limpiar jugador de la mesa (si aún existe)
+                    if (roomId) {
+                        const tableRef = db.collection('poker_tables').doc(roomId);
+                        const tableDoc = await transaction.get(tableRef);
+                        if (tableDoc.exists) {
+                            const players = tableDoc.data()?.players || [];
+                            const playerIndex = players.findIndex((p: any) => p.uid === userId || p.id === userId);
+
+                            if (playerIndex !== -1) {
+                                // Opción A: Setear chips a 0 como pidió el usuario
+                                // transaction.update(tableRef, {
+                                //    [`players.${playerIndex}.chips`]: 0
+                                // });
+                                // Opción B: Mejor comportamiento es removerlo o marcarlo sit-out?
+                                // El usuario pidió: "Setear el chips del jugador en la mesa a 0."
+                                transaction.update(tableRef, {
+                                    [`players.${playerIndex}.chips`]: 0,
+                                    [`players.${playerIndex}.status`]: 'ELIMINATED' // Opcional para consistencia
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    console.log(`[CLEANUP] ✅ User clean. MoneyInPlay: ${moneyInPlay}, Table: ${userTableId}`);
+                }
+            });
+        } catch (error) {
+            console.error(`[CLEANUP] ❌ Transaction failed for ${sessionId}:`, error);
+        }
+    });

@@ -13,7 +13,7 @@ class PlayerSeat extends StatelessWidget {
   final bool isActive;
   final bool isDealer;
   final bool isFolded;
-  final List<String>? cards;
+  final List<dynamic>? cards; // Changed to dynamic to handle [null, null]
   final String? handRank; // Add hand rank for showdown
   final bool isWinner; // Highlight winner
   final int? currentBet; // Added for bet amount bubble

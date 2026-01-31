@@ -4,7 +4,7 @@ import 'poker_card.dart';
 import 'card_back.dart';
 
 class SeatHand extends StatefulWidget {
-  final List<String>? visibleCards;
+  final List<dynamic>? visibleCards; // Changed to dynamic to handle nulls
   final int cardCount;
   final bool isFolded;
   final double cardWidth;
@@ -146,7 +146,11 @@ class _SeatHandState extends State<SeatHand> with TickerProviderStateMixin {
           // Determine the card code if available
           String? cardCode;
           if (widget.visibleCards != null && index < widget.visibleCards!.length) {
-            cardCode = widget.visibleCards![index];
+            // SAFE ACCESS: Check if element is null or not a string
+            final dynamic card = widget.visibleCards![index];
+            if (card is String) {
+              cardCode = card;
+            }
           }
 
           return Padding(
