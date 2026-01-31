@@ -142,6 +142,7 @@ export class PokerGame {
         const eligiblePlayers = this.players.filter(p =>
             p.status !== 'WAITING_FOR_REBUY' &&
             p.status !== 'ELIMINATED' &&
+            !p.isSitOut && // 🛡️ TURN_FIX: Strictly filter out SitOut players from new hand
             (p.chips > 0 || p.isBot)
         );
 
@@ -259,6 +260,25 @@ export class PokerGame {
         }, this.TURN_TIMEOUT_SECONDS * 1000);
     }
 
+    // 🛡️ TURN_FIX: Helper to find next valid player index
+    private getNextActivePlayer(startIndex: number): number {
+        let attempts = 0;
+        let index = startIndex;
+        const maxAttempts = this.activePlayers.length;
+
+        while (attempts < maxAttempts) {
+            const p = this.activePlayers[index];
+            // 🛡️ FILTER: Only chips>0, !folded, !isSitOut, !status=ELIMINATED
+            if (p && !p.isFolded && !p.isSitOut && p.chips > 0 && p.status !== 'ELIMINATED') {
+                return index;
+            }
+            index = (index + 1) % this.activePlayers.length;
+            attempts++;
+        }
+
+        return -1; // No valid player found
+    }
+
     private handleTurnTimeout() {
         // 🛡️ SURGICAL FIX: Wrap entire logic in try/catch
         try {
@@ -276,22 +296,37 @@ export class PokerGame {
                 return;
             }
 
-            console.log(`⏰ Timeout for ${currentPlayer.name} (ID: ${currentPlayer.id}). Marking as SIT OUT.`);
+            console.log(`⏰ [TURN_FIX] Timeout for ${currentPlayer.name} (ID: ${currentPlayer.id}). Enforcing SIT_OUT & FOLD.`);
 
-            // ✅ FIX: Do NOT mark as SIT OUT immediately on timeout.
-            // This prevents active (but slow) players from being kicked to spectator mode.
-            // currentPlayer.isSitOut = true; 
+            // 3. Atomic State Updates
+            currentPlayer.isSitOut = true;
+            currentPlayer.isFolded = true; // Force fold to ignore in hand eval
 
-            // Only Check/Fold
-            const canCheck = currentPlayer.currentBet === this.currentBet;
-            const action = canCheck ? 'check' : 'fold';
+            // 4. Persist State Immediately (Async)
+            this.saveState().catch(e => console.error('State save failed:', e));
 
+            // 5. Force Move to Next Turn using 'fold' action
             const playerIdentifier = currentPlayer.uid || currentPlayer.id;
-            console.log(`[TIMEOUT_ACTION] Auto-${action} for ${currentPlayer.name} (No Sit-Out enforcement)`);
-            this.handleAction(playerIdentifier, action);
+            console.log(`[TIMEOUT_ACTION] Auto-FOLD for ${currentPlayer.name} (Sit-Out enforced)`);
+
+            // Use handleAction to process the fold and advance turn
+            // NOTE: processAction middleware might reject if we just set isSitOut=true?
+            // Actually handleAction checks basic things. We modify handleAction slightly if needed or rely on it.
+            // Since we folded them manually above, handleAction might complain "already folded"?
+            // Let's reset folded temporarily for handleAction to process it gracefully OR call logic directly?
+            // Safer: Just call handleAction. If it fails, force nextTurn.
+            currentPlayer.isFolded = false; // Reset so handleAction can fold them "legally"
+            this.handleAction(playerIdentifier, 'fold');
+
         } catch (e) {
             console.error('❌ CRITICAL ERROR in handleTurnTimeout:', e);
             try {
+                // Emergency Recovery
+                const player = this.activePlayers[this.currentTurnIndex];
+                if (player) {
+                    player.isFolded = true;
+                    player.isSitOut = true;
+                }
                 this.nextTurn();
             } catch (e2) {
                 console.error('❌ FAILED TO RECOVER from timeout error:', e2);
@@ -1141,20 +1176,16 @@ export class PokerGame {
 
         if (activeDealerIndex === -1) activeDealerIndex = 0;
 
-        // Find next player to act
-        let nextToActIndex = (activeDealerIndex + 1) % this.activePlayers.length;
+        // Find next player to act using Robust Helper
+        const startSearchIndex = (activeDealerIndex + 1) % this.activePlayers.length;
+        const nextToActIndex = this.getNextActivePlayer(startSearchIndex);
 
-        // 🛡️ SURGICAL FIX: Robust Loop to find next valid player
-        let attempts = 0;
-        const maxAttempts = this.activePlayers.length * 2;
-
-        while (attempts < maxAttempts) {
-            const player = this.activePlayers[nextToActIndex];
-            if (player && !player.isFolded && !player.isAllIn) {
-                break;
-            }
-            nextToActIndex = (nextToActIndex + 1) % this.activePlayers.length;
-            attempts++;
+        if (nextToActIndex === -1) {
+            console.warn(`🛑 [TURN_FIX] No active players found for next round. Forcing Showdown/End.`);
+            // If no one can act, we usually go to showdown if >1 player not folded (e.g. all in)
+            // Or if everyone folded except one, that should have been caught activeNonFolded check.
+            this.autoAdvanceToShowdown();
+            return;
         }
 
         // Set the index
