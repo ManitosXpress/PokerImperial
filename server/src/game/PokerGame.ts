@@ -20,7 +20,8 @@ export class PokerGame {
     private activePlayers: Player[] = []; // Players currently in the hand
     private lastAggressorIndex: number = 0;
     private isHandProcessing: boolean = false; // 🔒 Security Flag: Prevent double spending on race conditions
-    private isHandEnding: boolean = false; // 🔒 Hand Lock: Prevent duplicate victory logic
+    private isProcessingEnd: boolean = false; // 🔒 Hand Lock (Renamed from isHandEnding): Prevent duplicate victory logic
+    private isHandEnding: boolean = false; // Kept for compatibility if used elsewhere, but logic moved to isProcessingEnd
     private handInProgress: boolean = false; // 🔒 Re-entry Guard: Prevent starting new hand while previous is active
     private isSettling: boolean = false; // 🚫 UI Lock: Prevent actions during hand settlement
     public actionSequence: number = 0; // 🔢 Sequence ID for global ordering
@@ -101,6 +102,7 @@ export class PokerGame {
 
         // RESET HAND LOCK
         this.isHandEnding = false;
+        this.isProcessingEnd = false; // 🔓 Ensure clean slate
 
         // ⏱️ AFK DETECTION: Auto-kick players sitting out for 3+ consecutive hands
         this.players.forEach(p => {
@@ -553,8 +555,9 @@ export class PokerGame {
 
                     // 🔐 SECURITY: Obfuscate cards for other players
                     // Show [null, null] instead of actual cards to prevent god-view
-                    cards: shouldShowCards ? p.hand : [null, null],
-                    hand: shouldShowCards ? p.hand : [null, null]
+                    // FIX: Return [] if hand is undefined to prevent Flutter null errors
+                    cards: shouldShowCards ? (p.hand || []) : [null, null],
+                    hand: shouldShowCards ? (p.hand || []) : [null, null]
                 };
             }),
 
@@ -603,6 +606,12 @@ export class PokerGame {
         // Verificar que el juego no haya terminado
         if (this.currentTurnIndex === -1) {
             throw new Error('La mano ya terminó. No se pueden realizar más acciones.');
+        }
+
+        // 🛡️ IDEMPOTENCIA: Ignorar acciones si estamos en showdown
+        if (this.round === 'showdown') {
+            console.warn(`🛑 [IDEMPOTENCY] Action ignored: Round is in showdown.`);
+            throw new Error('Round is in showdown');
         }
 
         const player = this.activePlayers[this.currentTurnIndex];
@@ -1042,6 +1051,19 @@ export class PokerGame {
         }
 
         // 4. Update Turn
+        // 🛡️ [FIX] NEXT_TURN STUCK PREVENTION
+        // Si el siguiente turno es el mismo jugador que acaba de actuar, significa que no hay nadie más.
+        // Esto debería haberse detectado antes, pero como fallback forzamos la siguiente fase.
+        if (nextIndex === this.currentTurnIndex) {
+            console.warn(`⚠️ [TURN_FIX] Infinite loop detected (NextIndex == CurrentIndex). Forcing next round.`);
+            if (this.turnTimer) {
+                clearTimeout(this.turnTimer);
+                this.turnTimer = null;
+            }
+            this.nextRound();
+            return;
+        }
+
         this.currentTurnIndex = nextIndex;
         this.currentTurn = this.activePlayers[nextIndex]?.uid || this.activePlayers[nextIndex]?.id || ''; // ✅ Update UID
         console.log(`➡️ [TURN_UPDATE] Turn advanced to ${this.activePlayers[nextIndex]?.name} (UID: ${this.currentTurn})`);
@@ -1874,11 +1896,11 @@ export class PokerGame {
 
     private endHand(winner: Player, wonAmount?: number, winnerHand?: any, playerHands?: Array<{ player: Player, hand: any }>, rakeDistribution?: any) {
         // 🔒 HAND LOCK: Prevent duplicate victory events
-        if (this.isHandEnding) {
+        if (this.isProcessingEnd) {
             console.warn(`🛑 [HAND_LOCK] endHand called but hand is already terminating. Ignoring duplicate call.`);
             return;
         }
-        this.isHandEnding = true;
+        this.isProcessingEnd = true;
 
         // 🔒 SECURITY CHECK: Prevent race conditions (Double Spending)
         if (this.isHandProcessing) {
@@ -2037,6 +2059,7 @@ export class PokerGame {
             console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
 
             setTimeout(() => {
+                this.isProcessingEnd = false; // 🔓 RESET HAND LOCK (Delayed)
                 this.checkForBankruptPlayers();
             }, 5000);
 
@@ -2046,7 +2069,7 @@ export class PokerGame {
         } finally {
             // 🛡️ INFALIBLE CLEANUP: ALWAYS release ALL state semaphores regardless of errors
             this.isHandProcessing = false;   // Release action processing lock
-            this.isHandEnding = false;        // Release hand ending lock
+            // this.isProcessingEnd NO se resetea aquí, sino en el setTimeout para evitar reentradas
             this.handInProgress = false;      // Allow new hand to start
             this.isSettling = false;          // Re-enable UI for next hand
             this.currentTurn = '';            // Clear current turn
