@@ -733,15 +733,23 @@ io.on('connection', (socket) => {
             // OPTIMIZACIÓN: Socket First, Database Later
             // 1. Actualizar estado en memoria
             const gameState = roomManager.startGame(roomId, socket.id, (data) => {
-                // ✅ CRITICAL FIX: Emit socket events!
-                // The RoomManager callback must broadcast changes to clients
-                if (data.type === 'hand_winner') {
+                // ✅ SECURITY FIX: Send personalized state to each player
+                const room = roomManager.getRoom(roomId);
+                if (room && data.type !== 'hand_winner') {
+                    // For game_update, send personalized state to each player
+                    room.players.forEach(player => {
+                        const game = (roomManager as any).games.get(roomId);
+                        if (game) {
+                            const personalizedState = game.getPublicState(player.uid || player.id, false);
+                            io.to(player.id).emit('game_update', personalizedState);
+                        }
+                    });
+                } else if (data.type === 'hand_winner') {
+                    // hand_winner shows all cards anyway
                     io.to(roomId).emit('hand_winner', data);
-                } else {
-                    io.to(roomId).emit('game_update', data);
                 }
 
-                // 2. Persistir en Firestore después (async, no bloquea)
+                // Persist to Firestore after (async, non-blocking)
                 if (data.type === 'hand_winner' || data.gameState) {
                     persistGameStateAsync(roomId, data.gameState || data);
                 }
