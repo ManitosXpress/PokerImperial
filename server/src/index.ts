@@ -733,20 +733,23 @@ io.on('connection', (socket) => {
             // OPTIMIZACIÓN: Socket First, Database Later
             // 1. Actualizar estado en memoria
             const gameState = roomManager.startGame(roomId, socket.id, (data) => {
-                // ✅ SECURITY FIX: Send personalized state to each player
+                // ✅ SECURITY FIX: Send personalized state to each player in the room
                 const room = roomManager.getRoom(roomId);
-                if (room && data.type !== 'hand_winner') {
-                    // For game_update, send personalized state to each player
+                const game = (roomManager as any).games.get(roomId);
+
+                if (data.type === 'hand_winner') {
+                    // hand_winner shows all cards anyway - broadcast to all
+                    io.to(roomId).emit('hand_winner', data);
+                } else if (room && game) {
+                    // For game_update, send personalized state to EACH player (including their own cards)
                     room.players.forEach(player => {
-                        const game = (roomManager as any).games.get(roomId);
-                        if (game) {
-                            const personalizedState = game.getPublicState(player.uid || player.id, false);
-                            io.to(player.id).emit('game_update', personalizedState);
+                        const personalizedState = game.getPublicState(player.uid || player.id, false);
+                        // Send to this specific player's socket
+                        const playerSocket = io.sockets.sockets.get(player.id);
+                        if (playerSocket) {
+                            playerSocket.emit('game_update', personalizedState);
                         }
                     });
-                } else if (data.type === 'hand_winner') {
-                    // hand_winner shows all cards anyway
-                    io.to(roomId).emit('hand_winner', data);
                 }
 
                 // Persist to Firestore after (async, non-blocking)
