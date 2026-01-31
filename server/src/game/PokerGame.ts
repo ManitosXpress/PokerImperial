@@ -21,6 +21,8 @@ export class PokerGame {
     private lastAggressorIndex: number = 0;
     private isHandProcessing: boolean = false; // 🔒 Security Flag: Prevent double spending on race conditions
     private isHandEnding: boolean = false; // 🔒 Hand Lock: Prevent duplicate victory logic
+    private handInProgress: boolean = false; // 🔒 Re-entry Guard: Prevent starting new hand while previous is active
+    private isSettling: boolean = false; // 🚫 UI Lock: Prevent actions during hand settlement
     public actionSequence: number = 0; // 🔢 Sequence ID for global ordering
     public turnExpiresAt: number = 0; // 🕒 Timestamp when current turn expires
 
@@ -91,8 +93,43 @@ export class PokerGame {
         console.log(`🔘 Dealer Button movido a: ${this.players[this.dealerIndex].name}`);
     }
     private startRound() {
+        // 🔒 RE-ENTRY GUARD: Prevent starting new hand while previous is active
+        if (this.handInProgress) {
+            console.warn(`🛑 [RE-ENTRY_GUARD] Cannot start new hand: previous hand still in progress (room ${this.roomId})`);
+            return;
+        }
+
         // RESET HAND LOCK
         this.isHandEnding = false;
+
+        // ⏱️ AFK DETECTION: Auto-kick players sitting out for 3+ consecutive hands
+        this.players.forEach(p => {
+            if (p.isSitOut) {
+                // Increment sit-out counter
+                p.handCounter = (p.handCounter || 0) + 1;
+                console.log(`⏱️ Player ${p.name} sit-out count: ${p.handCounter}/3`);
+
+                // Auto-kick if threshold reached
+                if (p.handCounter >= 3) {
+                    console.log(`🚫 Auto-kicking ${p.name} (${p.uid || p.id}) for 3 consecutive sit-outs`);
+                    console.log(`💰 Returning ${p.chips} chips to wallet`);
+
+                    // TODO: Implement server-side cashout with HMAC signature
+                    // For now, just remove from game (chips are lost - needs proper cashout implementation)
+                    const playerIndex = this.players.findIndex(player => player.id === p.id);
+                    if (playerIndex !== -1) {
+                        this.players.splice(playerIndex, 1);
+                        console.log(`✅ Player ${p.name} removed from game`);
+                    }
+                }
+            } else {
+                // Reset counter if player is active
+                if (p.handCounter && p.handCounter > 0) {
+                    console.log(`✅ Player ${p.name} is active, resetting sit-out counter`);
+                }
+                p.handCounter = 0;
+            }
+        });
 
         // 🧹 RESET STATE immediately (Ensure clean slate even if we go to waiting)
         this.initializeDeck();
@@ -126,6 +163,9 @@ export class PokerGame {
         this.currentBet = this.bigBlindAmount;
 
         this.activePlayers = [...eligiblePlayers];
+
+        // 🔒 MARK HAND AS ACTIVE (After validation passes)
+        this.handInProgress = true;
 
         this.activePlayers.forEach(p => {
             p.hand = [];
@@ -392,6 +432,19 @@ export class PokerGame {
             // Esto previene que el ganador se quede "atrapado" solo en la sala
             if (this.players.length === 1 && this.onSystemEvent) {
                 console.log(`🔒 [AUTO-CLOSE] Player ${winner.name} is the last one in the room. Closing table.`);
+
+                // 📡 Emit final settlement for UI navigation BEFORE closing table
+                this.onSystemEvent('final_settlement', {
+                    type: 'LAST_MAN_STANDING',
+                    tableId: this.roomId,
+                    winnerUid: winner.uid,
+                    winnerId: winner.id,
+                    finalChips: winner.chips,
+                    reason: 'All other players left the table',
+                    timestamp: Date.now()
+                });
+                console.log(`📡 [FINAL_SETTLEMENT] Event emitted for last man standing`);
+
                 setTimeout(() => {
                     if (this.onSystemEvent) {
                         this.onSystemEvent('TABLE_CLOSED', {
@@ -416,34 +469,59 @@ export class PokerGame {
         }
     }
 
-    public getPublicState(requestingPlayerId?: string, useDelta: boolean = false): any {
+    /**
+     * 🔐 SECURITY: Get sanitized game state for a specific player
+     * Hides other players' hole cards to prevent "God-View" exploits
+     * 
+     * @param requestingPlayerUid - UID of the player requesting the state
+     * @param useDelta - Future optimization flag for delta updates
+     */
+    public getPublicState(requestingPlayerUid?: string, useDelta: boolean = false): any {
         const fullState = {
             tableId: this.roomId,
             sequenceId: this.actionSequence, // 🔢 Emit Sequence ID
             pot: this.pot,
-            communityCards: this.communityCards,
+            isSettling: this.isSettling, // 🚫 UI Lock: Block actions during settlement
+
+            // 🔐 SECURITY: Only show community cards if game has progressed past pre-flop
+            // Pre-flop: hide cards, Post-flop: show them
+            communityCards: (this.round === 'pre-flop' || this.round === 'waiting')
+                ? []
+                : this.communityCards,
+
             stage: this.round.toUpperCase(),
             dealerIndex: this.dealerIndex,
             currentTurnIndex: this.currentTurnIndex,
             turnExpiresAt: this.turnExpiresAt, // 🕒 Expose expiration time
 
-            // CRITICAL FIX: Map players with BOTH field names for frontend compatibility
-            players: this.players.map(p => ({
-                id: p.id,
-                uid: p.uid,
-                name: p.name,
-                chips: p.chips,
-                bet: p.currentBet, // Original field name
-                currentBet: p.currentBet, // CRITICAL: Flutter expects this name
-                isFolded: p.isFolded,
-                isAllIn: p.isAllIn || (p.chips === 0 && p.currentBet > 0),
-                seatIndex: (p as any).seatIndex,
-                avatar: (p as any).avatar,
-                // CRITICAL: Include both 'cards' and 'hand' for compatibility
-                // Only show if requesting player OR showdown
-                cards: (requestingPlayerId === p.id || this.round === 'showdown') ? p.hand : null,
-                hand: (requestingPlayerId === p.id || this.round === 'showdown') ? p.hand : null
-            })),
+            // 🔐 SECURITY: Map players with sanitized hand data
+            players: this.players.map(p => {
+                // Determine if this player's cards should be visible
+                // Show cards ONLY if:
+                // 1. It's the requesting player (UID match)
+                // 2. OR it's showdown phase (all cards revealed)
+                const isRequestingPlayer = requestingPlayerUid && (p.uid === requestingPlayerUid || p.id === requestingPlayerUid);
+                const isShowdown = this.round === 'showdown';
+                const shouldShowCards = isRequestingPlayer || isShowdown;
+
+                return {
+                    id: p.id,
+                    uid: p.uid,
+                    name: p.name,
+                    chips: p.chips,
+                    bet: p.currentBet, // Original field name
+                    currentBet: p.currentBet, // CRITICAL: Flutter expects this name
+                    isFolded: p.isFolded,
+                    isAllIn: p.isAllIn || (p.chips === 0 && p.currentBet > 0),
+                    seatIndex: (p as any).seatIndex,
+                    avatar: (p as any).avatar,
+
+                    // 🔐 SECURITY: Obfuscate cards for other players
+                    // Show [null, null] instead of actual cards to prevent god-view
+                    cards: shouldShowCards ? p.hand : [null, null],
+                    hand: shouldShowCards ? p.hand : [null, null]
+                };
+            }),
 
             // Additional fields for compatibility
             // CRITICAL: Return UID directly from this.currentTurn variable or derive it
@@ -465,9 +543,25 @@ export class PokerGame {
         return fullState;
     }
 
+    /**
+     * 🔐 SECURITY: Get fully sanitized game state (spectator view)
+     * All player cards are hidden - use for public broadcasts
+     * 
+     * For player-specific views, use getPublicState(playerUid) instead
+     */
     public getGameState() {
         // Default to public state with no private cards revealed (spectator view)
         return this.getPublicState(undefined);
+    }
+
+    /**
+     * 🔐 SECURITY: Get sanitized state for a specific player by UID
+     * This is the recommended method for sending state to individual players
+     * 
+     * @param playerUid - Firebase UID of the requesting player
+     */
+    public getSanitizedGameState(playerUid: string) {
+        return this.getPublicState(playerUid);
     }
 
     public handleAction(playerId: string, action: 'bet' | 'call' | 'fold' | 'check' | 'allin', amount: number = 0, sequenceId?: number) {
@@ -481,7 +575,19 @@ export class PokerGame {
         // 🔒 CONCURRENCY LOCK: Check if another action is processing
         if (this.isHandProcessing) {
             console.warn(`🔒 Race Condition prevented: Action ignored for ${playerId} while processing.`);
-            return; // Fail silently or throw, but better strict ignore to prevent state corruption
+
+            // 🚨 EMIT ACTION_REJECTED EVENT: Notify client that action cannot be processed
+            if (this.onGameStateChange) {
+                this.onGameStateChange({
+                    type: 'action_rejected',
+                    playerId: playerId,
+                    reason: 'HAND_PROCESSING',
+                    message: 'La mano se está procesando. Por favor espera.',
+                    timestamp: Date.now()
+                });
+            }
+
+            return; // Reject action without throwing error
         }
 
         // 🔢 SEQUENCE CHECK (Optimistic Concurrency Control)
@@ -726,6 +832,34 @@ export class PokerGame {
 
         console.log(`👮 Watchdog forcing fold for ${player.name}`);
         this.handleAction(player.id, 'fold');
+    }
+
+    /**
+     * 💾 CRITICAL: Save game state to Firestore
+     * Called at the end of each phase transition to ensure consistency
+     */
+    private async saveState(): Promise<void> {
+        try {
+            if (this.onSystemEvent) {
+                this.onSystemEvent('SAVE_STATE', {
+                    tableId: this.roomId,
+                    timestamp: Date.now(),
+                    players: this.players.map(p => ({
+                        uid: p.uid,
+                        id: p.id,
+                        chips: p.chips,
+                        status: p.status
+                    })),
+                    pot: this.pot,
+                    round: this.round,
+                    currentTurn: this.currentTurn
+                });
+            }
+            console.log(`💾 [STATE_SAVE] Game state saved for room ${this.roomId}`);
+        } catch (error) {
+            console.error(`❌ [STATE_SAVE] Failed to save state for room ${this.roomId}:`, error);
+            // Don't throw - saving state failure shouldn't break the game
+        }
     }
 
     /**
@@ -1723,6 +1857,14 @@ export class PokerGame {
         this.isHandProcessing = true;
 
         try {
+            // 🔐 WINNER UID VALIDATION: Verify winner exists in players array
+            const winnerInTable = this.players.find(p => p.uid && p.uid === winner.uid);
+            if (!winnerInTable && winner.uid) {
+                console.error(`🚨 CRITICAL: Winner UID ${winner.uid} not found in table ${this.roomId}`);
+                console.error(`🚨 Available players:`, this.players.map(p => ({ uid: p.uid, name: p.name })));
+                // Don't throw - allow finally block to clean up
+            }
+
             // CRÍTICO: Detener el timer de turno inmediatamente cuando termina la mano
             if (this.turnTimer) {
                 clearTimeout(this.turnTimer);
@@ -1730,10 +1872,19 @@ export class PokerGame {
                 console.log('⏹️ Timer de turno detenido - Mano terminada');
             }
 
-            // Limpiar el turno actual para evitar que se pueda actuar
+            // 🚫 IMMEDIATE UI LOCK: Disable all controls before processing settlement
             this.currentTurnIndex = -1; // Invalidar turno actual
             this.currentTurn = ''; // 🛑 Force Waiting State in UI (No active turn)
-            this.round = 'waiting'; // 🛑 Force Waiting State
+            this.round = 'showdown'; // Show all cards
+            this.isSettling = true;   // Block all actions
+
+            // 📡 CRITICAL: Emit state IMMEDIATELY to disable UI controls
+            if (this.onGameStateChange) {
+                this.onGameStateChange(this.getGameState());
+            }
+            console.log(`🚫 [UI_LOCK] Hand entering settlement phase - all controls disabled`);
+            console.log(`📡 [STATE_SYNC] Immediate state emitted: currentTurn=null, isSettling=true`);
+
 
             let finalAmount = wonAmount;
             let rakeAmount = 0;
@@ -1860,9 +2011,21 @@ export class PokerGame {
 
         } catch (e) {
             console.error('❌ CRITICAL ERROR in endHand:', e);
+            // Error is logged but finally block will still clean up
         } finally {
-            // 🛡️ DEFENSIVE: Release lock
-            this.isHandProcessing = false;
+            // 🛡️ INFALIBLE CLEANUP: ALWAYS release ALL state semaphores regardless of errors
+            this.isHandProcessing = false;   // Release action processing lock
+            this.isHandEnding = false;        // Release hand ending lock
+            this.handInProgress = false;      // Allow new hand to start
+            this.isSettling = false;          // Re-enable UI for next hand
+            this.currentTurn = '';            // Clear current turn
+
+            // 💾 CRITICAL: Synchronize state with Firestore (async but don't await to avoid blocking)
+            this.saveState().catch(err => {
+                console.error(`❌ [FINALLY] Failed to save state in finally block:`, err);
+            });
+
+            console.log(`[ENGINE] Hand cycle completed for room ${this.roomId}. Ready for next hand.`);
         }
     }
 

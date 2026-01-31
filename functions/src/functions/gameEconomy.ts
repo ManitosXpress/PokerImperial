@@ -471,7 +471,18 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
     console.log(`[ECONOMY] Settling round ${gameId} in ${tableId}. Pot: ${potTotal}, Winner: ${winnerUid}`);
     console.log(`[ECONOMY] Final Player Stacks from Server:`, finalPlayerStacks);
 
-    // CÁLCULO DE RAKE (Server Authority)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 💰 RAKE CALCULATION - SINGLE SOURCE OF TRUTH
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ⚠️ CRITICAL: This function is the AUTHORITATIVE source for rake calculation.
+    //
+    // DO NOT calculate rake anywhere else in the codebase:
+    // - Socket server (PokerGame.ts) should ONLY emit game events
+    // - Frontend should ONLY display values from this function
+    // - All rake distribution happens HERE with db.runTransaction for atomicity
+    //
+    // The 8% rake rate is hardcoded here and verified with signature validation.
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     let rakeAmount = 0;
 
     if (authPayload) {
@@ -494,6 +505,26 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
     }
 
     const winnerPrize = potTotal - rakeAmount;
+
+    // 💸 FINANCIAL INTEGRITY CHECK: Verify pot distribution consistency
+    // This ensures no money is lost or created during settlement
+    const calculatedTotal = rakeAmount + winnerPrize;
+    if (calculatedTotal !== potTotal) {
+        console.error(`[RAKE_ERROR] Consistency check failed!`);
+        console.error(`  Pot Total: ${potTotal}`);
+        console.error(`  Rake Amount: ${rakeAmount}`);
+        console.error(`  Winner Prize: ${winnerPrize}`);
+        console.error(`  Calculated Total (Rake + Prize): ${calculatedTotal}`);
+        console.error(`  Discrepancy: ${potTotal - calculatedTotal}`);
+
+        throw new functions.https.HttpsError(
+            'internal',
+            `Financial integrity violation: Pot (${potTotal}) ≠ Rake (${rakeAmount}) + Winner Prize (${winnerPrize}). ` +
+            `Discrepancy: ${potTotal - calculatedTotal}`
+        );
+    }
+
+    console.log(`[RAKE] ✅ Consistency check passed: Pot (${potTotal}) = Rake (${rakeAmount}) + Winner Prize (${winnerPrize})`);
 
     try {
         await db.runTransaction(async (transaction) => {

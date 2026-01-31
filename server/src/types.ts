@@ -13,6 +13,9 @@ export interface Player {
     totalRakePaid?: number;
     isReady?: boolean;
     isSitOut?: boolean;
+    // ⏱️ AFK Detection: Tracks consecutive hands player has been sitting out
+    // Auto-kick triggers after 3 consecutive sit-outs
+    handCounter?: number;
     isAllIn?: boolean; // Flag para jugadores que apostaron todo
     status?: 'PLAYING' | 'WAITING_FOR_REBUY' | 'ELIMINATED';
     hasActed?: boolean; // CRÍTICO: Rastrea si el jugador ya actuó en esta ronda de apuestas

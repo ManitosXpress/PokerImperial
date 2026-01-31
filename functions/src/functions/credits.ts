@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import * as functions from "firebase-functions";
 import { CallableContext } from "firebase-functions/v1/https";
 import { generateTransactionHash } from "../utils/hash";
 
@@ -43,111 +44,28 @@ interface TransactionResponse {
 }
 
 /**
- * ADD CREDITS - Server-Authoritative Function
- *
- * This function adds credits to a user's wallet using atomic transactions.
-  * IMPORTANT: Only this function can increase user balance - clients cannot.
- *
- * Future blockchain integration: This function can be triggered by a
- * blockchain deposit listener when tokens are deposited to the game contract.
- *
- * @param data - Request data containing amount and reason
- * @param context - Firebase auth context
- * @returns Transaction response with new balance
+ * ⚠️ DEPRECATED - DO NOT USE
+ * 
+ * This function has been deprecated for security reasons.
+ * 
+ * Migration Guide:
+ * - For automated systems (n8n, webhooks): Use `externalDeposit` with Bearer Token auth
+ * - For admin dashboard: Use `adminMintCredits` with admin role validation
+ * 
+ * @deprecated Since 2026-01-30. Will be removed in future versions.
  */
 export async function addCredits(
     data: AddCreditsRequest,
     context: CallableContext
 ): Promise<TransactionResponse> {
-    // Validate authentication
-    if (!context.auth) {
-        throw new Error("Authentication required");
-    }
+    console.warn('[DEPRECATED] addCredits called - redirecting to secure alternatives');
 
-    const userId = context.auth.uid;
-    const { amount, reason } = data;
-
-    // Validate input
-    if (!amount || amount <= 0) {
-        throw new Error("Invalid amount: must be greater than 0");
-    }
-
-    if (!reason || reason.trim().length === 0) {
-        throw new Error("Reason is required");
-    }
-
-    try {
-        const db = admin.firestore();
-        // Use Firestore transaction for atomicity
-        const result = await db.runTransaction(async (transaction) => {
-            const userRef = db.collection("users").doc(userId);
-            const userDoc = await transaction.get(userRef);
-
-            // Create user if doesn't exist (first time registration)
-            if (!userDoc.exists) {
-                const userData = {
-                    uid: userId,
-                    email: context.auth!.token.email || "",
-                    displayName: context.auth!.token.name ||
-                        context.auth!.token.email?.split("@")[0] || "Player",
-                    photoURL: context.auth!.token.picture || "",
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                    credit: 0,
-                    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-                };
-                transaction.set(userRef, userData);
-            }
-
-            // Get current balance
-            const currentBalance = userDoc.exists ?
-                (userDoc.data()?.credit || 0) : 0;
-            const newBalance = currentBalance + amount;
-            const timestamp = Date.now();
-
-            // Generate hash for audit trail
-            const hash = generateTransactionHash(
-                userId,
-                amount,
-                "credit",
-                timestamp,
-                currentBalance,
-                newBalance
-            );
-
-            // Update user balance
-            transaction.update(userRef, {
-                credit: newBalance,
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-            });
-
-            // Create transaction log entry (immutable audit trail)
-            const logRef = db.collection("transaction_logs").doc();
-            transaction.set(logRef, {
-                userId,
-                amount,
-                type: "credit",
-                reason,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                beforeBalance: currentBalance,
-                afterBalance: newBalance,
-                hash,
-                metadata: {
-                    authMethod: context.auth!.token.firebase?.sign_in_provider || "unknown",
-                },
-            });
-
-            return {
-                success: true,
-                newBalance,
-                transactionId: logRef.id,
-            };
-        });
-
-        return result;
-    } catch (error) {
-        console.error("Error adding credits:", error);
-        throw new Error(`Failed to add credits: ${(error as Error).message}`);
-    }
+    throw new functions.https.HttpsError(
+        'failed-precondition',
+        'DEPRECATED: This function is no longer supported for security reasons. ' +
+        'Use externalDeposit (for automated systems with Bearer Token) or ' +
+        'adminMintCredits (for admin dashboard with admin role).'
+    );
 }
 
 /**
@@ -173,17 +91,26 @@ export async function adminWithdrawCredits(
 ): Promise<TransactionResponse> {
     // 1. Validate Admin Auth
     if (!context.auth) {
-        throw new Error("Authentication required");
+        throw new functions.https.HttpsError('unauthenticated', 'Authentication required');
     }
 
-    // In a real app, check for 'admin' role or custom claim
-    // const isAdmin = context.auth.token.admin === true;
-    // if (!isAdmin) throw new Error("Permission denied: Admin only");
+    // 🔐 SECURITY: Enforce admin-only access
+    const isAdmin = context.auth.token.admin === true;
+    if (!isAdmin) {
+        throw new functions.https.HttpsError(
+            'permission-denied',
+            'Admin privileges required to withdraw credits from users'
+        );
+    }
 
     const { targetUid, amount, reason } = data;
 
-    if (!targetUid) throw new Error("Target UID required");
-    if (!amount || amount <= 0) throw new Error("Invalid amount");
+    if (!targetUid) {
+        throw new functions.https.HttpsError('invalid-argument', 'Target UID required');
+    }
+    if (!amount || amount <= 0) {
+        throw new functions.https.HttpsError('invalid-argument', 'Invalid amount: must be greater than 0');
+    }
 
     try {
         const db = admin.firestore();
@@ -396,107 +323,24 @@ interface WithdrawCreditsRequest {
 }
 
 /**
- * WITHDRAW CREDITS - Server-Authoritative Function
- *
- * This function processes withdrawal requests.
- * It verifies sufficient balance, deducts credits, and logs the transaction.
- *
- * Future blockchain integration: This function will trigger the actual
- * blockchain transaction to send tokens to the user's wallet.
- *
- * @param data - Request data containing amount and wallet address
- * @param context - Firebase auth context
- * @returns Transaction response with new balance
+ * ⚠️ DEPRECATED - DO NOT USE
+ * 
+ * This function has been deprecated for security reasons.
+ * 
+ * Migration Guide:
+ * - Use `adminWithdrawCredits` with proper admin role validation
+ * 
+ * @deprecated Since 2026-01-30. Will be removed in future versions.
  */
 export async function withdrawCredits(
     data: WithdrawCreditsRequest,
     context: CallableContext
 ): Promise<TransactionResponse> {
-    // Validate authentication
-    if (!context.auth) {
-        throw new Error("Authentication required");
-    }
+    console.warn('[DEPRECATED] withdrawCredits called - redirecting to adminWithdrawCredits');
 
-    const userId = context.auth.uid;
-    const { amount, walletAddress } = data;
-    const reason = data.reason || "Withdrawal to external wallet";
-
-    // Validate input
-    if (!amount || amount <= 0) {
-        throw new Error("Invalid amount: must be greater than 0");
-    }
-
-    if (!walletAddress || walletAddress.trim().length === 0) {
-        throw new Error("Wallet address is required");
-    }
-
-    try {
-        const db = admin.firestore();
-        // Use Firestore transaction for atomicity
-        const result = await db.runTransaction(async (transaction) => {
-            const userRef = db.collection("users").doc(userId);
-            const userDoc = await transaction.get(userRef);
-
-            if (!userDoc.exists) {
-                throw new Error("User not found");
-            }
-
-            const currentBalance = userDoc.data()?.credit || 0;
-
-            // Check sufficient balance
-            if (currentBalance < amount) {
-                throw new Error(
-                    `Insufficient balance. Current: ${currentBalance}, Required: ${amount}`
-                );
-            }
-
-            const newBalance = currentBalance - amount;
-            const timestamp = Date.now();
-
-            // Generate hash for audit trail
-            const hash = generateTransactionHash(
-                userId,
-                amount,
-                "debit",
-                timestamp,
-                currentBalance,
-                newBalance
-            );
-
-            // Update user balance
-            transaction.update(userRef, {
-                credit: newBalance,
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-            });
-
-            // Create transaction log entry
-            const logRef = db.collection("transaction_logs").doc();
-            transaction.set(logRef, {
-                userId,
-                amount,
-                type: "debit", // Withdrawal is a debit from the game system
-                reason,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                beforeBalance: currentBalance,
-                afterBalance: newBalance,
-                hash,
-                metadata: {
-                    walletAddress,
-                    status: "processed", // In real web3, this might start as 'pending'
-                    transactionType: "withdrawal"
-                },
-            });
-
-            return {
-                success: true,
-                newBalance,
-                transactionId: logRef.id,
-            };
-        });
-
-        return result;
-    } catch (error) {
-        console.error("Error withdrawing credits:", error);
-        throw new Error(`Failed to withdraw credits: ${(error as Error).message}`);
-    }
+    throw new functions.https.HttpsError(
+        'failed-precondition',
+        'DEPRECATED: This function is no longer supported for security reasons. ' +
+        'Use adminWithdrawCredits with proper admin role validation instead.'
+    );
 }
