@@ -102,8 +102,38 @@ roomManager.setEmitCallback((roomId, event, data, targetPlayerId) => {
         // Emitir solo al jugador específico (para cartas privadas)
         io.to(targetPlayerId).emit(event, data);
     } else {
-        // Emitir a toda la sala (para espectadores o eventos públicos)
-        io.to(roomId).emit(event, data);
+        // 🧠 SMART EMISSION: Handle personalized states for game updates
+        if (event === 'game_update' || event === 'game_started') {
+            const room = roomManager.getRoom(roomId);
+            if (room) {
+                const playerSocketIds = room.players.map(p => p.id);
+
+                // 1. Send personalized state to each active player
+                room.players.forEach(player => {
+                    // CRÍTICO: Usar UID si está disponible, fallback a socket ID
+                    // PokerGame usa UID para validar "shouldShowCards"
+                    const identity = player.uid || player.id;
+                    const personalizedState = roomManager.getPlayerState(roomId, identity);
+
+                    if (personalizedState) {
+                        io.to(player.id).emit(event, personalizedState);
+                    }
+                });
+
+                // 2. Send sanitized (spectator) state to everyone else (Except players)
+                if (playerSocketIds.length > 0) {
+                    io.to(roomId).except(playerSocketIds).emit(event, data);
+                } else {
+                    io.to(roomId).emit(event, data);
+                }
+            } else {
+                // Should not happen, but fallback
+                io.to(roomId).emit(event, data);
+            }
+        } else {
+            // Standard broadcast for other events (hand_winner, player_joined, etc.)
+            io.to(roomId).emit(event, data);
+        }
     }
 
     // OPTIMIZACIÓN: Database Later - Persistir en background sin bloquear

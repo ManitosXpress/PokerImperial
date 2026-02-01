@@ -483,6 +483,13 @@ export class RoomManager {
         return game ? game.getGameState() : null;
     }
 
+    public getPlayerState(roomId: string, playerId: string) {
+        const game = this.games.get(roomId);
+        if (!game) return null;
+        // Allows passing either UID or Socket ID (assuming PokerGame handles it, currently it expects UID)
+        return game.getPublicState(playerId);
+    }
+
     public deleteRoom(roomId: string) {
         const game = this.games.get(roomId);
         if (game && (game as any).turnTimer) clearTimeout((game as any).turnTimer);
