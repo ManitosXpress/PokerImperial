@@ -176,21 +176,56 @@ export class RoomManager {
 
         if (room.players.length >= room.maxPlayers) throw new Error('Room is full');
 
+        // 🔥 FORCE STATUS ACTIVE ON JOIN
+        const initialStatus = (buyInAmount > 0) ? 'active' : 'spectator';
+        const isSeated = (buyInAmount > 0);
+
         const newPlayer: Player = {
             id: playerId,
+            uid: uid,
             name: playerName,
             chips: buyInAmount,
+            status: initialStatus, // ✅ FORCE ACTIVE
+            isSeated: isSeated,
             isFolded: false,
             currentBet: 0,
             pokerSessionId: sessionId,
-            totalRakePaid: 0,
-            status: 'PLAYING',
-            uid: uid // ✅ CRITICAL: Store Firebase UID for persistent turn validation
+            totalRakePaid: 0
         };
 
         room.players.push(newPlayer);
 
-        console.log(`[JOIN_ROOM] ✅ Player added: ${playerName} | UID: ${uid || 'N/A'} | Socket: ${playerId}`);
+        console.log(`[JOIN_ROOM] ✅ Player added: ${playerName} | UID: ${uid || 'N/A'} | Socket: ${playerId} | Status: ${initialStatus}`);
+
+        // 🔥 SYNC TO FIRESTORE IMMEDIATELY (Critical Fix for Spectator Mode Bug)
+        // This ensures poker_tables collection is updated with player status='active'
+        setImmediate(async () => {
+            try {
+                const db = admin.firestore();
+                await db.collection('poker_tables').doc(roomId).set({
+                    players: room.players.map(p => ({
+                        id: p.uid || p.id,  // Prefer UID for consistency
+                        uid: p.uid,
+                        name: p.name,
+                        chips: p.chips,
+                        status: p.status || 'active', // Default to active if missing
+                        isSeated: p.isSeated !== undefined ? p.isSeated : true,
+                        currentBet: p.currentBet || 0,
+                        isFolded: p.isFolded || false
+                    })),
+                    activePlayers: room.players
+                        .filter(p => p.uid && p.status !== 'spectator')  // Only include active players with UID
+                        .map(p => p.uid!),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                console.log(`[JOIN_ROOM] ✅ Synced to Firestore: poker_tables/${roomId} (${room.players.length} players)`);
+            } catch (err) {
+                console.error(`[JOIN_ROOM] ❌ Failed to sync to Firestore:`, err);
+                // Continue anyway - socket state is source of truth
+            }
+        });
+
         return room;
     }
 

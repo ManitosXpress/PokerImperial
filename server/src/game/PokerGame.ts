@@ -141,6 +141,18 @@ export class PokerGame {
         this.communityCards = [];
         this.round = 'pre-flop'; // Default, will change to waiting if needed
 
+        // 🔄 FIX: Force Promote 'waiting'/'active' players to 'PLAYING'
+        this.players.forEach(p => {
+            if ((p.status === 'active' || p.status === 'spectator' || p.status === undefined) && p.chips > 0) {
+                console.log(`🔄 Promoting ${p.name} from ${p.status} to PLAYING`);
+                p.status = 'PLAYING';
+            }
+            // Fallback for 'waiting' if it exists in Types (it's not in the union but user mentioned it)
+            if ((p as any).status === 'waiting' && p.chips > 0) {
+                p.status = 'PLAYING';
+            }
+        });
+
         const eligiblePlayers = this.players.filter(p =>
             p.status !== 'WAITING_FOR_REBUY' &&
             p.status !== 'ELIMINATED' &&

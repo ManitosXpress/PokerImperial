@@ -143,8 +143,40 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
 
         if (!existingSessionQuery.empty) {
             const existingSession = existingSessionQuery.docs[0];
-            console.log(`[ECONOMY] Session exists for ${uid} in ${roomId}. Returning.`);
+            console.log(`[ECONOMY] Session exists for ${uid} in ${roomId}. Restoring & Enforcing Active Status.`);
+
             await existingSession.ref.update({ lastActive: admin.firestore.FieldValue.serverTimestamp() });
+
+            // 🔄 FALLBACK: Ensure Firestore says 'active' even on restore
+            // This fixes cases where player might be stuck in 'waiting' despite having a session
+            try {
+                const tableRef = db.collection('poker_tables').doc(roomId);
+                // We need to read current players to update the specific index
+                // Or we can try array manipulation if we knew the object.
+                // Safer: Read, find, update.
+                // Ideally this should be inside a transaction but for fallback it's okay.
+                await db.runTransaction(async (t) => {
+                    const doc = await t.get(tableRef);
+                    if (doc.exists) {
+                        const d = doc.data();
+                        const pList = d?.players || [];
+                        const pIndex = pList.findIndex((p: any) => p.uid === uid || p.id === uid);
+                        if (pIndex >= 0) {
+                            // Update status to active
+                            const newP = { ...pList[pIndex], status: 'active', isSeated: true };
+                            // Only update if changed
+                            if (pList[pIndex].status !== 'active' || !pList[pIndex].isSeated) {
+                                pList[pIndex] = newP;
+                                t.update(tableRef, { players: pList });
+                                console.log(`[ECONOMY] Repaired player status to 'active' for restored session.`);
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.warn('[ECONOMY] Failed to repair status on restore:', e);
+            }
+
             return {
                 success: true,
                 sessionId: existingSession.id,
@@ -152,6 +184,23 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
                 buyInAmount: existingSession.data().buyInAmount,
                 message: 'Session restored.'
             };
+        }
+
+        // 2.5. MULTI-TABLE PREVENTION: Check for active sessions in OTHER tables
+        const otherSessionsQuery = await db.collection('poker_sessions')
+            .where('userId', '==', uid)
+            .where('roomId', '!=', roomId)
+            .where('status', '==', 'active')
+            .limit(1)
+            .get();
+
+        if (!otherSessionsQuery.empty) {
+            const activeTable = otherSessionsQuery.docs[0].data().roomId;
+            console.warn(`[ECONOMY] Player ${uid} attempted to join ${roomId} while active in ${activeTable}`);
+            throw new functions.https.HttpsError(
+                'failed-precondition',
+                `Ya tienes una sesión activa en mesa ${activeTable}. Sal de esa mesa antes de unirte a otra.`
+            );
         }
 
         // 3. Transacción Atómica
@@ -213,7 +262,48 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
                 createdAt: timestamp
             });
 
-            // C. Log Transacción
+            // C. Update poker_tables with player status (CRITICAL FIX)
+            const playerData = {
+                id: uid,  // Use Firebase UID for consistency
+                uid: uid,
+                name: userData?.displayName || userData?.name || 'Jugador',
+                chips: finalBuyIn,
+                status: 'active',  // EXPLICIT active status
+                isSeated: true,
+                currentBet: 0,
+                isFolded: false,
+                joinedAt: timestamp
+            };
+
+            // Read current players array to update it properly
+            const currentPlayers = Array.isArray(currentTableData?.players) ? currentTableData.players : [];
+
+            // Check if player already exists (shouldn't happen, but defensive)
+            const existingPlayerIndex = currentPlayers.findIndex((p: any) => p.uid === uid || p.id === uid);
+
+            if (existingPlayerIndex >= 0) {
+                // Update existing player
+                currentPlayers[existingPlayerIndex] = playerData;
+            } else {
+                // Add new player
+                currentPlayers.push(playerData);
+            }
+
+            // Update activePlayers list
+            const activePlayers = Array.isArray(currentTableData?.activePlayers) ? currentTableData.activePlayers : [];
+            if (!activePlayers.includes(uid)) {
+                activePlayers.push(uid);
+            }
+
+            transaction.update(tableRef, {
+                players: currentPlayers,
+                activePlayers: activePlayers,
+                lastUpdated: timestamp
+            });
+
+            console.log(`[ECONOMY] ✅ Updated poker_tables/${roomId} with player ${uid} (status: active)`);
+
+            // D. Log Transacción
             const txLogRef = db.collection('transaction_logs').doc();
             transaction.set(txLogRef, {
                 userId: uid,
@@ -226,7 +316,23 @@ export const joinTable = async (data: JoinTableRequest, context: functions.https
                 metadata: { sessionId: newSessionId, roomId, buyInAmount: finalBuyIn }
             });
 
-            return { sessionId: newSessionId, buyInAmount: finalBuyIn };
+            // E. System Stats Audit Trail
+            const statsRef = db.collection('system_stats').doc('player_joins');
+            transaction.set(statsRef, {
+                totalJoins: admin.firestore.FieldValue.increment(1),
+                lastJoin: {
+                    userId: uid,
+                    tableId: roomId,
+                    buyInAmount: finalBuyIn,
+                    timestamp: timestamp
+                },
+                dailyJoins: admin.firestore.FieldValue.increment(1),
+                lastUpdated: timestamp
+            }, { merge: true });
+
+            console.log(`[ECONOMY] ✅ Audit log created in system_stats/player_joins`);
+
+            return { sessionId: newSessionId, buyInAmount: finalBuyIn, playerData };
         });
 
         console.log(`[ECONOMY] Player ${uid} joined ${roomId} with ${finalBuyIn}`);

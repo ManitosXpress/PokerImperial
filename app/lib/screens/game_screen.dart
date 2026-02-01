@@ -97,6 +97,10 @@ class _GameScreenState extends State<GameScreen> {
                            widget.clubOwnerId != null && 
                            widget.currentUserId == widget.clubOwnerId;
 
+  // 🔥 CRITICAL FIX: Track player active status from Firestore
+  bool _isPlayerActive = false;
+  StreamSubscription<DocumentSnapshot>? _tableStreamSubscription;
+
   // --- Music Methods ---
   Future<void> _playLobbyMusic() async {
     // Only play if waiting and not practice mode (unless practice lobby uses it too, but usually online)
@@ -465,6 +469,43 @@ class _GameScreenState extends State<GameScreen> {
        }
     });
   }
+  void _setupFirestorePlayerStatusListener() {
+  if (widget.isPracticeMode || widget.isSpectatorMode) return;
+  
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+  
+  _tableStreamSubscription = FirebaseFirestore.instance
+      .collection('poker_tables')
+      .doc(widget.roomId)
+      .snapshots()
+      .listen((snapshot) {
+        if (!mounted || !snapshot.exists) return;
+        
+        final data = snapshot.data();
+        final players = data?['players'] as List<dynamic>?;
+        
+        if (players != null) {
+          final myPlayerData = players.cast<Map<String, dynamic>>().firstWhere(
+              (p) => p['uid'] == user.uid || p['id'] == user.uid,
+              orElse: () => <String, dynamic>{}
+          );
+          
+          if (myPlayerData.isNotEmpty) {
+            final playerStatus = myPlayerData['status'] as String?;
+            final isSeated = myPlayerData['isSeated'] as bool? ?? false;
+            
+            if (mounted) {
+              print('DEBUG UI: Mi estado es: $playerStatus');
+              setState(() {
+                _isPlayerActive = (playerStatus == 'active' || playerStatus == 'PLAYING') && isSeated;
+              });
+            }
+          }
+        }
+      });
+      
+    }
   
   void _showRebuyDialog(int timeoutSeconds) {
     if (_isRebuyDialogShowing) return;
@@ -738,6 +779,9 @@ class _GameScreenState extends State<GameScreen> {
     _retryJoinTimer?.cancel();
     _stopLobbyMusic();
     _musicPlayer.dispose(); 
+
+    // 🔥 NEW: Cancel Firestore stream subscription
+    _tableStreamSubscription?.cancel();
 
     if (!widget.isPracticeMode) {
 // ...
@@ -1720,9 +1764,10 @@ class _GameScreenState extends State<GameScreen> {
 
                     // Action Controls (Refactored Widget)
                     // Always render ActionControls, it handles spectator mode internally
+                    // 🔥 CRITICAL FIX: Hide controls if player is not active in Firestore
                     ActionControls(
                       isTurn: isTurn,
-                      isSpectatorMode: effectiveSpectatorMode,
+                      isSpectatorMode: effectiveSpectatorMode || !_isPlayerActive,  // Hide if not active
                       currentBet: safeGameState['currentBet'] ?? 0,
                       myCurrentBet: () {
                         if (playersList.isEmpty) return 0;
