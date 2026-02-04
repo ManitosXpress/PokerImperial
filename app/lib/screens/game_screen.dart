@@ -244,6 +244,9 @@ class _GameScreenState extends State<GameScreen> {
         if (mounted && connected) {
           _setupSocketListeners(socketService);
           
+          // 🔥 CRITICAL FIX: Setup Firestore listener to track player active status
+          _setupFirestorePlayerStatusListener();
+          
           if (user != null) {
             _attemptJoinOrCreate(user);
           }
@@ -1219,13 +1222,21 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     // Dynamic Spectator Detection
+    // 🔐 SECURITY FIX: Check both socket ID and UID since backend now uses UID
     bool isPlayerInGame = false;
     if (playersList.isNotEmpty) {
-      isPlayerInGame = playersList.any((p) => p?['id'] == myId);
+      final currentUserUid = user?.uid;
+      isPlayerInGame = playersList.any((p) => 
+        p?['id'] == myId || 
+        (currentUserUid != null && (p?['uid'] == currentUserUid || p?['id'] == currentUserUid))
+      );
     }
     
-    // Effective Spectator Mode: Explicitly set OR implicitly detected (not in players list)
-    final bool effectiveSpectatorMode = widget.isSpectatorMode || (gameState != null && !isPlayerInGame);
+    // Effective Spectator Mode: Use Firestore status as source of truth
+    // If _isPlayerActive is false, player is either spectator or WAITING_FOR_NEXT_HAND
+    final bool effectiveSpectatorMode = widget.isSpectatorMode || 
+                                        (gameState != null && !isPlayerInGame) ||
+                                        !_isPlayerActive;
 
     return Scaffold(
       backgroundColor: Colors.black,
