@@ -1,0 +1,17 @@
+<svg width="200" height="300" viewBox="0 0 200 300" xmlns="http://www.w3.org/2000/svg">
+    <!-- Card Base -->
+    <rect x="2" y="2" width="196" height="296" rx="15" ry="15" fill="white" stroke="black" stroke-width="2"/>
+    
+    <!-- Top Left Corner -->
+    <text x="20" y="50" font-family="Arial" font-size="48" font-weight="bold" fill="#000000" text-anchor="middle">9</text>
+    <path d="M100,50 C40,110 40,160 90,190 L90,210 L70,230 L130,230 L110,210 L110,190 C160,160 160,110 100,50 Z" transform="translate(-65, -30) scale(0.4)" fill="#000000"/>
+    
+    <!-- Bottom Right Corner (Rotated) -->
+    <g transform="rotate(180, 100, 150)">
+        <text x="20" y="50" font-family="Arial" font-size="48" font-weight="bold" fill="#000000" text-anchor="middle">9</text>
+        <path d="M100,50 C40,110 40,160 90,190 L90,210 L70,230 L130,230 L110,210 L110,190 C160,160 160,110 100,50 Z" transform="translate(-65, -30) scale(0.4)" fill="#000000"/>
+    </g>
+    
+    <!-- Center Suit (Big) -->
+    <path d="M100,50 C40,110 40,160 90,190 L90,210 L70,230 L130,230 L110,210 L110,190 C160,160 160,110 100,50 Z" transform="translate(0, 15)" fill="#000000"/>
+</svg>

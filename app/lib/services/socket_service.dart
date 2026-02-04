@@ -33,6 +33,9 @@ class SocketService extends ChangeNotifier {
     return _socket!;
   }
   String? get socketId => _socket?.id;
+  
+  // FIX: Expose Firebase UID for consistent identity validation
+  String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
 
   /// Schedules automatic reconnection with exponential backoff
   /// Useful for Render cold starts (free tier services may sleep)

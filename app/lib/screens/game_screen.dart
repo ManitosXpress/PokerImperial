@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'dart:math' as math;
 import 'dart:async';
 import '../services/socket_service.dart';
 import '../providers/language_provider.dart';
@@ -83,7 +82,11 @@ class _GameScreenState extends State<GameScreen> {
 
   // Turn Timer
   Timer? _turnTimer;
+  Timer? _reconnectTimer; // Added missing timer
   int _secondsRemaining = 10;
+
+
+  
   
   // Rebuy Dialog State
   bool _isRebuyDialogShowing = false;
@@ -100,6 +103,10 @@ class _GameScreenState extends State<GameScreen> {
   // 🔥 CRITICAL FIX: Track player active status from Firestore
   bool _isPlayerActive = false;
   StreamSubscription<DocumentSnapshot>? _tableStreamSubscription;
+  
+  // 🎴 CARD PRESERVATION (BehaviorSubject Pattern)
+  final StreamController<List<String>> _handController = StreamController<List<String>>.broadcast();
+  List<String> _currentHandValue = []; // Stores the latest valid hand for persistence
 
   // --- Music Methods ---
   Future<void> _playLobbyMusic() async {
@@ -137,6 +144,51 @@ class _GameScreenState extends State<GameScreen> {
       }
     }
   }
+
+  @override
+  void dispose() {
+    _handController.close();
+    _reconnectTimer?.cancel();
+    _turnTimer?.cancel();
+    _retryJoinTimer?.cancel();
+    _tableStreamSubscription?.cancel();
+    
+    // Cleanup controllers specific to modes
+    _practiceController?.dispose();
+    
+    // Stop timers and music
+    _stopTurnTimer(); // Helper method if exists, else manual cancel
+    _stopLobbyMusic();
+    _musicPlayer.dispose();
+    _audioPlayer.dispose();
+
+    // Socket cleanup for online mode
+    if (!widget.isPracticeMode) {
+      try {
+        final socketService = Provider.of<SocketService>(context, listen: false);
+        // Only remove listeners if we added them. Note: socket_service usually handles its own listeners if they are on the service, 
+        // but here we added specific on/off handlers to the socket instance directly.
+        // It's better to leave them or rely on widget unmount if socketService persists.
+        // However, since we added them in initState/connect, we should remove them to prevent memory leaks if socketService is global.
+        socketService.socket.off('player_joined');
+        socketService.socket.off('room_created');
+        socketService.socket.off('room_joined');
+        socketService.socket.off('game_started');
+        socketService.socket.off('game_update');
+        socketService.socket.off('hand_winner');
+        socketService.socket.off('player_needs_rebuy');
+        socketService.socket.off('room_closed');
+        socketService.socket.off('player_left');
+        socketService.socket.off('error');
+        socketService.socket.off('spectator_joined'); // Added missing one
+      } catch (e) {
+        // Socket service might be disposed already
+      }
+    }
+    
+    super.dispose();
+  }
+
 
 
   @override
@@ -411,6 +463,27 @@ class _GameScreenState extends State<GameScreen> {
       if (mounted) {
         if (data != null && data is Map<String, dynamic>) {
            _stopLobbyMusic(); // Stop music when game starts
+           
+           // 🎴 PRESERVE HAND: Save player's hand from game_started
+           final players = data['players'] as List?;
+           if (players != null) {
+             final user = FirebaseAuth.instance.currentUser;
+             final myPlayer = players.firstWhere(
+               (p) => p['id'] == socketService.socketId || 
+                      (user != null && p['uid'] == user.uid),
+               orElse: () => null
+             );
+             if (myPlayer != null && myPlayer['hand'] != null) {
+               final hand = (myPlayer['hand'] as List).map((e) => e.toString()).toList();
+               if (hand.isNotEmpty) {
+                 // 🧠 PERSISTENCE LOGIC (Stream/BehaviorSubject)
+                 _currentHandValue = hand;
+                 _handController.add(_currentHandValue);
+                 print('🎴 Saved hand from game_started: $_currentHandValue');
+               }
+             }
+           }
+           
            setState(() {
              gameState = data;
              // Only clear roomState if we have valid game state
@@ -426,6 +499,57 @@ class _GameScreenState extends State<GameScreen> {
 
     socketService.socket.on('game_update', (data) {
       if (mounted) {
+        if (data != null && data is Map<String, dynamic>) {
+          final players = data['players'] as List?;
+          final pot = data['pot'] as int? ?? 0;
+          final communityCards = data['communityCards'] as List? ?? [];
+          
+          // Reset condition: New hand starts (pot 0 and no community cards)
+          final isNewHand = pot == 0 && communityCards.isEmpty;
+          
+          if (players != null) {
+            final user = FirebaseAuth.instance.currentUser;
+            final currentSocketId = socketService.socketId;
+            
+            // Find my player using robust ID check (UID > SocketID)
+            final myPlayerIndex = players.indexWhere((p) {
+               final pId = p['id'].toString();
+               final pUid = p['uid']?.toString();
+               return (user != null && pUid == user.uid) || pId == currentSocketId;
+            });
+            
+            if (myPlayerIndex >= 0) {
+              final myPlayer = players[myPlayerIndex];
+              final rawHand = myPlayer['hand'] as List?;
+              List<String> serverHand = [];
+              
+              if (rawHand != null) {
+                serverHand = rawHand.map((e) => e.toString()).toList();
+              }
+
+              // 🧠 PERSISTENCE LOGIC (Stream/BehaviorSubject)
+              if (serverHand.isNotEmpty) {
+                 // CASE 1: Server sent cards -> Update cache & Stream
+                 _currentHandValue = serverHand;
+                 _handController.add(_currentHandValue);
+                 print('🎴 HAND UPDATE: Received $_currentHandValue');
+              } else if (isNewHand) {
+                 // CASE 2: New hand started -> Clear cache & Stream
+                 _currentHandValue = [];
+                 _handController.add([]);
+                 print('🎴 HAND RESET: New hand started');
+              } else {
+                 // CASE 3: Server sent empty but hand is ongoing -> PERSIST old cards
+                 if (_currentHandValue.isNotEmpty) {
+                    print('🎴 HAND PERSIST: Restoring ${_currentHandValue} despite server empty update');
+                    // Inject persisted hand back into data
+                    myPlayer['hand'] = _currentHandValue; 
+                 }
+              }
+            }
+          }
+        }
+        
         _eventQueue.add({'type': 'game_update', 'data': data});
         _processQueue();
       }
@@ -775,39 +899,7 @@ class _GameScreenState extends State<GameScreen> {
 
   // ... (lines 106-749 omitted)
 
-  @override
-  void dispose() {
-    _practiceController?.dispose();
-    _stopTurnTimer();
-    _retryJoinTimer?.cancel();
-    _stopLobbyMusic();
-    _musicPlayer.dispose(); 
 
-    // 🔥 NEW: Cancel Firestore stream subscription
-    _tableStreamSubscription?.cancel();
-
-    if (!widget.isPracticeMode) {
-// ...
-      try {
-        final socketService = Provider.of<SocketService>(context, listen: false);
-        socketService.socket.off('player_joined');
-        socketService.socket.off('room_created');
-        socketService.socket.off('room_joined');
-        socketService.socket.off('game_started');
-        socketService.socket.off('game_update');
-        socketService.socket.off('hand_winner');
-        socketService.socket.off('player_needs_rebuy');
-        socketService.socket.off('room_closed');
-        socketService.socket.off('player_left');
-        socketService.socket.off('error');
-      } catch (e) {
-        // Socket service might be disposed already
-      }
-    }
-
-    super.dispose();
-    _audioPlayer.dispose();
-  }
 
   Future<void> _playDealSound() async {
     try {
@@ -1145,12 +1237,18 @@ class _GameScreenState extends State<GameScreen> {
     if (gameState == null) return;
 
     final socketService = Provider.of<SocketService>(context, listen: false);
-    final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
+    // FIX: Use robust ID check (UID preferred)
+    final myId = widget.isPracticeMode 
+        ? _localPlayerId 
+        : (socketService.currentUserId ?? socketService.socketId);
     
     final players = gameState!['players'] as List?;
     if (players == null) return;
 
-    final myPlayerIndex = players.indexWhere((p) => p['id'] == myId);
+    // FIX: Check both ID and UID
+    final myPlayerIndex = players.indexWhere((p) => 
+        p['id'] == myId || p['uid'] == myId || p['id'] == socketService.socketId
+    );
     if (myPlayerIndex == -1) return;
     
     final myPlayer = players[myPlayerIndex];
@@ -1210,15 +1308,23 @@ class _GameScreenState extends State<GameScreen> {
     final clubProvider = Provider.of<ClubProvider>(context);
     final user = FirebaseAuth.instance.currentUser;
 
-    final myId = widget.isPracticeMode ? _localPlayerId : socketService.socketId;
+    // FIX: Use robust ID check (UID preferred)
+    final myId = widget.isPracticeMode 
+        ? _localPlayerId 
+        : (socketService.currentUserId ?? socketService.socketId);
     final userRole = clubProvider.currentUserRole ?? 'player';
     
     // ✅ CRITICAL FIX: Check both socket ID and Firebase UID for turn validation
     bool isTurn = false;
     final currentUserUid = user?.uid;
     if (currentTurn != null) {
-      isTurn = (currentTurn == myId) || (currentUserUid != null && currentTurn == currentUserUid);
-      print('🔘 UI Turn Debug: ServerCurrentTurn($currentTurn) == MySocketID($myId) || MyUID($currentUserUid) => isTurn=$isTurn');
+      // FIX: Robust Turn Validation using UID
+      final String turnId = currentTurn.toString();
+      isTurn = (turnId == myId) || 
+               (currentUserUid != null && turnId == currentUserUid) ||
+               (turnId == socketService.socketId);
+               
+      print('🔘 Turn Check: Turn($turnId) vs Me($myId / $currentUserUid) => $isTurn');
     }
 
     // Dynamic Spectator Detection

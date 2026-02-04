@@ -1,5 +1,5 @@
 name: app
-description: "A new Flutter project."
+description: "GRUPO IMPERIAL."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -77,6 +77,7 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/images/
+    - assets/images/cards/
     - assets/audio/
 
   # An image asset can refer to one or more resolution-specific "variants", see

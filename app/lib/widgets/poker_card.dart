@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class PokerCard extends StatelessWidget {
   final String? cardCode; // e.g., "Ah", "Kd", "10s", nullable for safety
@@ -8,20 +9,24 @@ class PokerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Solución Manual para las Imágenes (Flutter)
-    // Busca donde renderizas la imagen y asegúrate de tener esto:
-    final String cardPath = (cardCode == null || cardCode == "null" || cardCode!.isEmpty)
-        ? 'assets/images/cards/card_back.png' // Imagen por defecto
-        : 'assets/images/cards/$cardCode.png';
+    // FIX: Robust image path construction
+    String formattedCode = (cardCode ?? '').toLowerCase();
+    
+    // Fallback if empty
+    if (formattedCode.isEmpty || formattedCode == 'null') {
+      formattedCode = 'card_back';
+    }
 
-    return Image.asset(
+    // Construct path
+    final String cardPath = 'assets/images/cards/$formattedCode.svg';
+
+    return SvgPicture.asset(
       cardPath,
       width: width,
-      fit: BoxFit.contain,
-      errorBuilder: (context, error, stackTrace) => Image.asset(
-        'assets/images/cards/card_back.png',
-        width: width,
-        fit: BoxFit.contain,
+      // fit: BoxFit.contain, // SVG usually scales well, contain is default-ish behavior for sized box
+      placeholderBuilder: (BuildContext context) => SvgPicture.asset(
+          'assets/images/cards/card_back.svg',
+          width: width,
       ),
     );
   }

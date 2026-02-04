@@ -28,6 +28,20 @@ class _CommunityCardsWidgetState extends State<CommunityCardsWidget> with Ticker
   void initState() {
     super.initState();
     _initializeControllers();
+    // 🔥 FIX: Trigger animations immediately on mount
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _animateAllCards();
+    });
+  }
+  
+  void _animateAllCards() async {
+    for (int i = 0; i < _flipControllers.length; i++) {
+      if (!mounted) return;
+      await Future.delayed(const Duration(milliseconds: 150));
+      if (mounted && i < _flipControllers.length) {
+        _flipControllers[i].forward();
+      }
+    }
   }
 
   void _initializeControllers() {

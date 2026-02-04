@@ -95,8 +95,7 @@ class PlayersSeatGrid extends StatelessWidget {
         List<String>? cardsToRender;
         if (player['hand'] != null && (player['hand'] as List).isNotEmpty) {
            // Show cards if it's ME or if the hand is revealed (Showdown/FaceUp)
-           // You can add a 'showCards' flag from backend if needed
-           if (isMe || !isFolded /* Add showdown check here if needed */) {
+           if (isMe) {
              cardsToRender = (player['hand'] as List).map((e) => e.toString()).toList();
            }
         }
