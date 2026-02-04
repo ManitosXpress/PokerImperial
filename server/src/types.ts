@@ -17,7 +17,7 @@ export interface Player {
     // Auto-kick triggers after 3 consecutive sit-outs
     handCounter?: number;
     isAllIn?: boolean; // Flag para jugadores que apostaron todo
-    status?: 'PLAYING' | 'WAITING_FOR_REBUY' | 'ELIMINATED' | 'active' | 'spectator';
+    status?: 'PLAYING' | 'WAITING_FOR_REBUY' | 'ELIMINATED' | 'WAITING_FOR_NEXT_HAND' | 'active' | 'spectator';
     hasActed?: boolean; // CRÍTICO: Rastrea si el jugador ya actuó en esta ronda de apuestas
     isSeated?: boolean;
 }

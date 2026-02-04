@@ -141,22 +141,27 @@ export class PokerGame {
         this.communityCards = [];
         this.round = 'pre-flop'; // Default, will change to waiting if needed
 
-        // 🔄 FIX: Force Promote 'waiting'/'active' players to 'PLAYING'
+        // 🔄 FIX: Promote players to 'PLAYING' for new round
+        // This includes WAITING_FOR_NEXT_HAND players who joined mid-game
         this.players.forEach(p => {
-            if ((p.status === 'active' || p.status === 'spectator' || p.status === undefined) && p.chips > 0) {
-                console.log(`🔄 Promoting ${p.name} from ${p.status} to PLAYING`);
-                p.status = 'PLAYING';
-            }
-            // Fallback for 'waiting' if it exists in Types (it's not in the union but user mentioned it)
-            if ((p as any).status === 'waiting' && p.chips > 0) {
-                p.status = 'PLAYING';
+            if (p.chips > 0 && !p.isSitOut) {
+                // Promote WAITING_FOR_NEXT_HAND to PLAYING (they can now play)
+                if (p.status === 'WAITING_FOR_NEXT_HAND') {
+                    console.log(`🔄 Promoting ${p.name} from WAITING_FOR_NEXT_HAND to PLAYING`);
+                    p.status = 'PLAYING';
+                }
+                // Promote legacy statuses
+                if (p.status === 'active' || p.status === 'spectator' || p.status === undefined) {
+                    console.log(`🔄 Promoting ${p.name} from ${p.status} to PLAYING`);
+                    p.status = 'PLAYING';
+                }
             }
         });
 
+        // 🛡️ STRICT FILTER: Only PLAYING status players with chips can participate
         const eligiblePlayers = this.players.filter(p =>
-            p.status !== 'WAITING_FOR_REBUY' &&
-            p.status !== 'ELIMINATED' &&
-            !p.isSitOut && // 🛡️ TURN_FIX: Strictly filter out SitOut players from new hand
+            p.status === 'PLAYING' &&
+            !p.isSitOut &&
             (p.chips > 0 || p.isBot)
         );
 
@@ -422,21 +427,68 @@ export class PokerGame {
     }
 
     public removePlayer(playerId: string) {
-        // 1. Remove from lists
-        this.players = this.players.filter(p => p.id !== playerId);
-        this.activePlayers = this.activePlayers.filter(p => p.id !== playerId);
+        console.log(`🔄 [REMOVE_PLAYER] Removing player: ${playerId}`);
 
-        // 2. Clear Rebuy Timers
+        // 1. Check if removed player was the current turn BEFORE removal
+        const currentPlayer = this.activePlayers[this.currentTurnIndex];
+        const wasCurrentTurn = currentPlayer?.id === playerId || currentPlayer?.uid === playerId;
+
+        if (wasCurrentTurn) {
+            console.log(`⚠️ [REMOVE_PLAYER] Removed player had current turn. Will recalculate.`);
+            // Clear timer since this player is leaving
+            if (this.turnTimer) {
+                clearTimeout(this.turnTimer);
+                this.turnTimer = null;
+            }
+        }
+
+        // 2. Remove from lists (check both id and uid)
+        this.players = this.players.filter(p => p.id !== playerId && p.uid !== playerId);
+        const previousActiveLength = this.activePlayers.length;
+        this.activePlayers = this.activePlayers.filter(p => p.id !== playerId && p.uid !== playerId);
+
+        // 3. Clear Rebuy Timers
         if (this.rebuyTimers.has(playerId)) {
             clearTimeout(this.rebuyTimers.get(playerId)!);
             this.rebuyTimers.delete(playerId);
         }
 
-        // 3. CRITICAL: Trigger Walkover / Last Man Standing Check
-        this.checkActivePlayers();
+        // 4. PROTECTION: Check if we still have enough players
+        if (this.activePlayers.length < 2) {
+            console.log(`🛡️ [REMOVE_PLAYER] Less than 2 active players. Triggering checkActivePlayers.`);
+            this.checkActivePlayers();
+            return;
+        }
 
-        // Note: If player was active in current hand, checkActivePlayers will handle it.
-        // If not, nothing happens, we just wait.
+        // 5. Clamp currentTurnIndex to valid range
+        if (this.currentTurnIndex >= this.activePlayers.length) {
+            this.currentTurnIndex = Math.max(0, this.activePlayers.length - 1);
+            console.log(`🔧 [REMOVE_PLAYER] Clamped currentTurnIndex to ${this.currentTurnIndex}`);
+        }
+
+        // 6. If removed player had the turn, find next valid player
+        if (wasCurrentTurn && this.activePlayers.length >= 2) {
+            const nextValidIndex = this.getNextActivePlayer(this.currentTurnIndex);
+
+            if (nextValidIndex !== -1) {
+                this.currentTurnIndex = nextValidIndex;
+                const nextPlayer = this.activePlayers[nextValidIndex];
+                this.currentTurn = nextPlayer?.uid || nextPlayer?.id || '';
+                console.log(`➡️ [REMOVE_PLAYER] Turn advanced to ${nextPlayer?.name} (UID: ${this.currentTurn})`);
+
+                // Emit state and restart timer
+                if (this.onGameStateChange) {
+                    this.onGameStateChange(this.getGameState());
+                }
+                this.startTurnTimer();
+            } else {
+                console.warn(`⚠️ [REMOVE_PLAYER] No valid next player found. Triggering checkActivePlayers.`);
+                this.checkActivePlayers();
+            }
+        }
+
+        // 7. Final safety check
+        this.checkActivePlayers();
     }
 
     /**
@@ -564,12 +616,13 @@ export class PokerGame {
                     isAllIn: p.isAllIn || (p.chips === 0 && p.currentBet > 0),
                     seatIndex: (p as any).seatIndex,
                     avatar: (p as any).avatar,
+                    status: p.status, // 🔐 SECURITY: Include status for frontend awareness
 
-                    // 🔐 SECURITY: Obfuscate cards for other players
-                    // Show [null, null] instead of actual cards to prevent god-view
-                    // STRICT OBFUSCATION: Only [null, null] for hidden cards
-                    cards: shouldShowCards ? (p.hand || []) : [null, null],
-                    hand: shouldShowCards ? (p.hand || []) : [null, null]
+                    // 🔐 SECURITY: GOLDEN RULE - Empty array by default
+                    // Only show cards if: a) It's the owner, b) It's showdown
+                    // Empty array instead of [null,null] prevents information leakage
+                    cards: shouldShowCards ? (p.hand || []) : [],
+                    hand: shouldShowCards ? (p.hand || []) : []
                 };
             }),
 
@@ -998,6 +1051,19 @@ export class PokerGame {
     }
 
     private nextTurn() {
+        // 🛡️ PROTECTION: Check minimum players before proceeding
+        if (this.activePlayers.length < 2) {
+            console.log('🛡️ nextTurn: Less than 2 active players. Triggering checkActivePlayers.');
+            this.checkActivePlayers();
+            return;
+        }
+
+        // 🛡️ PROTECTION: Validate currentTurnIndex is still valid after any disconnection
+        if (this.currentTurnIndex >= this.activePlayers.length || this.currentTurnIndex < 0) {
+            console.warn(`⚠️ nextTurn: Invalid currentTurnIndex (${this.currentTurnIndex}). Resetting to 0.`);
+            this.currentTurnIndex = 0;
+        }
+
         const activeNonFolded = this.activePlayers.filter(p => !p.isFolded);
         const playersWithChips = activeNonFolded.filter(p => p.chips > 0);
 

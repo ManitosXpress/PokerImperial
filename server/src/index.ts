@@ -400,6 +400,8 @@ io.on('connection', (socket) => {
                     if (userDoc.exists) {
                         const userData = userDoc.data();
                         const userRole = userData?.role;
+                        console.log(`🔍 [JOIN_ROOM] Role check for ${uid}: role='${userRole}' (raw)`);
+                        console.log(`🔍 [CREATE_ROOM] Role check for ${uid}: role='${userRole}' (raw)`);
 
                         // Admin, Club Owners, and Sellers should only spectate
                         if (userRole === 'admin' || userRole === 'club_owner' || userRole === 'seller') {
@@ -583,6 +585,7 @@ io.on('connection', (socket) => {
                     if (userDoc.exists) {
                         const userData = userDoc.data();
                         const userRole = userData?.role;
+                        console.log(`🔍 [JOIN_ROOM] Role check for ${uid}: role='${userRole}' (raw)`);
 
                         // Admin, Club Owners, and Sellers can only spectate public games
                         if (userRole === 'admin' || userRole === 'club_owner' || userRole === 'seller') {

@@ -516,8 +516,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                               final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
                                               final clubProvider = Provider.of<ClubProvider>(context, listen: false);
                                               // Normalize role to lowercase to be safe
-                                              final userRole = clubProvider.currentUserRole?.toLowerCase() ?? 'player';
-                                              final isPrivileged = userRole == 'admin' || userRole == 'club';
+                                              final rawRole = clubProvider.currentUserRole;
+                                              print('🔍 [Lobby] rawRole from provider: "$rawRole"');
+                                              final userRole = rawRole?.toLowerCase() ?? 'player';
+                                              final isPrivileged = userRole == 'admin' || userRole == 'club' || userRole == 'seller';
 
                                               if (_roomController.text.isNotEmpty) {
                                                 setState(() => _isJoining = true);

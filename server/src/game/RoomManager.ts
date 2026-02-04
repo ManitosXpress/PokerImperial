@@ -176,8 +176,18 @@ export class RoomManager {
 
         if (room.players.length >= room.maxPlayers) throw new Error('Room is full');
 
-        // 🔥 FORCE STATUS ACTIVE ON JOIN
-        const initialStatus = (buyInAmount > 0) ? 'active' : 'spectator';
+        // 🔥 FORCE STATUS: If game is already playing, new players must wait
+        const isGameActive = room.gameState === 'playing';
+        let initialStatus: 'PLAYING' | 'WAITING_FOR_NEXT_HAND' | 'spectator';
+
+        if (buyInAmount <= 0) {
+            initialStatus = 'spectator';
+        } else if (isGameActive) {
+            initialStatus = 'WAITING_FOR_NEXT_HAND'; // 🔒 Mid-game join protection
+            console.log(`[JOIN_ROOM] ⏳ Player ${playerName} joining mid-game. Status: WAITING_FOR_NEXT_HAND`);
+        } else {
+            initialStatus = 'PLAYING';
+        }
         const isSeated = (buyInAmount > 0);
 
         const newPlayer: Player = {
@@ -185,7 +195,7 @@ export class RoomManager {
             uid: uid,
             name: playerName,
             chips: buyInAmount,
-            status: initialStatus, // ✅ FORCE ACTIVE
+            status: initialStatus, // ✅ DYNAMIC STATUS BASED ON GAME STATE
             isSeated: isSeated,
             isFolded: false,
             currentBet: 0,
