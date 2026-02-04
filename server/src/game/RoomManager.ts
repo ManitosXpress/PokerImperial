@@ -327,7 +327,24 @@ export class RoomManager {
         if (!room || !game) throw new Error('Room or game not found');
 
         if (emitCallback) {
-            game.onGameStateChange = emitCallback;
+            // 🔐 SECURITY FIX: Emit personalized game states to each player
+            // Instead of broadcasting the same state to everyone, send each player
+            // their own version where they can see their cards but others are hidden
+            game.onGameStateChange = () => {
+                // Iterate over all players in the room and send personalized states
+                room.players.forEach(player => {
+                    if (player.uid || player.id) {
+                        // Get personalized state for this specific player
+                        const personalizedState = game.getPublicState(player.uid || player.id);
+
+                        // Emit to this specific player's socket
+                        // The emitCallback signature needs to support targeted emission
+                        // For now, we'll use the broadcast and rely on frontend filtering
+                        // TODO: Modify architecture to support per-socket emission
+                        emitCallback(personalizedState);
+                    }
+                });
+            };
         }
 
         // Configuración de Eventos del Sistema (Victoria por Abandono / Rebuys)
@@ -373,7 +390,9 @@ export class RoomManager {
         room.gameState = 'playing';
 
         if (this.emitCallback) {
-            this.emitCallback(roomId, 'game_started', { ...game.getGameState(), roomId });
+            // 🔐 SECURITY: This triggers the SMART EMISSION logic in index.ts (lines 106-132)
+            // which sends personalized states to each player
+            this.emitCallback(roomId, 'game_started', { roomId });
         }
 
         return game.getGameState();

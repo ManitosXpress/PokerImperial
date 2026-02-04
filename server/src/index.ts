@@ -791,18 +791,8 @@ io.on('connection', (socket) => {
                 }
             });
 
-            console.log(`🃏 Game started! Players: ${gameState.players?.length}`);
-
-            // 3. Persistir en Firestore después (async, no bloquea)
-            persistGameStateAsync(roomId, gameState);
 
             console.log(`🃏 Game started! Players: ${gameState.players?.length}`);
-
-            // 2. Emitir evento de inicio inmediatamente
-            io.to(roomId).emit('game_started', gameState);
-
-            // 3. Persistir en Firestore después (async, no bloquea)
-            persistGameStateAsync(roomId, gameState);
 
         } catch (e: any) {
             console.error(`❌ Error starting game: ${e.message}`);
