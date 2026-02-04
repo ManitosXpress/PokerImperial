@@ -213,16 +213,20 @@ export class RoomManager {
             try {
                 const db = admin.firestore();
                 await db.collection('poker_tables').doc(roomId).set({
-                    players: room.players.map(p => ({
-                        id: p.uid || p.id,  // Prefer UID for consistency
-                        uid: p.uid,
-                        name: p.name,
-                        chips: p.chips,
-                        status: p.status || 'active', // Default to active if missing
-                        isSeated: p.isSeated !== undefined ? p.isSeated : true,
-                        currentBet: p.currentBet || 0,
-                        isFolded: p.isFolded || false
-                    })),
+                    players: room.players.map(p => {
+                        const mappedStatus = p.status || 'active';
+                        console.log(`[JOIN_ROOM] 🔍 Syncing player ${p.name} (${p.uid}) to Firestore with status: ${mappedStatus}`);
+                        return {
+                            id: p.uid || p.id,  // Prefer UID for consistency
+                            uid: p.uid,
+                            name: p.name,
+                            chips: p.chips,
+                            status: mappedStatus, // Default to active if missing
+                            isSeated: p.isSeated !== undefined ? p.isSeated : true,
+                            currentBet: p.currentBet || 0,
+                            isFolded: p.isFolded || false
+                        };
+                    }),
                     activePlayers: room.players
                         .filter(p => p.uid && p.status !== 'spectator')  // Only include active players with UID
                         .map(p => p.uid!),
