@@ -189,6 +189,11 @@ class SocketService extends ChangeNotifier {
         print('Insufficient balance: ${data['required']} required, ${data['current']} available');
         _socketEventStream.add({'type': 'insufficient_balance', 'data': data});
       });
+
+      _socket!.on('hand_winner', (data) {
+        print('🏆 hand_winner received in SocketService');
+        _victoryStream.add(data);
+      });
     } catch (e) {
       print('Error connecting socket: $e');
       _isConnecting = false;
@@ -257,6 +262,10 @@ class SocketService extends ChangeNotifier {
   // Add a stream controller for socket events
   final _socketEventStream = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get socketEventStream => _socketEventStream.stream;
+
+  // Add a stream controller for victory events
+  final _victoryStream = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get victoryStream => _victoryStream.stream;
 
   Future<void> createRoom(String playerName, {String? roomId, double? minBuyIn, double? maxBuyIn, double? buyIn, bool isPublic = true, Function(String roomId)? onSuccess, Function(String error)? onError}) async {
     if (_socket == null || !_socket!.connected) {

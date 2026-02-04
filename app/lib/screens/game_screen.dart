@@ -488,6 +488,9 @@ class _GameScreenState extends State<GameScreen> {
              gameState = data;
              // Only clear roomState if we have valid game state
              roomState = null;
+             // 🏆 Reset Victory Screen when new game starts
+             _showVictoryScreen = false;
+             _winnerData = null;
            });
            _checkTurnTimer();
            _playDealSound(); // Play sound when game starts
@@ -500,6 +503,14 @@ class _GameScreenState extends State<GameScreen> {
     socketService.socket.on('game_update', (data) {
       if (mounted) {
         if (data != null && data is Map<String, dynamic>) {
+          // 🏆 Auto-hide victory screen if status changes from finished
+          if (_showVictoryScreen && data['status'] != 'finished' && data['status'] != 'showdown') {
+             setState(() {
+                _showVictoryScreen = false;
+                _winnerData = null;
+             });
+          }
+          
           final players = data['players'] as List?;
           final pot = data['pot'] as int? ?? 0;
           final communityCards = data['communityCards'] as List? ?? [];
@@ -716,12 +727,12 @@ class _GameScreenState extends State<GameScreen> {
      // CRÍTICO: Llamar a la Cloud Function para procesar la liquidación
      // Esto garantiza que solo se ejecute UNA VEZ y con el algoritmo correcto
      try {
-        await FirebaseFunctions.instance.httpsCallable('closeTableAndCashOutFunction').call({
+        await FirebaseFunctions.instance.httpsCallable('universalTableSettlement').call({
            'tableId': widget.roomId,
         });
-        print('✅ Liquidación procesada por Cloud Function para mesa ${widget.roomId}');
+        print('✅ Liquidación procesada por Cloud Function (universalTableSettlement) para mesa ${widget.roomId}');
      } catch (e) {
-        print('❌ Error al llamar a closeTableAndCashOutFunction: $e');
+        print('❌ Error al llamar a universalTableSettlement: $e');
         // Continuar de todas formas para que el usuario pueda salir
      }
      

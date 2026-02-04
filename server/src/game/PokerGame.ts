@@ -1740,6 +1740,9 @@ export class PokerGame {
                             handDescription: ph?.hand?.descr || ph?.hand?.name || 'Unknown'
                         };
                     }),
+                    revealHands: Object.fromEntries(playerHandsMap),
+                    winningMsg: mainWinnerHand ? (mainWinnerHand.descr || mainWinnerHand.name) : 'Winner',
+                    displayTime: 15000,
                     split: playerWinnings.size > 1,
                     rake: totalRakeCollected,
                     sidePots: potResults,
@@ -1767,7 +1770,7 @@ export class PokerGame {
 
             setTimeout(() => {
                 this.checkForBankruptPlayers();
-            }, 5000);
+            }, 15000);
 
         } catch (e) {
             console.error('CRITICAL ERROR in evaluateWinner:', e);
@@ -2094,6 +2097,7 @@ export class PokerGame {
                     },
                     rake: rakeAmount,
                     rakeDistribution: distribution,
+                    displayTime: 15000,
                     players: this.players.map(p => ({
                         id: p.id,
                         uid: p.uid, // CRÍTICO: Exponer UID
@@ -2139,7 +2143,7 @@ export class PokerGame {
             setTimeout(() => {
                 this.isProcessingEndHand = false; // 🔓 RESET HAND LOCK (Delayed)
                 this.checkForBankruptPlayers();
-            }, 5000);
+            }, 15000);
 
         } catch (e) {
             console.error('❌ CRITICAL ERROR in endHand:', e);
