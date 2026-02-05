@@ -566,9 +566,9 @@ class _GameScreenState extends State<GameScreen> {
       }
     });
 
-    socketService.socket.on('hand_winner', (data) {
+    socketService.socket.on('hand_result', (data) {
       if (mounted) {
-        _eventQueue.add({'type': 'hand_winner', 'data': data});
+        _eventQueue.add({'type': 'hand_result', 'data': data});
         _processQueue();
       }
     });
@@ -577,7 +577,14 @@ class _GameScreenState extends State<GameScreen> {
     socketService.socket.on('player_needs_rebuy', (data) {
        final myId = socketService.socketId;
        if (data['playerId'] == myId) {
-          _showRebuyDialog(data['timeout'] ?? 30);
+          // ⏳ DELAY: Wait 10s if victory screen is showing (Defeat message)
+          if (_showVictoryScreen) {
+             Future.delayed(const Duration(seconds: 10), () {
+                if (mounted) _showRebuyDialog(data['timeout'] ?? 30);
+             });
+          } else {
+             _showRebuyDialog(data['timeout'] ?? 30);
+          }
        }
     });
 
@@ -979,8 +986,8 @@ class _GameScreenState extends State<GameScreen> {
              await Future.delayed(const Duration(milliseconds: 800));
         }
 
-      } else if (type == 'hand_winner') {
-        // Handle Winner
+      } else if (type == 'hand_result') {
+        // Handle Hand Result (formerly hand_winner)
         await _handleHandWinner(data);
         // Wait for victory screen to be appreciated before processing next events (if any)
         await Future.delayed(const Duration(seconds: 10)); 
@@ -1351,9 +1358,12 @@ class _GameScreenState extends State<GameScreen> {
     
     // Effective Spectator Mode: Use Firestore status as source of truth
     // If _isPlayerActive is false, player is either spectator or WAITING_FOR_NEXT_HAND
+    // 🔥 FIX: In Practice Mode, we are always active and don't need Firestore valdiation
     final bool effectiveSpectatorMode = widget.isSpectatorMode || 
-                                        (gameState != null && !isPlayerInGame) ||
-                                        !_isPlayerActive;
+                                        (!widget.isPracticeMode && (
+                                            (gameState != null && !isPlayerInGame) ||
+                                            !_isPlayerActive
+                                        ));
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -1895,7 +1905,7 @@ class _GameScreenState extends State<GameScreen> {
                     // 🔥 CRITICAL FIX: Hide controls if player is not active in Firestore
                     ActionControls(
                       isTurn: isTurn,
-                      isSpectatorMode: effectiveSpectatorMode || !_isPlayerActive,  // Hide if not active
+                      isSpectatorMode: effectiveSpectatorMode,
                       currentBet: safeGameState['currentBet'] ?? 0,
                       myCurrentBet: () {
                         if (playersList.isEmpty) return 0;

@@ -209,9 +209,9 @@ class PracticeGameController {
     
     // Deal community cards
     if (gameState.stage == GameStage.flop) {
-      gameState.communityCards.addAll(_dealCards(3));
+      gameState.communityCards = [...gameState.communityCards, ..._dealCards(3)];
     } else if (gameState.stage == GameStage.turn || gameState.stage == GameStage.river) {
-      gameState.communityCards.addAll(_dealCards(1));
+      gameState.communityCards = [...gameState.communityCards, ..._dealCards(1)];
     } else if (gameState.stage == GameStage.showdown) {
       _handleShowdown();
       return;

@@ -21,6 +21,8 @@ import { cleanupDuplicateSessions, checkUserSessions } from './functions/cleanup
 
 import { onCashoutTriggered } from './functions/cashoutTrigger';
 
+const cors = require('cors')({ origin: true });
+
 // Initialize Firebase Admin SDK (lazy initialization)
 // Removed global init to prevent deployment timeouts. 
 // Each function must ensure admin is initialized.
@@ -133,3 +135,40 @@ import { onUserCreatedFeed, onTransactionLogCreated, onLedgerEntryCreated } from
 export const onUserCreatedFeedFunction = onUserCreatedFeed;
 export const onTransactionLogCreatedFunction = onTransactionLogCreated;
 export const onLedgerEntryCreatedFunction = onLedgerEntryCreated;
+
+export const closeTableAndCashOutFunction = functions.https.onRequest((req, res) => {
+    cors(req, res, async () => {
+        try {
+            // 1. Get Token
+            const authHeader = req.headers.authorization;
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                res.status(401).send({ error: 'Unauthorized: Missing or invalid token' });
+                return;
+            }
+            const token = authHeader.split('Bearer ')[1];
+
+            // 2. Verify Token
+            const decodedToken = await admin.auth().verifyIdToken(token);
+
+            // 3. Mock CallableContext
+            const context = {
+                auth: {
+                    uid: decodedToken.uid,
+                    token: decodedToken
+                }
+            } as any;
+
+            // 4. Extract Data
+            const data = req.method === 'POST' ? req.body : req.query;
+
+            // 5. Call Universal Table Settlement
+            const result = await universalTableSettlement(data, context);
+
+            res.status(200).send({ data: result });
+
+        } catch (error: any) {
+            console.error('[closeTableAndCashOutFunction] Error:', error);
+            res.status(500).send({ error: error.message || 'Internal Server Error' });
+        }
+    });
+});

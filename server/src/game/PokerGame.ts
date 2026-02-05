@@ -1730,35 +1730,39 @@ export class PokerGame {
 
             if (this.onGameStateChange) {
                 this.onGameStateChange({
-                    type: 'hand_winner',
+                    type: 'hand_result',
+                    gameId: authPayload.gameId,
                     winners: Array.from(playerWinnings.entries()).map(([playerId, amount]) => {
+                        const player = this.players.find(p => p.id === playerId);
                         const ph = playerHands.find(p => p.player.id === playerId);
                         return {
+                            uid: player?.uid || player?.id,
                             id: playerId,
-                            name: ph?.player.name || 'Unknown',
+                            name: player?.name || 'Unknown',
                             amount: amount,
                             handDescription: ph?.hand?.descr || ph?.hand?.name || 'Unknown'
                         };
                     }),
+                    allHands: Object.fromEntries(playerHandsMap),
+                    combination: mainWinnerHand ? (mainWinnerHand.descr || mainWinnerHand.name) : 'Winner',
+
+                    // Backward compatibility & Extra Data
                     revealHands: Object.fromEntries(playerHandsMap),
                     winningMsg: mainWinnerHand ? (mainWinnerHand.descr || mainWinnerHand.name) : 'Winner',
                     displayTime: 15000,
                     split: playerWinnings.size > 1,
                     rake: totalRakeCollected,
+                    rakeDistribution: finalRakeDistribution,
                     sidePots: potResults,
                     players: this.players.map(p => ({
                         id: p.id,
+                        uid: p.uid,
                         name: p.name,
                         isFolded: p.isFolded,
                         hand: p.isFolded ? null : p.hand,
-                        handDescription: !p.isFolded && p.hand ?
-                            Hand.solve([...p.hand, ...this.communityCards]).descr ||
-                            Hand.solve([...p.hand, ...this.communityCards]).name
-                            : null,
                         winnings: playerWinnings.get(p.id) || 0
                     })),
                     gameState: gameState,
-                    // 🔐 CAMPOS DE SEGURIDAD
                     authPayload: payloadString,
                     securitySignature: signature
                 });
@@ -2087,10 +2091,10 @@ export class PokerGame {
             if (this.onGameStateChange) {
                 this.onGameStateChange({
                     type: 'hand_winner',
-                    gameId: authPayload.gameId, // 🆔 Unique Hand ID for Frontend Deduplication
+                    gameId: authPayload.gameId,
                     winner: {
                         id: winner.id,
-                        uid: winner.uid || null, // CRÍTICO: Exponer UID del ganador
+                        uid: winner.uid || null,
                         name: winner.name,
                         amount: finalAmount,
                         handDescription: winnerHand ? (winnerHand.descr || winnerHand.name) : null
@@ -2100,7 +2104,7 @@ export class PokerGame {
                     displayTime: 15000,
                     players: this.players.map(p => ({
                         id: p.id,
-                        uid: p.uid, // CRÍTICO: Exponer UID
+                        uid: p.uid,
                         name: p.name,
                         isFolded: p.isFolded,
                         hand: p.isFolded ? null : p.hand,
@@ -2110,26 +2114,20 @@ export class PokerGame {
                             : null
                     })),
                     gameState: gameState,
-                    // 🔐 CAMPOS DE SEGURIDAD
                     authPayload: payloadString,
                     securitySignature: signature
                 });
             }
 
-            // 🎯 EVENTO EXPLÍCITO: GAME_ENDED - Para integración con Firestore
-            // Este evento señala al RoomManager que debe llamar a settleGameRound
             if (this.onSystemEvent) {
-                const playersInvolved = this.players
-                    .filter(p => p.uid) // Solo jugadores con UID registrado
-                    .map(p => p.uid!);
-
+                const playersInvolved = this.players.filter(p => p.uid).map(p => p.uid!);
                 this.onSystemEvent('GAME_ENDED', {
                     tableId: this.roomId,
                     gameId: `hand_${Date.now()}`,
                     potTotal: (finalAmount || 0) + rakeAmount,
                     rakeTaken: rakeAmount,
-                    rakeAmount: rakeAmount,     // [REQUESTED] Lo que se queda la casa
-                    winnerAmount: finalAmount || 0, // [REQUESTED] Lo que recibe el jugador
+                    rakeAmount: rakeAmount,
+                    winnerAmount: finalAmount || 0,
                     winnerUid: winner.uid || null,
                     playersInvolved: playersInvolved,
                     authPayload: payloadString,
@@ -2137,6 +2135,12 @@ export class PokerGame {
                 });
                 console.log(`🎯 [GAME_ENDED] Event emitted - Pot: ${(finalAmount || 0) + rakeAmount}, Rake: ${rakeAmount}`);
             }
+
+            // Reset pot
+            this.pot = 0;
+            this.sidePots = [];
+
+
 
             console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
 
