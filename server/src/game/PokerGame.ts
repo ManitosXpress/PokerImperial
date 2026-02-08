@@ -1199,6 +1199,10 @@ export class PokerGame {
             console.log(`✅ Cartas repartidas: ${cardsToDeal.join(', ')}`);
         }
 
+        // 🛑 CLEAR TURN IMMEDIATELY to remove UI timer/controls
+        this.currentTurn = '';
+        this.currentTurnIndex = -1;
+
         // Actualizar estado del juego para que el frontend pueda animar las cartas
         if (this.onGameStateChange) {
             this.onGameStateChange(this.getGameState());
