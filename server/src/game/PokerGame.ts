@@ -1763,6 +1763,7 @@ export class PokerGame {
                             name: player?.name || 'Unknown',
                             amount: amount,
                             handDescription: ph?.hand?.descr || ph?.hand?.name || 'Unknown',
+                            winningCards: ph?.hand?.cards ? ph.hand.cards.map((c: any) => c.toString()) : [], // ✅ Send winning cards for highlighting
                             chips: player?.chips // ✅ Send updated chips
                         };
                     }),
@@ -1788,11 +1789,11 @@ export class PokerGame {
 
             console.log(`🏆 ${mainWinner.name} wins main pot! Hand processed.`);
 
-            // 🔄 DELAYED RESET (5-8 Seconds)
+            // 🔄 DELAYED RESET (15 Seconds as requested)
             setTimeout(() => {
                 console.log('🔄 Executing Scheduled Table Reset...');
                 this.resetTableForNewHand();
-            }, 8000);
+            }, 15000);
 
         } catch (e) {
             console.error('CRITICAL ERROR in evaluateWinner:', e);
@@ -2219,11 +2220,11 @@ export class PokerGame {
 
             console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
 
-            // 🔄 DELAYED RESET (5-8 Seconds)
+            // 🔄 DELAYED RESET (15 Seconds as requested)
             setTimeout(() => {
                 console.log('🔄 Executing Scheduled Table Reset (endHand)...');
                 this.resetTableForNewHand();
-            }, 8000);
+            }, 15000);
 
         } catch (e) {
             console.error('❌ CRITICAL ERROR in endHand:', e);
