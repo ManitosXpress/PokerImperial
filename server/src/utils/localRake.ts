@@ -31,6 +31,7 @@ interface RakeData {
     potTotal: number;
     winnerUid?: string | null;
     winnerSeatIndex?: number; // Optional: direct seat index for faster lookup
+    finalChips?: number; // ✅ FIX: Allow explicit final chips to prevent race conditions
     clubId?: string;
     sellerId?: string;
     // For split pots (multiple winners)
@@ -38,6 +39,7 @@ interface RakeData {
         uid: string;
         seatIndex: number;
         amount: number; // Net amount after rake split
+        finalChips?: number; // ✅ FIX
     }>;
 }
 
@@ -301,10 +303,16 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                         }
 
                         if (winnerIndex !== -1 && winnerIndex < players.length && players[winnerIndex]) {
-                            const currentChips = players[winnerIndex].chips || 0;
-                            players[winnerIndex].chips = currentChips + winner.amount;
+                            // ✅ FIX: Use finalChips if provided (Authoritative)
+                            if (winner.finalChips !== undefined) {
+                                players[winnerIndex].chips = winner.finalChips;
+                                console.log(`[RAKE_LOCAL] 🏆 Winner ${winner.uid} (seat ${winnerIndex}): SET to ${winner.finalChips} chips (Authoritative)`);
+                            } else {
+                                const currentChips = players[winnerIndex].chips || 0;
+                                players[winnerIndex].chips = currentChips + winner.amount;
+                                console.log(`[RAKE_LOCAL] 🏆 Winner ${winner.uid} (seat ${winnerIndex}): +${winner.amount} chips (now: ${players[winnerIndex].chips})`);
+                            }
                             playersModified = true;
-                            console.log(`[RAKE_LOCAL] 🏆 Winner ${winner.uid} (seat ${winnerIndex}): +${winner.amount} chips (now: ${players[winnerIndex].chips})`);
                         } else {
                             console.warn(`[RAKE_LOCAL] ⚠️ Winner ${winner.uid} no encontrado en mesa (index: ${winnerIndex}). Saltando.`);
                         }
@@ -320,10 +328,16 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                     }
 
                     if (winnerIndex !== -1 && winnerIndex < players.length && players[winnerIndex]) {
-                        const currentChips = players[winnerIndex].chips || 0;
-                        players[winnerIndex].chips = currentChips + netPot;
+                        // ✅ FIX: Use finalChips if provided (Authoritative)
+                        if (data.finalChips !== undefined) {
+                            players[winnerIndex].chips = data.finalChips;
+                            console.log(`[RAKE_LOCAL] 🏆 Winner ${data.winnerUid} (seat ${winnerIndex}): SET to ${data.finalChips} chips (Authoritative)`);
+                        } else {
+                            const currentChips = players[winnerIndex].chips || 0;
+                            players[winnerIndex].chips = currentChips + netPot;
+                            console.log(`[RAKE_LOCAL] 🏆 Winner ${data.winnerUid} (seat ${winnerIndex}): +${netPot} chips (now: ${players[winnerIndex].chips})`);
+                        }
                         playersModified = true;
-                        console.log(`[RAKE_LOCAL] 🏆 Winner ${data.winnerUid} (seat ${winnerIndex}): +${netPot} chips (now: ${players[winnerIndex].chips})`);
                     } else {
                         console.warn(`[RAKE_LOCAL] ⚠️ Winner ${data.winnerUid} no encontrado (index: ${winnerIndex}). Saltando actualización de chips.`);
                     }

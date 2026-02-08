@@ -1206,9 +1206,11 @@ export class PokerGame {
 
         // Avanzar al showdown y evaluar ganador
         // Usar un pequeño delay para que el frontend pueda mostrar las cartas
-        setTimeout(() => {
+        setTimeout(async () => {
             this.round = 'showdown';
             console.log('🏆 Evaluando ganador en showdown automático...');
+            // 💾 PERSIST STATE BEFORE EVALUATION (Fix Race Condition)
+            await this.saveState();
             this.evaluateWinner();
         }, 1500); // Delay de 1.5s para animación en frontend
     }
@@ -1469,7 +1471,7 @@ export class PokerGame {
         potTotal: number,
         rakeTotal: number,
         distribution: { platform: number; club: number; seller: number },
-        winnerIds: string[]
+        winners: Array<{ uid: string, amount: number, finalChips: number }>
     ): void {
         // Solo procesar si hay rake para distribuir
         if (rakeTotal <= 0) {
@@ -1486,7 +1488,16 @@ export class PokerGame {
             rakeTotal: rakeTotal,
             isPrivate: this.isPrivate,
             potTotal: potTotal,
-            winnerUid: winnerIds.length > 0 ? winnerIds[0] : null,
+            // winnerUid: winnerIds.length > 0 ? winnerIds[0] : null, // Removed single winner support
+            // Instead, support multiple winners structure
+            winners: winners.map(w => ({
+                uid: w.uid,
+                seatIndex: -1, // Not used
+                amount: w.amount,
+                finalChips: w.finalChips
+            })),
+            winnerUid: winners.length === 1 ? winners[0].uid : null, // Legacy/Single winner support
+            finalChips: winners.length === 1 ? winners[0].finalChips : undefined, // Legacy/Single winner support
             clubId: this.clubId,
             sellerId: this.sellerId
         }).then(success => {
@@ -1699,11 +1710,10 @@ export class PokerGame {
             // Extraer IDs de ganadores del Map
             console.log(`💰 [DEBUG] playerWinnings Map size: ${playerWinnings.size}`);
             console.log(`💰 [DEBUG] playerWinnings keys:`, Array.from(playerWinnings.keys()));
-            console.log(`💰 [DEBUG] this.players:`, this.players.map(p => ({ id: p.id, uid: p.uid, name: p.name })));
 
+            // FIX: Usar UID para mapeo de ganadores
             const winnerIds = Array.from(playerWinnings.keys()).map(playerId => {
                 const player = this.players.find(p => p.id === playerId);
-                console.log(`💰 [DEBUG] Player ${playerId} -> UID: ${player?.uid || 'NOT FOUND'}`);
                 return player?.uid;
             }).filter(uid => uid !== undefined) as string[];
 
@@ -1713,24 +1723,32 @@ export class PokerGame {
             const totalPotAmount = this.sidePots.reduce((acc, pot) => acc + pot.amount, 0);
 
             // Calcular distribución final del rake (actualmente todo va a platform)
-            // La Cloud Function determinará la distribución real basada en clubId/sellerId
             const finalRakeDistribution = {
                 platform: totalRakeCollected,
                 club: 0,
                 seller: 0
             };
 
-            // Trigger rake distribution (non-blocking)
+            // Trigger rake distribution (non-blocking) with FINAL CHIPS
+            const winnersForRake = Array.from(playerWinnings.entries()).map(([playerId, amount]) => {
+                const player = this.players.find(p => p.id === playerId);
+                return {
+                    uid: player?.uid || '',
+                    amount: amount,
+                    finalChips: player?.chips || 0
+                };
+            }).filter(w => w.uid !== '');
+
             this.triggerRakeDistribution(
                 totalPotAmount,
                 totalRakeCollected,
                 finalRakeDistribution,
-                winnerIds
+                winnersForRake
             );
 
             if (this.onGameStateChange) {
                 this.onGameStateChange({
-                    type: 'hand_result',
+                    type: 'hand_results', // ✅ Evento solicitado
                     gameId: authPayload.gameId,
                     winners: Array.from(playerWinnings.entries()).map(([playerId, amount]) => {
                         const player = this.players.find(p => p.id === playerId);
@@ -1740,17 +1758,12 @@ export class PokerGame {
                             id: playerId,
                             name: player?.name || 'Unknown',
                             amount: amount,
-                            handDescription: ph?.hand?.descr || ph?.hand?.name || 'Unknown'
+                            handDescription: ph?.hand?.descr || ph?.hand?.name || 'Unknown',
+                            chips: player?.chips // ✅ Send updated chips
                         };
                     }),
                     allHands: Object.fromEntries(playerHandsMap),
                     combination: mainWinnerHand ? (mainWinnerHand.descr || mainWinnerHand.name) : 'Winner',
-
-                    // Backward compatibility & Extra Data
-                    revealHands: Object.fromEntries(playerHandsMap),
-                    winningMsg: mainWinnerHand ? (mainWinnerHand.descr || mainWinnerHand.name) : 'Winner',
-                    displayTime: 15000,
-                    split: playerWinnings.size > 1,
                     rake: totalRakeCollected,
                     rakeDistribution: finalRakeDistribution,
                     sidePots: potResults,
@@ -1760,7 +1773,8 @@ export class PokerGame {
                         name: p.name,
                         isFolded: p.isFolded,
                         hand: p.isFolded ? null : p.hand,
-                        winnings: playerWinnings.get(p.id) || 0
+                        winnings: playerWinnings.get(p.id) || 0,
+                        chips: p.chips
                     })),
                     gameState: gameState,
                     authPayload: payloadString,
@@ -1768,18 +1782,56 @@ export class PokerGame {
                 });
             }
 
-            // Reset pot
-            this.pot = 0;
-            this.sidePots = [];
+            console.log(`🏆 ${mainWinner.name} wins main pot! Hand processed.`);
 
+            // 🔄 DELAYED RESET (5-8 Seconds)
             setTimeout(() => {
-                this.checkForBankruptPlayers();
-            }, 15000);
+                console.log('🔄 Executing Scheduled Table Reset...');
+                this.resetTableForNewHand();
+            }, 8000);
 
         } catch (e) {
             console.error('CRITICAL ERROR in evaluateWinner:', e);
             setTimeout(() => this.checkForBankruptPlayers(), 5000);
         }
+    }
+
+    /**
+     * Resetea la mesa para la siguiente mano.
+     * Debe llamarse después de mostrar los resultados y antes de iniciar una nueva mano.
+     */
+    private resetTableForNewHand() {
+        console.log('🧹 [RESET] Cleaning table state for new hand...');
+
+        // 1. Reset Pot & Community Cards
+        this.pot = 0;
+        this.communityCards = [];
+        this.sidePots = [];
+        this.playerTotalContributions.clear();
+
+        // 2. Reset Flags
+        this.handInProgress = false;
+        this.isSettling = false;
+        this.currentTurnIndex = -1;
+        this.currentTurn = '';
+        this.isProcessingEndHand = false; // Unlock
+        this.isHandProcessing = false;
+
+        // 3. Reset Player State
+        this.players.forEach(p => {
+            p.currentBet = 0;
+            p.hasActed = false;
+            p.isAllIn = false;
+            p.isFolded = false;
+            p.hand = [];
+
+            // Clear hand rank from previous hand if stored directly on player
+            if ((p as any).handRank) delete (p as any).handRank;
+            if ((p as any).winnings) delete (p as any).winnings;
+        });
+
+        // 4. Check for bankrupt players before starting next
+        this.checkForBankruptPlayers();
     }
 
     /**
@@ -2088,20 +2140,45 @@ export class PokerGame {
                 .update(payloadString)
                 .digest('hex');
 
+            // 💰 Trigger Rake Distribution for endHand (Walkover/Single Winner)
+            // Even if rake is 0, we might want to log it or processed it
+            const finalRakeDistribution = distribution || {
+                platform: rakeAmount,
+                club: 0,
+                seller: 0
+            };
+
+            if (rakeAmount > 0) {
+                this.triggerRakeDistribution(
+                    (finalAmount || 0) + rakeAmount,
+                    rakeAmount,
+                    finalRakeDistribution,
+                    [{
+                        uid: winner.uid || '',
+                        amount: finalAmount || 0,
+                        finalChips: winner.chips
+                    }]
+                );
+            }
+
             if (this.onGameStateChange) {
                 this.onGameStateChange({
-                    type: 'hand_winner',
+                    type: 'hand_results', // ✅ Evento unificado
                     gameId: authPayload.gameId,
-                    winner: {
+                    winners: [{
+                        uid: winner.uid || winner.id,
                         id: winner.id,
-                        uid: winner.uid || null,
                         name: winner.name,
-                        amount: finalAmount,
-                        handDescription: winnerHand ? (winnerHand.descr || winnerHand.name) : null
-                    },
+                        amount: finalAmount || 0,
+                        handDescription: winnerHand ? (winnerHand.descr || winnerHand.name) : 'Win via Fold',
+                        chips: winner.chips
+                    }],
+                    allHands: {}, // No hands to show if others folded
+                    combination: winnerHand ? (winnerHand.descr || winnerHand.name) : 'Win via Fold',
+
                     rake: rakeAmount,
-                    rakeDistribution: distribution,
-                    displayTime: 15000,
+                    rakeDistribution: finalRakeDistribution,
+                    sidePots: [], // No side pots in simple endHand
                     players: this.players.map(p => ({
                         id: p.id,
                         uid: p.uid,
@@ -2109,9 +2186,9 @@ export class PokerGame {
                         isFolded: p.isFolded,
                         hand: p.isFolded ? null : p.hand,
                         handDescription: !p.isFolded && p.hand ?
-                            Hand.solve([...p.hand, ...this.communityCards]).descr ||
-                            Hand.solve([...p.hand, ...this.communityCards]).name
-                            : null
+                            (p.hand.length > 0 ? 'Cards' : null)
+                            : null,
+                        chips: p.chips
                     })),
                     gameState: gameState,
                     authPayload: payloadString,
@@ -2136,36 +2213,36 @@ export class PokerGame {
                 console.log(`🎯 [GAME_ENDED] Event emitted - Pot: ${(finalAmount || 0) + rakeAmount}, Rake: ${rakeAmount}`);
             }
 
-            // Reset pot
-            this.pot = 0;
-            this.sidePots = [];
-
-
-
             console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
 
+            // 🔄 DELAYED RESET (5-8 Seconds)
             setTimeout(() => {
-                this.isProcessingEndHand = false; // 🔓 RESET HAND LOCK (Delayed)
-                this.checkForBankruptPlayers();
-            }, 15000);
+                console.log('🔄 Executing Scheduled Table Reset (endHand)...');
+                this.resetTableForNewHand();
+            }, 8000);
 
         } catch (e) {
             console.error('❌ CRITICAL ERROR in endHand:', e);
             // Error is logged but finally block will still clean up
         } finally {
-            // 🛡️ INFALIBLE CLEANUP: ALWAYS release ALL state semaphores regardless of errors
-            this.isHandProcessing = false;   // Release action processing lock
-            // this.isProcessingEnd NO se resetea aquí, sino en el setTimeout para evitar reentradas
-            this.handInProgress = false;      // Allow new hand to start
-            this.isSettling = false;          // Re-enable UI for next hand
-            this.currentTurn = '';            // Clear current turn
+            // 🛡️ INFALIBLE CLEANUP: SAVING STATE
+            // Note: Flags like isHandProcessing are reset in resetTableForNewHand
+            // But we keep safe reset here just in case resetTableForNewHand fails or delays too much?
+            // Actually, we WANT to keep the lock until resetTableForNewHand runs.
+            // But 'finally' block runs IMMEDIATELY after try/catch.
+            // If we release lock here, a new hand might start before reset.
+            // So we should NOT release 'handInProgress' or 'isProcessingEndHand' here if we depend on delayed reset.
+
+            // However, the original code released locks here.
+            // New Logic: The delayed reset handles the unlocking.
+            // We only save state here.
 
             // 💾 CRITICAL: Synchronize state with Firestore (async but don't await to avoid blocking)
             this.saveState().catch(err => {
                 console.error(`❌ [FINALLY] Failed to save state in finally block:`, err);
             });
 
-            console.log(`[ENGINE] Hand cycle completed for room ${this.roomId}. Ready for next hand.`);
+            console.log(`[ENGINE] Hand cycle completed for room ${this.roomId}. Waiting for reset...`);
         }
     }
 
