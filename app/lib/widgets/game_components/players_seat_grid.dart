@@ -91,13 +91,11 @@ class PlayersSeatGrid extends StatelessWidget {
         bool isFolded = player['isFolded'] ?? false;
         bool isDealer = player['id'] == dealerId;
         
-        // --- 3. CARD VISIBILITY LOGIC (CRITICAL FIX) ---
+        // --- 3. CARD VISIBILITY LOGIC (UPDATED WITH SHOWDOWN REVEAL) ---
         List<String>? cardsToRender;
         if (player['hand'] != null && (player['hand'] as List).isNotEmpty) {
-           // Show cards if it's ME or if the hand is revealed (Showdown/FaceUp)
-           if (isMe) {
-             cardsToRender = (player['hand'] as List).map((e) => e.toString()).toList();
-           }
+           // Show cards if they are available in the data (Server sends them on Showdown)
+           cardsToRender = (player['hand'] as List).map((e) => e.toString()).toList();
         }
 
         // --- 4. BET POSITIONING (VECTOR MATH) ---
@@ -115,9 +113,22 @@ class PlayersSeatGrid extends StatelessWidget {
 
         // --- 5. WINNER LOGIC ---
         bool isWinner = false;
+        List<String>? playerWinningCards;
+        
         if (winners != null && winners!['winners'] != null) {
            final winnersList = winners!['winners'] as List;
-           isWinner = winnersList.any((w) => w['playerId'] == player['id']);
+           final winnerData = winnersList.firstWhere(
+              (w) => w['playerId'] == player['id'] || w['uid'] == player['uid'], 
+              orElse: () => null
+           );
+           
+           if (winnerData != null) {
+              isWinner = true;
+              // Extract winning cards for highlighting
+              if (winnerData['winningCards'] != null) {
+                 playerWinningCards = (winnerData['winningCards'] as List).map((e) => e.toString()).toList();
+              }
+           }
         }
 
         return Stack(
@@ -133,9 +144,10 @@ class PlayersSeatGrid extends StatelessWidget {
                 isMe: isMe,
                 isDealer: isDealer,
                 isFolded: isFolded,
-                cards: cardsToRender, // <--- PASSING CARDS HERE
+                cards: cardsToRender, // <--- NOW SHOWS CARDS FOR EVERYONE IF AVAILABLE
                 handRank: player['handRank'],
                 isWinner: isWinner,
+                winningCards: playerWinningCards, // <--- PASS WINNING CARDS
               ),
             ),
 

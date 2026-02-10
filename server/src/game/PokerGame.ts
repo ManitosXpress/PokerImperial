@@ -1789,11 +1789,11 @@ export class PokerGame {
 
             console.log(`🏆 ${mainWinner.name} wins main pot! Hand processed.`);
 
-            // 🔄 DELAYED RESET (15 Seconds as requested)
+            // 🔄 DELAYED RESET (5 Seconds for Victory UI)
             setTimeout(() => {
                 console.log('🔄 Executing Scheduled Table Reset...');
                 this.resetTableForNewHand();
-            }, 15000);
+            }, 5000);
 
         } catch (e) {
             console.error('CRITICAL ERROR in evaluateWinner:', e);
@@ -2220,11 +2220,11 @@ export class PokerGame {
 
             console.log(`🏆 ${winner.name} wins ${finalAmount} chips! Mano terminada.`);
 
-            // 🔄 DELAYED RESET (15 Seconds as requested)
+            // 🔄 DELAYED RESET (5 Seconds for Victory Overlay)
             setTimeout(() => {
-                console.log('🔄 Executing Scheduled Table Reset (endHand)...');
+                console.log('🔄 Executing Scheduled Table Reset...');
                 this.resetTableForNewHand();
-            }, 15000);
+            }, 5000);
 
         } catch (e) {
             console.error('❌ CRITICAL ERROR in endHand:', e);

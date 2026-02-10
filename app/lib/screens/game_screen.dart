@@ -566,8 +566,21 @@ class _GameScreenState extends State<GameScreen> {
       }
     });
 
+    // Listens for 'hand_results' (NEW PLURAL EVENT) which contains all info including winning cards
+    socketService.socket.on('hand_results', (data) {
+       print('🏆 HAND RESULTS RECEIVED: $data');
+       if (mounted) {
+         _eventQueue.add({'type': 'hand_results', 'data': data});
+         _processQueue();
+       }
+    });
+
+    // Validates legacy event just in case, but prefers hand_results
     socketService.socket.on('hand_result', (data) {
       if (mounted) {
+        // If we already received hand_results, we might want to ignore this or merge
+        // But usually hand_results is superior.
+        // Let's just queue it, processQueue logic will handle duplicates or updates
         _eventQueue.add({'type': 'hand_result', 'data': data});
         _processQueue();
       }
@@ -577,9 +590,12 @@ class _GameScreenState extends State<GameScreen> {
     socketService.socket.on('player_needs_rebuy', (data) {
        final myId = socketService.socketId;
        if (data['playerId'] == myId) {
-          // ⏳ DELAY: Wait 10s if victory screen is showing (Defeat message)
-          if (_showVictoryScreen) {
-             Future.delayed(const Duration(seconds: 10), () {
+          // 🛑 SHOWDOWN BLOCK: Do not show rebuy dialog during victory overlay
+          final isShowdown = gameState != null && (gameState!['stage'] == 'showdown' || gameState!['status'] == 'finished');
+
+          if (_showVictoryScreen || isShowdown) {
+             print('⏳ Rebuy delayed due to Showdown/Victory Overlay'); 
+             Future.delayed(const Duration(seconds: 6), () { // Wait 6s (Overlay is 4.5s)
                 if (mounted) _showRebuyDialog(data['timeout'] ?? 30);
              });
           } else {
@@ -952,146 +968,186 @@ class _GameScreenState extends State<GameScreen> {
     if (_isProcessingQueue) return;
     _isProcessingQueue = true;
 
-    while (_eventQueue.isNotEmpty) {
-      if (!mounted) break;
-      
-      final event = _eventQueue.removeAt(0);
-      final type = event['type'];
-      final data = event['data'];
+    try {
+      while (_eventQueue.isNotEmpty) {
+        if (!mounted) break;
+        
+        final event = _eventQueue.removeAt(0);
+        final type = event['type'];
+        final data = event['data'];
 
-      if (type == 'game_update') {
-        // Check for stage change to inject delay
-        final newStage = data['stage'];
-        final currentStage = gameState?['stage'];
-        
-        // If stage changed (e.g. flop -> turn), add delay for animation
-        // But only if we are already in a game (gameState != null)
-        if (gameState != null && 
-            newStage != currentStage && 
-            currentStage != 'showdown' && 
-            currentStage != 'finished' &&
-            newStage != 'preflop') { // Don't delay preflop (dealing)
-             
-           // Update state first to show cards? No, we want to delay the SHOWING of new cards.
-           // Wait BEFORE updating state
-           await Future.delayed(const Duration(milliseconds: 1000));
-        }
-        
-        _updateState(data);
-        
-        // If this update reveals community cards, give user time to see them before next event
-        if (gameState != null && 
-            newStage != currentStage && 
-            (newStage == 'flop' || newStage == 'turn' || newStage == 'river')) {
-             await Future.delayed(const Duration(milliseconds: 800));
-        }
+        if (type == 'game_update') {
+          // Check for stage change to inject delay
+          final newStage = data['stage'];
+          final currentStage = gameState?['stage'];
+          
+          // If stage changed (e.g. flop -> turn), add delay for animation
+          // But only if we are already in a game (gameState != null)
+          if (gameState != null && 
+              newStage != currentStage && 
+              currentStage != 'showdown' && 
+              currentStage != 'finished' &&
+              newStage != 'preflop') { 
+               
+             // Wait BEFORE updating state
+             await Future.delayed(const Duration(milliseconds: 1000));
+          }
+          
+          _updateState(data);
+          
+          // If this update reveals community cards, give user time to see them before next event
+          if (gameState != null && 
+              newStage != currentStage && 
+              (newStage == 'flop' || newStage == 'turn' || newStage == 'river')) {
+               await Future.delayed(const Duration(milliseconds: 800));
+          }
 
-      } else if (type == 'hand_result') {
-        // Handle Hand Result (formerly hand_winner)
-        await _handleHandWinner(data);
-        // Wait for victory screen to be appreciated before processing next events (if any)
-        await Future.delayed(const Duration(seconds: 10)); 
+        } else if (type == 'hand_results' || type == 'hand_result') {
+          // Handle Hand Result (Supports both legacy and new plural event)
+          await _handleHandResults(data);
+          // Wait for victory screen to be appreciated before processing next events (if any)
+          await Future.delayed(const Duration(seconds: 15)); 
+        }
       }
+    } catch (e) {
+      print('❌ Error in event queue processing: $e');
+    } finally {
+      _isProcessingQueue = false;
     }
 
     _isProcessingQueue = false;
   }
 
-  Future<void> _handleHandWinner(dynamic data) async {
+  Future<void> _handleHandResults(dynamic data) async {
       if (!mounted) return;
 
-      // 🛡️ DUPLICATE CHECK
-      final handId = data['gameId'];
-      if (handId != null && handId == _lastHandId) {
-         print('🚫 Victory Ignored: Duplicate Hand ID $handId');
-         return;
-      }
-      if (handId != null) _lastHandId = handId;
-      
-      setState(() {
-          // Actualizar el estado del juego con las cartas y handRank de todos los jugadores
-          if (data['gameState'] != null) {
-            final updatedGameState = Map<String, dynamic>.from(data['gameState']);
-            
+      try {
+        // 🛡️ DUPLICATE CHECK
+        final handId = data['gameId'];
+        if (handId != null && handId == _lastHandId) {
+           print('🚫 Victory Ignored: Duplicate Hand ID $handId');
+           return;
+        }
+        if (handId != null) _lastHandId = handId;
+        
+        setState(() {
+            // Actualizar el estado del juego con las cartas y handRank de todos los jugadores
+            // Support both 'gameState' (legacy) and root-level properties (new event)
+            final updatedGameState = gameState != null 
+                ? Map<String, dynamic>.from(gameState!) 
+                : (data['gameState'] != null ? Map<String, dynamic>.from(data['gameState']) : <String, dynamic>{});
+              
             // Establecer el estado a showdown para mostrar todas las cartas
             updatedGameState['stage'] = 'showdown';
             updatedGameState['status'] = 'finished';
             
-            // Actualizar los jugadores con sus cartas y handRank del evento hand_winner
-            if (data['players'] != null && updatedGameState['players'] != null) {
-              final playersFromEvent = data['players'] as List;
-              final playersInState = updatedGameState['players'] as List;
-              
-              // Crear un mapa de jugadores del evento para acceso rápido
-              final playersMap = <String, Map<String, dynamic>>{};
-              for (var player in playersFromEvent) {
-                playersMap[player['id']] = player;
-              }
-              
-              // Actualizar cada jugador en el estado con sus cartas y handRank
-              for (int i = 0; i < playersInState.length; i++) {
-                final playerId = playersInState[i]['id'];
-                if (playersMap.containsKey(playerId)) {
-                  final playerData = playersMap[playerId]!;
-                  playersInState[i] = {
-                    ...playersInState[i],
-                    'hand': playerData['hand'],
-                    'handRank': playerData['handDescription'],
-                  };
+            // 1. UPDATE PLAYERS HANDS (Reveal Opponents)
+            // New format: 'allHands' map
+            if (data['allHands'] != null) {
+               // Use Map.from to ensure type safety
+               final allHands = Map<String, dynamic>.from(data['allHands']);
+               final playersList = List<Map<String, dynamic>>.from(updatedGameState['players'] as List? ?? []);
+               
+               for (int i = 0; i < playersList.length; i++) {
+                  final playerId = playersList[i]['id'];
+                  // Check if we have hand data for this player
+                  if (allHands.containsKey(playerId)) {
+                     final handData = allHands[playerId];
+                     
+                     if (handData != null) {
+                        // Extract cards list
+                        List<String> cards = [];
+                        if (handData['cards'] != null) {
+                           cards = (handData['cards'] as List).map((e) => e.toString()).toList();
+                        }
+                        
+                        // Extract hand description
+                        String handRank = handData['descr'] ?? handData['name'] ?? '';
+                        
+                        // Update player in state
+                        playersList[i] = {
+                           ...playersList[i],
+                           'hand': cards,
+                           'handRank': handRank,
+                           'isFolded': false, 
+                        };
+                     }
+                  }
+               }
+               updatedGameState['players'] = playersList;
+            }
+
+            // ⚡ SYNC FIX: Update player chips ONLY after overlay animation starts (prevent jump)
+             if (data['winners'] != null) {
+                final winnersList = data['winners'] as List;
+                final playersList = List<Map<String, dynamic>>.from(updatedGameState['players'] as List? ?? []);
+
+                // Update chips for winners
+                for (var winner in winnersList) {
+                   final wId = winner['id'];
+                   final wChips = winner['chips']; // New field from backend
+                   
+                   if (wId != null && wChips != null) {
+                      final pIndex = playersList.indexWhere((p) => p['id'] == wId);
+                      if (pIndex != -1) {
+                         // We delay this visual update slightly or just update it
+                         // Ideally we want the number to tick up.
+                         // But for now, let's update it so the SeatWidget shows correct balance.
+                         playersList[pIndex] = {
+                            ...playersList[pIndex],
+                            'chips': wChips
+                         };
+                      }
+                   }
                 }
-              }
+                updatedGameState['players'] = playersList;
+             }
+              
+            // 2. UPDATE WINNERS (Highligting)
+            List<Map<String, dynamic>> finalWinners = [];
+            
+            if (data['winners'] != null) {
+               // New format: Array of winner objects
+               final winnersList = data['winners'] as List;
+               finalWinners = winnersList.map<Map<String, dynamic>>((w) => {
+                  'playerId': w['id'] ?? w['uid'],
+                  'uid': w['uid'],
+                  'amount': w['amount'] ?? 0,
+                  'winningCards': w['winningCards'] is List ? (w['winningCards'] as List).map((e) => e.toString()).toList() : [], 
+                  'handDescription': w['handDescription'],
+               }).toList();
+               
+            } else if (data['winner'] != null) {
+               // Legacy single winner
+               finalWinners = [{
+                  'playerId': data['winner']['id'],
+                  'amount': data['winner']['amount'] ?? 0,
+               }];
             }
             
-            // Actualizar winners en el estado del juego
-            if (data['winner'] != null) {
-              final winnerId = data['winner']['id'];
-              updatedGameState['winners'] = {
-                'winners': [
-                  <String, dynamic>{
-                    'playerId': winnerId,
-                    'amount': data['winner']['amount'] ?? 0,
-                  }
-                ]
-              };
-            } else if (data['winners'] != null) {
-              // Múltiples ganadores (split pot)
-              final winnersList = (data['winners'] as List).map<Map<String, dynamic>>((w) => 
-                <String, dynamic>{
-                  'playerId': w['id'],
-                  'amount': w['amount'] ?? 0,
-                }
-              ).toList();
-              updatedGameState['winners'] = {
-                'winners': winnersList,
-              };
-            }
+            updatedGameState['winners'] = {
+               'winners': finalWinners
+            };
             
             gameState = updatedGameState;
-          }
-          
-          // Asegurar que winnerData tenga toda la información necesaria
-          // Incluir gameState para que VictoryOverlay pueda verificar winners
-          final enhancedWinnerData = Map<String, dynamic>.from(data);
-          if (gameState != null) {
-            enhancedWinnerData['gameState'] = gameState;
-          }
-          
-          _showVictoryScreen = true;
-          _winnerData = enhancedWinnerData;
-      });
-      
-      // Auto-hide victory screen handled by queue delay or explicit timer?
-      // The queue will wait 10s after this function returns.
-      // We can also set a timer to hide it visually.
-      Future.delayed(const Duration(seconds: 10), () {
-          if (mounted) {
-            setState(() {
-              _showVictoryScreen = false;
-              _winnerData = null;
-            });
-          }
-      });
-  }
+            
+            // Asegurar que winnerData tenga toda la información necesaria
+            // Incluir gameState para que VictoryOverlay pueda verificar winners
+            final enhancedWinnerData = Map<String, dynamic>.from(data);
+            if (gameState != null) {
+              enhancedWinnerData['gameState'] = gameState;
+            }
+            
+            _showVictoryScreen = true;
+            _winnerData = enhancedWinnerData;
+        });
+      } catch (e) {
+        print('❌ Error handling hand results: $e');
+        // Prevent game freeze by at least updating queue state if needed,
+        // (Handled by _processQueue finally block or normal flow)
+      }
+      }
+
 
   void _checkTurnNotification() {
     if (gameState == null) return;
@@ -1923,18 +1979,21 @@ class _GameScreenState extends State<GameScreen> {
                     ),
 
                     // Victory Screen Overlay (Refactored Widget)
+                    // Victory Screen Overlay (Refactored Widget)
                     if (_showVictoryScreen && _winnerData != null)
                       VictoryOverlay(
                         winnerData: _winnerData!,
-                        onContinue: widget.isPracticeMode
-                            ? () {
+                        onDismiss: () {
+                          if (mounted) {
+                             if (widget.isPracticeMode) {
                                 _practiceController?.startNextHand();
-                                setState(() {
-                                  _showVictoryScreen = false;
-                                  _winnerData = null;
-                                });
-                              }
-                            : null,
+                             }
+                             setState(() {
+                               _showVictoryScreen = false;
+                               _winnerData = null;
+                             });
+                          }
+                        },
                       ),
                   ],
                   ),

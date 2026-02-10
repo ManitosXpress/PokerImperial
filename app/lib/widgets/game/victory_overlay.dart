@@ -1,297 +1,293 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:confetti/confetti.dart';
-import '../../providers/language_provider.dart';
-import '../../services/socket_service.dart';
-import '../../widgets/poker_card.dart';
+import '../../utils/responsive_utils.dart';
+import '../poker_card.dart';
 
 class VictoryOverlay extends StatefulWidget {
   final Map<String, dynamic> winnerData;
-  final VoidCallback? onContinue;
+  final VoidCallback onDismiss;
 
   const VictoryOverlay({
-    super.key,
+    Key? key,
     required this.winnerData,
-    this.onContinue,
-  });
+    required this.onDismiss,
+  }) : super(key: key);
 
   @override
   State<VictoryOverlay> createState() => _VictoryOverlayState();
 }
 
 class _VictoryOverlayState extends State<VictoryOverlay> with SingleTickerProviderStateMixin {
-  late ConfettiController _confettiController;
-  late AnimationController _animController;
+  late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _opacityAnimation;
   
-  bool _isVisible = true;
+  // Animation for amount counting
+  int _displayedAmount = 0;
+  int _targetAmount = 0;
 
   @override
   void initState() {
     super.initState();
     
-    // Setup Confetti
-    _confettiController = ConfettiController(duration: const Duration(seconds: 10));
-    
-    // Setup Entrance Animation
-    _animController = AnimationController(
+    // Parse winner data
+    _parseWinnerData();
+
+    _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 600),
+    );
+
+    _scaleAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.elasticOut,
     );
     
-    _scaleAnimation = CurvedAnimation(parent: _animController, curve: Curves.elasticOut);
     _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animController, curve: Curves.easeOut),
+      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
     );
+
+    // Start entrance animation
+    _controller.forward();
     
-    _animController.forward();
-    
-    // Auto-play confetti if applicable
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkAndPlayConfetti();
+    // Start number counting animation
+    _animateCount();
+
+    // Auto-dismiss after 4.5 seconds
+    Future.delayed(const Duration(milliseconds: 4500), () {
+      if (mounted) {
+        _controller.reverse().then((_) {
+          widget.onDismiss();
+        });
+      }
     });
-    
-    // Auto-close timer based on displayTime from server
-    if (widget.winnerData['displayTime'] != null) {
-       Future.delayed(Duration(milliseconds: widget.winnerData['displayTime']), () {
-          if (mounted) {
-             // Let the parent handle the unmount via state change,
-             // or we can animate out here.
-          }
-       });
+  }
+
+  void _parseWinnerData() {
+    // Handle both single winner and multiple winners structure
+    // We'll show the main winner or the first one in the list
+    if (widget.winnerData['winners'] != null && (widget.winnerData['winners'] as List).isNotEmpty) {
+       final mainWinner = (widget.winnerData['winners'] as List)[0];
+       _targetAmount = mainWinner['amount'] ?? 0;
+    } else if (widget.winnerData['winner'] != null) {
+       _targetAmount = widget.winnerData['winner']['amount'] ?? 0;
+    } else {
+       // Fallback or legacy
+       _targetAmount = widget.winnerData['amount'] ?? 0;
     }
   }
 
-  void _checkAndPlayConfetti() {
-    final myId = Provider.of<SocketService>(context, listen: false).socketId;
-    bool iWon = _checkIfIWon(myId);
+  void _animateCount() {
+    // Simple linear interpolation for number counting
+    final duration = const Duration(milliseconds: 1500);
+    final steps = 60;
+    final stepDuration = duration.inMilliseconds ~/ steps;
+    final increment = _targetAmount / steps;
     
-    if (iWon) {
-      _confettiController.play();
-    }
-  }
-  
-  bool _checkIfIWon(String? myId) {
-    if (widget.winnerData['split'] == true) return true;
+    int currentStep = 0;
     
-    final winner = widget.winnerData['winner'];
-    if (winner != null) {
-      return winner['id'] == myId || winner['uid'] == myId; // Check UID too
-    }
-    
-    final winners = widget.winnerData['winners'] as List?;
-    if (winners != null) {
-      return winners.any((w) => w['id'] == myId || w['uid'] == myId);
-    }
-    
-    return false;
+    Future.doWhile(() async {
+      await Future.delayed(Duration(milliseconds: stepDuration));
+      if (!mounted) return false;
+      
+      currentStep++;
+      setState(() {
+        if (currentStep >= steps) {
+          _displayedAmount = _targetAmount;
+        } else {
+          _displayedAmount = (increment * currentStep).toInt();
+        }
+      });
+      
+      return currentStep < steps;
+    });
   }
 
   @override
   void dispose() {
-    _confettiController.dispose();
-    _animController.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_isVisible) return const SizedBox.shrink();
-
-    final languageProvider = Provider.of<LanguageProvider>(context);
-    final myId = Provider.of<SocketService>(context, listen: false).socketId;
-    final iWon = _checkIfIWon(myId);
-    
-    // Winner Info
-    final winnerName = widget.winnerData['winner']?['name'] ?? 'Winner';
-    final amount = widget.winnerData['winner']?['amount'] ?? 0;
-    final handDesc = widget.winnerData['winningMsg'] ?? widget.winnerData['winner']?['handDescription'] ?? '';
-    
-    // Winning Cards
+    // Extract Hand Name
+    String handName = "VICTORIA";
     List<String> validCards = [];
-    if (widget.winnerData['revealHands'] != null) {
-       // If revealHands is present (map), try to find the winner's hand
-       final winnerId = widget.winnerData['winner']?['id'];
-       final handsMap = widget.winnerData['revealHands'] as Map?;
-       if (winnerId != null && handsMap != null) {
-          final handData = handsMap[winnerId];
-          if (handData != null && handData['hand'] != null) {
-             validCards = List<String>.from(handData['hand'].map((c) => c.toString()));
-          }
+    
+    // Try to get hand name and cards from winners array
+    if (widget.winnerData['winners'] != null && (widget.winnerData['winners'] as List).isNotEmpty) {
+       final mainWinner = (widget.winnerData['winners'] as List)[0];
+       handName = mainWinner['handDescription'] ?? mainWinner['handName'] ?? "VICTORIA";
+       
+       if (mainWinner['winningCards'] != null) {
+         validCards = List<String>.from(mainWinner['winningCards']);
        }
+    } 
+    // Fallback validation for combination
+    else if (widget.winnerData['combination'] != null) {
+       handName = widget.winnerData['combination'];
+    }
+    
+    // If we only have hand description but no cards in winner object, try to get from allHands or gameState
+    if (validCards.isEmpty && widget.winnerData['gameState'] != null) {
+        // Logic to try to find cards if not explicitly sent in 'winningCards'
+        // But assumed backend sends 'winningCards' as per plan
     }
 
-    return Stack(
-      children: [
-        // 1. Semi-transparent dark background
-        Positioned.fill(
-          child: Container(
-            color: Colors.black.withOpacity(0.7),
-          ),
-        ),
-        
-        // 2. Confetti (Top Center)
-        Align(
-          alignment: Alignment.topCenter,
-          child: ConfettiWidget(
-            confettiController: _confettiController,
-            blastDirectionality: BlastDirectionality.explosive,
-            shouldLoop: true, 
-            colors: const [Colors.green, Colors.blue, Colors.pink, Colors.orange, Colors.purple],
-          ),
-        ),
-
-        // 3. Main Content
-        Center(
-          child: ScaleTransition(
-            scale: _scaleAnimation,
-            child: FadeTransition(
-              opacity: _opacityAnimation,
+    return Positioned.fill(
+      child: Material(
+        color: Colors.transparent,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // 1. Backdrop Blur (Glassmorphism)
+            BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
               child: Container(
-                width: MediaQuery.of(context).size.width * 0.85,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: iWon 
-                      ? [const Color(0xFF1E3C72), const Color(0xFF2A5298)] // Victory Blue
-                      : [const Color(0xFF232526), const Color(0xFF414345)], // Defeat Grey
-                  ),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: iWon ? Colors.amber : Colors.white24,
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: (iWon ? Colors.blue : Colors.black).withOpacity(0.5),
-                      blurRadius: 30,
-                      spreadRadius: 5,
+                color: Colors.black.withOpacity(0.3), // Slight dim
+              ),
+            ),
+            
+            // 2. Main Content Container
+            FadeTransition(
+              opacity: _opacityAnimation,
+              child: ScaleTransition(
+                scale: _scaleAnimation,
+                child: Container(
+                  width: ResponsiveUtils.screenWidth(context) * 0.85,
+                  constraints: const BoxConstraints(maxWidth: 500),
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.black.withOpacity(0.85), 
+                        const Color(0xFF1A1A1A).withOpacity(0.95),
+                        Colors.amber.withOpacity(0.15)
+                      ]
                     ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Icon & Title
-                    Icon(
-                      iWon ? Icons.emoji_events : Icons.sentiment_neutral,
-                      size: 64,
-                      color: iWon ? Colors.amber : Colors.white54,
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(
+                      color: const Color(0xFFD4AF37).withOpacity(0.8), // Gold border
+                      width: 2.0,
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      iWon 
-                        ? (widget.winnerData['split'] == true ? 'SPLIT POT!' : 'VICTORY!')
-                        : (widget.winnerData['split'] == true ? 'SPLIT POT' : 'DEFEAT'),
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: iWon ? Colors.white : Colors.white70,
-                        letterSpacing: 2,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFD4AF37).withOpacity(0.3),
+                        blurRadius: 30,
+                        spreadRadius: 5,
                       ),
-                    ),
-                    
-                    const SizedBox(height: 12),
-                    
-                    // Winner Name & Amount
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(30),
+                      const BoxShadow(
+                        color: Colors.black54,
+                        blurRadius: 20,
+                        offset: Offset(0, 10),
                       ),
-                      child: Column(
-                        children: [
-                          Text(
-                            winnerName,
-                            style: const TextStyle(
-                              color: Colors.amberAccent,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            '+$amount Chips',
-                            style: const TextStyle(
-                              color: Colors.greenAccent,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          if (handDesc.isNotEmpty)
-                             Text(
-                               handDesc,
-                               style: const TextStyle(
-                                 color: Colors.white60,
-                                 fontSize: 14,
-                                 fontStyle: FontStyle.italic,
-                               ),
-                             ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-                    
-                    // Revealed Cards
-                    if (validCards.isNotEmpty) ...[
-                      const Text(
-                        'WINNING HAND',
-                        style: TextStyle(
-                          color: Colors.white38,
-                          fontSize: 12,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: validCards.map((cardCode) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                              child: PokerCard(
-                                cardCode: cardCode,
-                                width: 50, // Smaller cards for overlay
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
                     ],
-
-                    // Continue Button (Only for Practice Mode or if provided)
-                    if (widget.onContinue != null)
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: widget.onContinue,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.amber,
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: Text(
-                            languageProvider.getText('continue').toUpperCase(),
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // HEADER
+                      ShaderMask(
+                        shaderCallback: (bounds) => const LinearGradient(
+                          colors: [Color(0xFFD4AF37), Color(0xFFFFF8DC), Color(0xFFD4AF37)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ).createShader(bounds),
+                        child: const Text(
+                          "¡GANADOR IMPERIAL!",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.5,
+                            color: Colors.white, // Required for ShaderMask
+                            fontFamily: 'Cinzel', // Assuming a fancy font, fallback normally calls generic
                           ),
                         ),
                       ),
-                  ],
+                      
+                      const SizedBox(height: 10),
+                      Divider(color: const Color(0xFFD4AF37).withOpacity(0.5), thickness: 1, indent: 40, endIndent: 40),
+                      const SizedBox(height: 15),
+
+                      // HAND NAME
+                      Text(
+                        handName.toUpperCase(),
+                        style: const TextStyle(
+                          color: Color(0xFFE0E0E0),
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 25),
+
+                      // CARDS ROW
+                      if (validCards.isNotEmpty)
+                        SizedBox(
+                          height: 80, // Height for scaled cards
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: validCards.map((cardCode) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                                child: Transform.scale(
+                                  scale: 0.9,
+                                  child: PokerCard(
+                                    cardCode: cardCode,
+                                    width: 60,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+
+                      const SizedBox(height: 25),
+
+                      // AMOUNT
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.stars, color: Color(0xFFD4AF37), size: 28),
+                            const SizedBox(width: 10),
+                            Text(
+                              "\$ $_displayedAmount",
+                              style: const TextStyle(
+                                color: Color(0xFFFFD700),
+                                fontSize: 36,
+                                fontWeight: FontWeight.bold,
+                                shadows: [
+                                  Shadow(
+                                    color: Color(0xAA000000),
+                                    offset: Offset(2, 2),
+                                    blurRadius: 4,
+                                  )
+                                ]
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

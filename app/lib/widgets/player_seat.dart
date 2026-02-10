@@ -16,6 +16,7 @@ class PlayerSeat extends StatelessWidget {
   final List<dynamic>? cards; // Changed to dynamic to handle [null, null]
   final String? handRank; // Add hand rank for showdown
   final bool isWinner; // Highlight winner
+  final List<String>? winningCards; // <-- NEW: Specific cards to highlight
   final int? currentBet; // Added for bet amount bubble
 
   const PlayerSeat({
@@ -29,12 +30,9 @@ class PlayerSeat extends StatelessWidget {
     this.cards,
     this.handRank,
     this.isWinner = false,
+    this.winningCards, // <-- NEW
     this.currentBet, // Added
   });
-
-
-
-// ... (inside PlayerSeat class)
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +62,8 @@ class PlayerSeat extends StatelessWidget {
           isFolded: isFolded,
           cardWidth: cardWidth,
           isWinner: isWinner,
-          isMe: isMe, // <-- NEW: Pass isMe flag
+          isMe: isMe,
+          winningCards: winningCards, // <-- NEW: Pass winning cards
         ),
         
         // Hand Rank (shown at showdown)

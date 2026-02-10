@@ -10,6 +10,7 @@ class SeatHand extends StatefulWidget {
   final double cardWidth;
   final bool isWinner;
   final bool isMe; // <-- NEW: Flag to indicate player's own hand
+  final List<String>? winningCards; // <-- NEW: Specific cards to highlight
 
   const SeatHand({
     super.key,
@@ -19,6 +20,7 @@ class SeatHand extends StatefulWidget {
     required this.cardWidth,
     this.isWinner = false,
     this.isMe = false, // <-- NEW
+    this.winningCards, // <-- NEW
   });
 
   @override
@@ -29,13 +31,14 @@ class _SeatHandState extends State<SeatHand> with TickerProviderStateMixin {
   late List<AnimationController> _flipControllers;
   late List<Animation<double>> _flipAnimations;
   bool _initialized = false;
+  // ... (controllers init remains same)
 
   @override
   void initState() {
     super.initState();
     _initializeControllers();
   }
-
+  
   void _initializeControllers() {
     _flipControllers = List.generate(
       widget.cardCount,
@@ -76,7 +79,7 @@ class _SeatHandState extends State<SeatHand> with TickerProviderStateMixin {
       }
     }
     
-    // Handle case where card count changes (unlikely in Hold'em but good practice)
+    // Handle case where card count changes
     if (oldWidget.cardCount != widget.cardCount) {
       _disposeControllers();
       _initializeControllers();
@@ -84,18 +87,13 @@ class _SeatHandState extends State<SeatHand> with TickerProviderStateMixin {
   }
 
   void _triggerSequentialReveal() async {
-    // Reset controllers first to ensure they start from 0 (face down)
     for (var controller in _flipControllers) {
       controller.value = 0.0;
     }
-
-    // Flip cards one by one with a delay
     for (int i = 0; i < _flipControllers.length; i++) {
-      if (!mounted) return;
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (mounted) {
-        _flipControllers[i].forward();
-      }
+        if (!mounted) return;
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (mounted) _flipControllers[i].forward();
     }
   }
 
@@ -113,10 +111,6 @@ class _SeatHandState extends State<SeatHand> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    // If folded, usually we don't show cards, or show them dimmed/folded.
-    // For now, if folded and no visible cards, we show nothing or let parent handle it.
-    // But if we have visible cards (e.g. folded but shown at end?), we show them.
-    
     if (widget.isFolded && widget.visibleCards == null) {
       return const SizedBox.shrink(); 
     }
@@ -129,12 +123,12 @@ class _SeatHandState extends State<SeatHand> with TickerProviderStateMixin {
       decoration: widget.isWinner
           ? BoxDecoration(
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFFFD700), width: 3),
+              border: Border.all(color: const Color(0xFFFFD700), width: 2), // Reduced width slightly
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFFFD700).withOpacity(0.6),
-                  blurRadius: 12,
-                  spreadRadius: 2,
+                  color: const Color(0xFFFFD700).withOpacity(0.4),
+                  blurRadius: 10,
+                  spreadRadius: 1,
                 ),
               ],
             )
@@ -153,23 +147,22 @@ class _SeatHandState extends State<SeatHand> with TickerProviderStateMixin {
             }
           }
 
+          // Check if this specific card is part of the winning hand
+          bool isWinningCard = false;
+          if (cardCode != null && widget.winningCards != null) {
+             isWinningCard = widget.winningCards!.contains(cardCode);
+          }
+
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2.0),
             child: AnimatedBuilder(
               animation: _flipAnimations[index],
               builder: (context, child) {
-                // 0.0 = Face Down (Back)
-                // 0.5 = 90 degrees (Invisible/Edge)
-                // 1.0 = Face Up (Front)
                 
                 final double value = _flipAnimations[index].value;
                 final bool isFaceUp = value >= 0.5;
-                final double rotation = value * math.pi; // 0 to 180 degrees
+                final double rotation = value * math.pi;
 
-                // We need to rotate the back side so it flips correctly
-                // When value is 0, rotation is 0.
-                // When value is 1, rotation is 180 (pi).
-                
                 return Transform(
                   transform: Matrix4.identity()
                     ..setEntry(3, 2, 0.001) // Perspective
@@ -180,8 +173,23 @@ class _SeatHandState extends State<SeatHand> with TickerProviderStateMixin {
                           alignment: Alignment.center,
                           transform: Matrix4.identity()..rotateY(math.pi), // Mirror back to normal
                           child: cardCode != null 
-                              ? PokerCard(cardCode: cardCode, width: widget.cardWidth)
-                              : SizedBox(width: widget.cardWidth, height: cardHeight), // Fallback
+                              ? Container(
+                                  decoration: isWinningCard 
+                                    ? BoxDecoration(
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: const Color(0xFFFFD700), width: 3), // Strong Gold Border
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(0xFFFFD700).withOpacity(0.8),
+                                            blurRadius: 8,
+                                            spreadRadius: 2,
+                                          )
+                                        ]
+                                      )
+                                    : null,
+                                  child: PokerCard(cardCode: cardCode, width: widget.cardWidth)
+                                )
+                              : SizedBox(width: widget.cardWidth, height: cardHeight),
                         )
                       : CardBack(width: widget.cardWidth, height: cardHeight),
                 );
