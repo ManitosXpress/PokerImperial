@@ -330,7 +330,20 @@ export class RoomManager {
             // 🔐 SECURITY FIX: Emit personalized game states to each player
             // Instead of broadcasting the same state to everyone, send each player
             // their own version where they can see their cards but others are hidden
-            game.onGameStateChange = () => {
+            game.onGameStateChange = (data?: any) => {
+                // If specific event data is provided (e.g., hand_results), use it!
+                if (data && data.type) {
+                    if (data.type === 'hand_results') {
+                        // Broadcast hand results to everyone (it's public info at showdown)
+                        if (emitCallback) emitCallback(roomId, data.type, data);
+                    } else {
+                        // Forward other specific events
+                        if (emitCallback) emitCallback(roomId, data.type, data);
+                    }
+                    return;
+                }
+
+                // Default behavior: Send personalized game_update
                 // Iterate over all players in the room and send personalized states
                 room.players.forEach(player => {
                     if (player.uid || player.id) {
@@ -341,7 +354,7 @@ export class RoomManager {
                         // The emitCallback signature needs to support targeted emission
                         // For now, we'll use the broadcast and rely on frontend filtering
                         // TODO: Modify architecture to support per-socket emission
-                        emitCallback(personalizedState);
+                        if (emitCallback) emitCallback(roomId, 'game_update', personalizedState, player.id);
                     }
                 });
             };
