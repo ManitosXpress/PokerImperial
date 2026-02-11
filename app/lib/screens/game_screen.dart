@@ -1902,6 +1902,7 @@ class _GameScreenState extends State<GameScreen> {
                       screenWidth: screenW,
                       screenHeight: screenH,
                       isMobile: isMobile,
+                      stage: stage, // <-- PASS STAGE
                     ),
 
                     // Top Right Credits - Premium Wallet Badge

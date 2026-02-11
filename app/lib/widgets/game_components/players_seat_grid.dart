@@ -16,6 +16,7 @@ class PlayersSeatGrid extends StatelessWidget {
   final double screenWidth;
   final double screenHeight;
   final bool isMobile;
+  final String stage; // <-- NEW: Receive game stage
 
   const PlayersSeatGrid({
     super.key,
@@ -29,6 +30,7 @@ class PlayersSeatGrid extends StatelessWidget {
     required this.screenWidth,
     required this.screenHeight,
     required this.isMobile,
+    this.stage = 'waiting', // Default
   });
 
   @override
@@ -92,10 +94,50 @@ class PlayersSeatGrid extends StatelessWidget {
         bool isDealer = player['id'] == dealerId;
         
         // --- 3. CARD VISIBILITY LOGIC (UPDATED WITH SHOWDOWN REVEAL) ---
+        // 🔐 SECURITY: Only show cards if:
+        // 1. It is ME
+        // 2. OR state is SHOWDOWN / FINISHED
+        // 3. OR the player has revealed them (e.g. winner)
+        bool shouldShowCards = isMe;
+        
+        if (stage.toLowerCase() == 'showdown' || stage.toLowerCase() == 'finished') {
+             shouldShowCards = true;
+        }
+
         List<String>? cardsToRender;
-        if (player['hand'] != null && (player['hand'] as List).isNotEmpty) {
-           // Show cards if they are available in the data (Server sends them on Showdown)
+        if (shouldShowCards && player['hand'] != null && (player['hand'] as List).isNotEmpty) {
+           // Show cards if allowed
            cardsToRender = (player['hand'] as List).map((e) => e.toString()).toList();
+        } else if (!isMe && !isFolded && player['hand'] != null) {
+           // If not allowed to see face, but player has cards (not folded), 
+           // we still pass NULL to SeatHand so it renders CARD BACKS
+           // The logic here is:
+           // If cardsToRender is NULL, SeatHand checks isFolded.
+           // If isFolded=false and cardsToRender=null, SeatHand returns SizedBox/Empty?
+           // WAIT! SeatHand logic:
+           // if (widget.isFolded && widget.visibleCards == null) return SizedBox.shrink();
+           // if (visibleCards == null) ... it tries to render based on cardCount.
+           // Actually SeatHand uses `widget.cardCount` to generate list.
+           
+           // If I pass null, SeatHand will look for visibleCards. If null, it checks `cardCode`.
+           // `cardCode` will be null.
+           // `isFaceUp` logic in SeatHand: `isFaceUp` depends on animation mostly.
+           // BUT render: `isFaceUp ? ... (cardCode != null ? PokerCard : SizedBox) : CardBack`.
+           
+           // So if I pass null for `cardsToRender`, `cardCode` is null.
+           // If `isFaceUp` is true, it renders SizedBox (invisible space).
+           // If `isFaceUp` is false, it renders CardBack.
+           
+           // We want CardBacks for bots/opponents.
+           // So `cardsToRender` should be null.
+           // And we rely on SeatHand to show CardBacks.
+           // Default state of SeatHand is face down (isFaceUp=false) unless I force it.
+           // SeatHand uses `_flipControllers` to flip.
+           
+           // So, logic:
+           // IF shouldShowCards -> pass List. SeatHand will flip up.
+           // IF NOT shouldShowCards -> pass null. SeatHand will stay face down (CardBack).
+           cardsToRender = null;
         }
 
         // --- 4. BET POSITIONING (VECTOR MATH) ---
@@ -124,9 +166,13 @@ class PlayersSeatGrid extends StatelessWidget {
            
            if (winnerData != null) {
               isWinner = true;
-              // Extract winning cards for highlighting
+              // Winner automatically shows cards too
               if (winnerData['winningCards'] != null) {
                  playerWinningCards = (winnerData['winningCards'] as List).map((e) => e.toString()).toList();
+              }
+              // Force show cards for winner even if stage weirdness (though winners implies finished)
+              if (player['hand'] != null) {
+                 cardsToRender = (player['hand'] as List).map((e) => e.toString()).toList();
               }
            }
         }
@@ -144,7 +190,8 @@ class PlayersSeatGrid extends StatelessWidget {
                 isMe: isMe,
                 isDealer: isDealer,
                 isFolded: isFolded,
-                cards: cardsToRender, // <--- NOW SHOWS CARDS FOR EVERYONE IF AVAILABLE
+                cards: cardsToRender, // <--- NOW SAFE
+
                 handRank: player['handRank'],
                 isWinner: isWinner,
                 winningCards: playerWinningCards, // <--- PASS WINNING CARDS

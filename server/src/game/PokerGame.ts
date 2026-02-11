@@ -315,26 +315,29 @@ export class PokerGame {
                 return;
             }
 
-            console.log(`⏰ [TURN_FIX] Timeout for ${currentPlayer.name} (ID: ${currentPlayer.id}). Enforcing SIT_OUT & FOLD.`);
+            // 3. SMART TIMEOUT LOGIC
+            const amountToCall = this.currentBet - currentPlayer.currentBet;
+            const playerIdentifier = currentPlayer.uid || currentPlayer.id;
 
-            // 3. Atomic State Updates
+            if (amountToCall === 0) {
+                // ✅ CHECK TIMEOUT: If it's free to stay, just check and keep playing
+                console.log(`⏰ [SMART_TIMEOUT] ${currentPlayer.name} timeout but Check is free. Auto-CHECK.`);
+                this.handleAction(playerIdentifier, 'check');
+                return;
+            }
+
+            // ❌ FOLD TIMEOUT: If there is a bet, Fold and Sit Out
+            console.log(`⏰ [SMART_TIMEOUT] ${currentPlayer.name} timeout with pending bet. Enforcing SIT_OUT & FOLD.`);
+
+            // Atomic State Updates
             currentPlayer.isSitOut = true;
-            currentPlayer.isFolded = true; // Force fold to ignore in hand eval
 
-            // 4. Persist State Immediately (Async)
+            // Persist State Immediately (Async)
             this.saveState().catch(e => console.error('State save failed:', e));
 
-            // 5. Force Move to Next Turn using 'fold' action
-            const playerIdentifier = currentPlayer.uid || currentPlayer.id;
-            console.log(`[TIMEOUT_ACTION] Auto-FOLD for ${currentPlayer.name} (Sit-Out enforced)`);
-
-            // Use handleAction to process the fold and advance turn
-            // NOTE: processAction middleware might reject if we just set isSitOut=true?
-            // Actually handleAction checks basic things. We modify handleAction slightly if needed or rely on it.
-            // Since we folded them manually above, handleAction might complain "already folded"?
-            // Let's reset folded temporarily for handleAction to process it gracefully OR call logic directly?
-            // Safer: Just call handleAction. If it fails, force nextTurn.
-            currentPlayer.isFolded = false; // Reset so handleAction can fold them "legally"
+            // Execute Fold
+            // We do NOT set isFolded=true manually here because handleAction('fold') does it better
+            // and handles side-effects (next turn, etc)
             this.handleAction(playerIdentifier, 'fold');
 
         } catch (e) {
@@ -1374,14 +1377,16 @@ export class PokerGame {
     private handleBotTurn(bot: Player) {
         const { BotLogic } = require('./BotLogic');
         try {
-            let action = BotLogic.decide(bot, this.currentBet, this.pot);
+            // Pass community cards to the new Bot Logic
+            let action = BotLogic.decide(bot, this.currentBet, this.pot, this.communityCards);
             let amount = 0;
 
             if (action === 'check' && this.currentBet > bot.currentBet) {
+                // Should not happen with new logic, but safety first
                 action = 'call';
             }
             if (action === 'bet') {
-                amount = this.currentBet + 50;
+                amount = this.currentBet + this.bigBlindAmount; // Simple raise
             }
 
             this.handleAction(bot.id, action, amount);
