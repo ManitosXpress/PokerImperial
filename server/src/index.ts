@@ -770,9 +770,9 @@ io.on('connection', (socket) => {
                 const room = roomManager.getRoom(roomId);
                 const game = (roomManager as any).games.get(roomId);
 
-                if (data.type === 'hand_winner') {
-                    // hand_winner shows all cards anyway - broadcast to all
-                    io.to(roomId).emit('hand_winner', data);
+                if (data.type === 'hand_winner' || data.type === 'hand_results') {
+                    // hand_winner/hand_results shows all cards anyway - broadcast to all
+                    io.to(roomId).emit(data.type, data);
                 } else if (room && game) {
                     // For game_update, send personalized state to EACH player (including their own cards)
                     room.players.forEach(player => {

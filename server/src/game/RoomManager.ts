@@ -333,14 +333,14 @@ export class RoomManager {
             game.onGameStateChange = (data?: any) => {
                 // If specific event data is provided (e.g., hand_results), use it!
                 if (data && data.type) {
-                    if (data.type === 'hand_results') {
+                    if (data.type === 'hand_results' || data.type === 'hand_winner') {
                         // Broadcast hand results to everyone (it's public info at showdown)
-                        if (emitCallback) emitCallback(roomId, data.type, data);
+                        if (emitCallback) emitCallback(data);
                     } else {
                         // Forward other specific events
-                        if (emitCallback) emitCallback(roomId, data.type, data);
+                        if (emitCallback) emitCallback(data);
                     }
-                    return;
+                    return; // ✅ IMPORTANTE: Detener ejecución para evitar el bucle de game_update
                 }
 
                 // Default behavior: Send personalized game_update
@@ -351,10 +351,11 @@ export class RoomManager {
                         const personalizedState = game.getPublicState(player.uid || player.id);
 
                         // Emit to this specific player's socket
-                        // The emitCallback signature needs to support targeted emission
-                        // For now, we'll use the broadcast and rely on frontend filtering
-                        // TODO: Modify architecture to support per-socket emission
-                        if (emitCallback) emitCallback(roomId, 'game_update', personalizedState, player.id);
+                        // The emitCallback signature in startGame only accepts 1 argument (data)
+                        // so we pass the state, and let the callback handle logic if needed.
+                        // However, strictly speaking, index.ts logic re-calculates/iterates.
+                        // To preserve behavior and fix TS error:
+                        if (emitCallback) emitCallback(personalizedState);
                     }
                 });
             };
