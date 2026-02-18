@@ -14,6 +14,8 @@ export class PokerGame {
     private dealerIndex: number = 0;
     private smallBlindAmount: number = 10;
     private bigBlindAmount: number = 20;
+    private minBuyIn: number = 1000;
+    private maxBuyIn: number = 10000;
     private currentBet: number = 0;
     private round: 'pre-flop' | 'flop' | 'turn' | 'river' | 'showdown' | 'waiting' = 'pre-flop'; // 🆕 Added 'waiting' state
     private players: Player[] = [];
@@ -55,6 +57,18 @@ export class PokerGame {
     public onSystemEvent?: (event: string, data: any) => void;
 
     constructor() { }
+
+    /**
+     * 🔧 Set table configuration (buy-in limits and blinds)
+     * Called by RoomManager when creating a room.
+     */
+    public setTableConfig(minBuyIn: number, maxBuyIn: number, smallBlind: number, bigBlind: number) {
+        this.minBuyIn = minBuyIn;
+        this.maxBuyIn = maxBuyIn;
+        this.smallBlindAmount = smallBlind;
+        this.bigBlindAmount = bigBlind;
+        console.log(`📋 [PokerGame] TableConfig set: SB=${smallBlind}, BB=${bigBlind}, Min=${minBuyIn}, Max=${maxBuyIn}`);
+    }
 
     public startGame(players: Player[], isPublic: boolean = true, roomId: string = '', clubId?: string, sellerId?: string) {
         if (players.length < 2) throw new Error('Not enough players');
@@ -637,6 +651,8 @@ export class PokerGame {
             minBet: this.currentBet + Math.max(this.bigBlindAmount, this.currentBet),
             smallBlind: this.smallBlindAmount,
             bigBlind: this.bigBlindAmount,
+            minBuyIn: this.minBuyIn,
+            maxBuyIn: this.maxBuyIn,
             activePlayerIds: this.activePlayers.map(p => p.id)
         };
 
@@ -988,6 +1004,12 @@ export class PokerGame {
         this.round = (data.currentRound || 'pre-flop').toLowerCase();
         this.deck = data.deck || [];
         this.turnExpiresAt = data.turnExpiresAt || 0;
+
+        // Restore table config
+        if (data.minBuyIn) this.minBuyIn = data.minBuyIn;
+        if (data.maxBuyIn) this.maxBuyIn = data.maxBuyIn;
+        if (data.smallBlind) this.smallBlindAmount = data.smallBlind;
+        if (data.bigBlind) this.bigBlindAmount = data.bigBlind;
 
         // Restore players
         if (data.players && Array.isArray(data.players)) {
@@ -1433,10 +1455,10 @@ export class PokerGame {
                 distribution.platform = totalRake;
                 console.log(`💰 [RAKE] PRIVATE table: 100% platform (${totalRake})`);
             } else {
-                // 💰 PUBLIC TABLE: 50% Platform, 30% Club, 20% Seller
-                const platformShare = Math.floor(totalRake * 0.50);
-                const clubShare = this.clubId ? Math.floor(totalRake * 0.30) : 0;
-                const sellerShare = this.sellerId ? Math.floor(totalRake * 0.20) : 0;
+                // 💰 PUBLIC TABLE: 25% Platform, 25% Club, 50% Seller
+                const platformShare = Math.floor(totalRake * 0.25);
+                const clubShare = this.clubId ? Math.floor(totalRake * 0.25) : 0;
+                const sellerShare = this.sellerId ? Math.floor(totalRake * 0.50) : 0;
 
                 // Handle centavos (remainder goes to platform)
                 const allocated = platformShare + clubShare + sellerShare;

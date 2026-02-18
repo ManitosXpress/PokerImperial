@@ -170,17 +170,12 @@ export async function performTableSettlement(
 
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-            // 7. REGISTRAR RAKE EN PLATAFORMA (si hay)
+            // 7. REGISTRAR RAKE EN LEDGER (si hay)
+            // NOTA: NO actualizamos accumulated_rake aquí porque el rake ya fue
+            // contabilizado per-hand en processRakeLocal/distributePot.
+            // Hacerlo aquí causaría DOBLE CONTEO.
             if (totalRakePaid > 0) {
-                const statsRef = db.collection('system_stats').doc('economy');
-                transaction.set(statsRef, {
-                    accumulated_rake: admin.firestore.FieldValue.increment(totalRakePaid),
-                    lastUpdated: timestamp
-                }, { merge: true });
-
-                console.log(`[SETTLEMENT] ✅ Rake registrado en plataforma: +${totalRakePaid}`);
-
-                // Registrar rake en ledger financiero
+                // Registrar rake en ledger financiero (solo para auditoría)
                 const rakeLedgerRef = db.collection('financial_ledger').doc();
                 transaction.set(rakeLedgerRef, {
                     type: 'RAKE_COLLECTED',

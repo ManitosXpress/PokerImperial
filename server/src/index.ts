@@ -57,6 +57,10 @@ function persistGameStateAsync(roomId: string, gameState: any) {
                 dealerId: gameState.dealerId ?? null,
                 round: gameState.round || gameState.stage || 'waiting',
                 currentBet: gameState.currentBet ?? 0,
+                minBuyIn: gameState.minBuyIn ?? null,
+                maxBuyIn: gameState.maxBuyIn ?? null,
+                smallBlind: gameState.smallBlind ?? null,
+                bigBlind: gameState.bigBlind ?? null,
                 lastActionTime: admin.firestore.FieldValue.serverTimestamp()
             };
 
@@ -392,6 +396,14 @@ io.on('connection', (socket) => {
                 if (data.maxBuyIn) maxBuyIn = Number(data.maxBuyIn);
             }
 
+            let smallBlind: number | undefined;
+            let bigBlind: number | undefined;
+
+            if (typeof data === 'object') {
+                if (data.smallBlind) smallBlind = Number(data.smallBlind);
+                if (data.bigBlind) bigBlind = Number(data.bigBlind);
+            }
+
             // 🔒 ROLE-BASED HOST DETECTION: Admin/Club Owner/Seller should NOT be added as player
             let addHostAsPlayer = true;
             if (uid) {
@@ -420,7 +432,9 @@ io.on('connection', (socket) => {
                 isPublic,
                 hostUid: uid,
                 minBuyIn,
-                maxBuyIn
+                maxBuyIn,
+                smallBlind,
+                bigBlind
             });
             const actualRoomId = room.id; // Este es el ID real del room
 

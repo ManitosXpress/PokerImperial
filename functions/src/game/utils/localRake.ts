@@ -49,7 +49,7 @@ interface RakeData {
  * 
  * REGLAS DE NEGOCIO:
  * - Mesa Privada (isPrivate=true): 100% va a la plataforma
- * - Mesa Pública (isPrivate=false): 50% plataforma / 30% club / 20% seller
+ * - Mesa Pública (isPrivate=false): 25% plataforma / 25% club / 50% seller
  *   (si falta club o seller, su parte va a la plataforma)
  * 
  * @param data - Datos del rake y ganador a procesar
@@ -119,19 +119,19 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                     platformShare = data.rakeTotal;
                     console.log(`[RAKE_LOCAL] 🔒 Mesa privada: 100% (${platformShare}) a plataforma.`);
                 } else {
-                    // MESA PÚBLICA: Distribución 50/30/20 (platform/club/seller)
-                    platformShare = Math.floor(data.rakeTotal * 0.50);
+                    // MESA PÚBLICA: Distribución 25/25/50 (platform/club/seller)
+                    platformShare = Math.floor(data.rakeTotal * 0.25);
 
                     if (data.clubId) {
-                        clubShare = Math.floor(data.rakeTotal * 0.30);
+                        clubShare = Math.floor(data.rakeTotal * 0.25);
                     } else {
-                        platformShare += Math.floor(data.rakeTotal * 0.30);
+                        platformShare += Math.floor(data.rakeTotal * 0.25);
                     }
 
                     if (data.sellerId) {
-                        sellerShare = Math.floor(data.rakeTotal * 0.20);
+                        sellerShare = Math.floor(data.rakeTotal * 0.50);
                     } else {
-                        platformShare += Math.floor(data.rakeTotal * 0.20);
+                        platformShare += Math.floor(data.rakeTotal * 0.50);
                     }
 
                     // Ajustar por redondeo (centavos perdidos van a la plataforma)
@@ -427,7 +427,7 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
             // ═══════════════════════════════════════════════════════════════
             if (data.rakeTotal > 0) {
                 transaction.set(db.collection('system_stats').doc('economy'), {
-                    accumulated_rake: admin.firestore.FieldValue.increment(data.rakeTotal),
+                    accumulated_rake: admin.firestore.FieldValue.increment(platformShare),
                     total_volume: admin.firestore.FieldValue.increment(data.potTotal),
                     hands_played: admin.firestore.FieldValue.increment(1),
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()

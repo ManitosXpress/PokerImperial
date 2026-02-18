@@ -190,7 +190,7 @@ Cálculo de NetProfit (solo para auditoría):
 
 **Distribución:**
 - En mesas privadas: 100% del rake va aquí
-- En mesas públicas: 50% del rake va aquí
+- En mesas públicas: 25% del rake va aquí
 
 ---
 
@@ -201,7 +201,7 @@ Cálculo de NetProfit (solo para auditoría):
 | `walletBalance` | `number` | Billetera del club (rake recibido) | `5000` |
 
 **Distribución:**
-- En mesas públicas: 30% del rake va aquí (si el usuario pertenece a un club)
+- En mesas públicas: 25% del rake va aquí (si el usuario pertenece a un club)
 
 ---
 
@@ -237,7 +237,7 @@ Cálculo de NetProfit (solo para auditoría):
 2. **Fuente de Verdad en Salida:** Las fichas del usuario son las que tiene en `poker_tables`, NO en `poker_sessions`
 3. **Distribución del Rake:**
    - Privada: 100% Plataforma
-   - Pública: 50% Plataforma / 30% Club / 20% Seller
+   - Pública: 25% Plataforma / 25% Club / 50% Seller
 4. **Limpieza de Estado:** Siempre, sin excepción, `moneyInPlay: 0` y `currentTableId: null` al finalizar
 
 ---

@@ -1,5 +1,6 @@
 import { Room, Player } from '../types';
 import { PokerGame } from './PokerGame';
+import { createTableConfig } from '../types/TableConfig';
 import * as admin from 'firebase-admin'; // ACCESO A BD REQUERIDO
 
 export class RoomManager {
@@ -50,9 +51,9 @@ export class RoomManager {
         return await this.createRoom(hostId, hostName, undefined, 1000, undefined, { addHostAsPlayer: true, isPublic: true });
     }
 
-    public async createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean, minBuyIn?: number, maxBuyIn?: number, clubId?: string, sellerId?: string, role?: 'admin' | 'club_owner' | 'seller' | 'player' } = {}): Promise<Room> {
+    public async createRoom(hostId: string, hostName: string, sessionId?: string, buyInAmount: number = 1000, customRoomId?: string, options: { addHostAsPlayer?: boolean, isPublic?: boolean, hostUid?: string, isTournament?: boolean, minBuyIn?: number, maxBuyIn?: number, smallBlind?: number, bigBlind?: number, clubId?: string, sellerId?: string, role?: 'admin' | 'club_owner' | 'seller' | 'player' } = {}): Promise<Room> {
         const roomId = customRoomId || this.generateRoomId();
-        const { addHostAsPlayer = true, isPublic = true, hostUid, isTournament = false, minBuyIn = 1000, maxBuyIn = 10000, clubId, sellerId, role = 'player' } = options;
+        const { addHostAsPlayer = true, isPublic = true, hostUid, isTournament = false, minBuyIn = 1000, maxBuyIn = 10000, smallBlind = 10, bigBlind = 20, clubId, sellerId, role = 'player' } = options;
 
         if (this.rooms.has(roomId)) throw new Error(`Room ${roomId} already exists`);
 
@@ -89,8 +90,18 @@ export class RoomManager {
             sellerId: sellerId
         };
 
+        // Create immutable TableConfig and attach to Room
+        try {
+            newRoom.tableConfig = createTableConfig(minBuyIn, maxBuyIn, smallBlind, bigBlind);
+            console.log(`📋 [ROOM] TableConfig created: SB=${smallBlind}, BB=${bigBlind}, Min=${minBuyIn}, Max=${maxBuyIn}`);
+        } catch (err: any) {
+            console.warn(`⚠️ [ROOM] TableConfig validation warning: ${err.message}. Using raw values.`);
+        }
+
         this.rooms.set(roomId, newRoom);
-        this.games.set(roomId, new PokerGame());
+        const game = new PokerGame();
+        game.setTableConfig(minBuyIn, maxBuyIn, smallBlind, bigBlind);
+        this.games.set(roomId, game);
 
         // 🔒 PERSIST TO FIRESTORE (prevents null errors in frontend)
         try {
@@ -103,8 +114,8 @@ export class RoomManager {
                 maxPlayers: 8,
                 minBuyIn: minBuyIn,
                 maxBuyIn: maxBuyIn,
-                smallBlind: 10,
-                bigBlind: 20,
+                smallBlind: smallBlind,
+                bigBlind: bigBlind,
                 clubId: clubId || null,
                 sellerId: sellerId || null,
                 status: 'waiting',

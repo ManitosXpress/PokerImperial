@@ -1,5 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/socket_service.dart';
 import '../../utils/responsive_utils.dart';
 import '../poker_card.dart';
 
@@ -121,7 +124,38 @@ class _VictoryOverlayState extends State<VictoryOverlay> with SingleTickerProvid
        handName = mainWinner['handDescription'] ?? mainWinner['handName'] ?? "VICTORIA";
        
        if (mainWinner['winningCards'] != null) {
-         validCards = List<String>.from(mainWinner['winningCards']);
+         // ✅ FIX: Robust parsing for winning cards (Handle Objects vs Strings)
+         validCards = (mainWinner['winningCards'] as List).map((e) {
+            String str = e.toString();
+            
+            // 1. Clean code
+            if (str.length <= 3 && !str.contains('{') && !str.contains('value')) {
+                if (str.startsWith('10')) return str.replaceFirst('10', 't');
+                return str;
+            }
+
+            // 2. Dynamic Object
+            try {
+                dynamic d = e;
+                if (d['value'] != null && d['suit'] != null) {
+                   final val = d['value']?.toString() ?? '';
+                   final suit = d['suit']?.toString() ?? '';
+                   return '$val$suit';
+                }
+            } catch (err) {}
+
+            // 3. Regex
+            if (str.contains('value') && str.contains('suit')) {
+                 final valueMatch = RegExp(r'value:\s*([a-zA-Z0-9]+)').firstMatch(str);
+                 final suitMatch = RegExp(r'suit:\s*([a-zA-Z0-9]+)').firstMatch(str);
+                 if (valueMatch != null && suitMatch != null) {
+                    final val = valueMatch.group(1) ?? '';
+                    final suit = suitMatch.group(1) ?? '';
+                    return '$val$suit';
+                 }
+            }
+            return '';
+         }).where((e) => e.isNotEmpty).toList();
        }
     } 
     // Fallback validation for combination
@@ -190,23 +224,96 @@ class _VictoryOverlayState extends State<VictoryOverlay> with SingleTickerProvid
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       // HEADER
-                      ShaderMask(
-                        shaderCallback: (bounds) => const LinearGradient(
-                          colors: [Color(0xFFD4AF37), Color(0xFFFFF8DC), Color(0xFFD4AF37)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ).createShader(bounds),
-                        child: const Text(
-                          "¡GANADOR IMPERIAL!",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.5,
-                            color: Colors.white, // Required for ShaderMask
-                            fontFamily: 'Cinzel', // Assuming a fancy font, fallback normally calls generic
-                          ),
-                        ),
+                      // HEADER
+                      Builder(
+                        builder: (context) {
+                          // Determine if I am the winner
+                          final socketService = Provider.of<SocketService>(context, listen: false);
+                          // Try to find my ID. 
+                          // NOTE: In a pure widget we might not want to depend on Provider if not passed, 
+                          // but here we need context. 
+                          // Ideally pass 'isMe' or 'myId' as prop.
+                          // Fallback: Check if we can find user ID from Auth
+                          final myId = FirebaseAuth.instance.currentUser?.uid ?? socketService.socketId;
+                          
+                          bool isMeWinner = false;
+                          String winnerName = "JUGADOR";
+
+                          if (widget.winnerData['winners'] != null && (widget.winnerData['winners'] as List).isNotEmpty) {
+                             final mainWinner = (widget.winnerData['winners'] as List)[0];
+                             // Check ID or UID
+                             if (mainWinner['id'] == myId || mainWinner['uid'] == myId) {
+                               isMeWinner = true;
+                             }
+                             winnerName = mainWinner['name'] ?? "JUGADOR";
+                          } else if (widget.winnerData['winner'] != null) {
+                             final w = widget.winnerData['winner'];
+                             if (w['id'] == myId || w['uid'] == myId) isMeWinner = true;
+                             winnerName = w['name'] ?? "JUGADOR";
+                          }
+
+                          // Custom Text & Color
+                          String titleText = isMeWinner ? "¡HAS GANADO!" : "¡$winnerName GANA!";
+                          List<Color> gradientColors = isMeWinner 
+                              ? [const Color(0xFFD4AF37), const Color(0xFFFFF8DC), const Color(0xFFD4AF37)] // Gold
+                              : [const Color(0xFFB0BEC5), const Color(0xFFECEFF1), const Color(0xFFB0BEC5)]; // Silver/Grey for others
+                          
+                          if (!isMeWinner) {
+                            // Maybe Red for loss? Or just neutral?
+                            // User said: "a los que perdieron que salga que perdieron"
+                            // "You Lost" might be too harsh? "Winner: X" is standard.
+                            // But user specifically asked for "que salga que perdieron".
+                            // Let's change title to "HAS PERDIDO" if not winner?
+                            // Or standard "X GANA" + "Has perdido" subtitle?
+                            // Start with "X GANA" as main title, looks professional.
+                            // Let's add a subtitle "Mala suerte esta vez" or similar?
+                            // Or just change title if user insisted.
+                            // "HAS PERDIDO" is huge. 
+                            // Let's stick to "X GANA" for now as it describes the event "Winner Announcement".
+                            // Wait, user said: "el mensaje de ganador le sale a todos ... solo al ganador le tiene q aprecer, a los que perdieron que salga que perdieron"
+                            // Means: Winner sees "WINNER", Losers see "YOU LOST".
+                            // Okay, let's do:
+                            titleText = isMeWinner ? "¡HAS GANADO!" : "¡HAS PERDIDO!";
+                            if (!isMeWinner) {
+                               gradientColors = [const Color(0xFFEF5350), const Color(0xFFFFCDD2), const Color(0xFFEF5350)]; // Red
+                            }
+                          }
+
+                          return Column(
+                            children: [
+                                ShaderMask(
+                                  shaderCallback: (bounds) => LinearGradient(
+                                    colors: gradientColors,
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ).createShader(bounds),
+                                  child: Text(
+                                    titleText,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 32,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 1.5,
+                                      color: Colors.white,
+                                      fontFamily: 'Cinzel',
+                                    ),
+                                  ),
+                                ),
+                                if (!isMeWinner)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8.0),
+                                    child: Text(
+                                      "Ganador: $winnerName",
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold
+                                      ),
+                                    ),
+                                  )
+                            ]
+                          );
+                        }
                       ),
                       
                       const SizedBox(height: 10),

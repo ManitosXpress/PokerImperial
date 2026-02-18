@@ -313,6 +313,8 @@ class _CashTablesViewState extends State<CashTablesView> with AutomaticKeepAlive
                           minBuyIn: minBuyInValue.toDouble(),
                           maxBuyIn: maxBuyInValue.toDouble(),
                           buyIn: minBuyInValue.toDouble(),
+                          smallBlind: sbValue,
+                          bigBlind: bbValue,
                           onSuccess: (roomId) {
                              print('✅ [CashTables] Room created: $roomId');
                              // Navigation handled by stream listener usually, or we can force it here

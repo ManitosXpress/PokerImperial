@@ -942,10 +942,10 @@ export class PokerGame {
                 distribution.platform = totalRake;
                 console.log(`💰 [RAKE] PRIVATE table: 100% platform (${totalRake})`);
             } else {
-                // 💰 PUBLIC TABLE: 50% Platform, 30% Club, 20% Seller
-                const platformShare = Math.floor(totalRake * 0.50);
-                const clubShare = this.clubId ? Math.floor(totalRake * 0.30) : 0;
-                const sellerShare = this.sellerId ? Math.floor(totalRake * 0.20) : 0;
+                // 💰 PUBLIC TABLE: 25% Platform, 25% Club, 50% Seller
+                const platformShare = Math.floor(totalRake * 0.25);
+                const clubShare = this.clubId ? Math.floor(totalRake * 0.25) : 0;
+                const sellerShare = this.sellerId ? Math.floor(totalRake * 0.50) : 0;
 
                 // Handle centavos (remainder goes to platform)
                 const allocated = platformShare + clubShare + sellerShare;

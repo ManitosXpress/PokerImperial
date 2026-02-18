@@ -725,6 +725,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                             minBuyIn: minBuyInValue.toDouble(),
                                             maxBuyIn: maxBuyInValue.toDouble(),
                                             buyIn: minBuyInValue.toDouble(),
+                                            smallBlind: sbValue,
+                                            bigBlind: bbValue,
                                             onSuccess: (roomId) async {
                                               print('✅ [Lobby] Room created: $roomId');
                                               

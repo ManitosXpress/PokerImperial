@@ -94,10 +94,6 @@ class PlayersSeatGrid extends StatelessWidget {
         bool isDealer = player['id'] == dealerId;
         
         // --- 3. CARD VISIBILITY LOGIC (UPDATED WITH SHOWDOWN REVEAL) ---
-        // 🔐 SECURITY: Only show cards if:
-        // 1. It is ME
-        // 2. OR state is SHOWDOWN / FINISHED
-        // 3. OR the player has revealed them (e.g. winner)
         bool shouldShowCards = isMe;
         
         if (stage.toLowerCase() == 'showdown' || stage.toLowerCase() == 'finished') {
@@ -107,37 +103,61 @@ class PlayersSeatGrid extends StatelessWidget {
         List<String>? cardsToRender;
         if (shouldShowCards && player['hand'] != null && (player['hand'] as List).isNotEmpty) {
            // Show cards if allowed
-           cardsToRender = (player['hand'] as List).map((e) => e.toString()).toList();
+           // ✅ FIX: Handle both String codes (e.g. "Ah") and Object representations (from pokersolver)
+           cardsToRender = (player['hand'] as List).map((e) {
+             String str = e.toString();
+             
+             // 1. Check if it's already a clean code like "Ah" or "10d"
+             // Typically length 2 or 3
+             if (str.length <= 3 && !str.contains('{') && !str.contains('value')) {
+                // Normalize 10 -> t just in case
+                if (str.startsWith('10')) return str.replaceFirst('10', 't');
+                return str;
+             }
+
+             // 2. Dynamic Object Access (If it's a Map/JS Object)
+             try {
+                dynamic d = e;
+                if (d['value'] != null && d['suit'] != null) {
+                   final val = d['value']?.toString() ?? '';
+                   final suit = d['suit']?.toString() ?? '';
+                   return '$val$suit'; // Result: "9d"
+                }
+             } catch (err) {
+                // Not a map-like object
+             }
+
+             // 3. Regex Parsing for Stringified Objects
+             // Format: "{value: 9, suit: d, ...}"
+             if (str.contains('value') && str.contains('suit')) {
+                 // value: 9 (or value: T), suit: d
+                 // Regex to capture value and suit
+                 // Look for "value: X" and "suit: Y"
+                 // Flexible regex for different formats
+                 final valueMatch = RegExp(r'value:\s*([a-zA-Z0-9]+)').firstMatch(str);
+                 final suitMatch = RegExp(r'suit:\s*([a-zA-Z0-9]+)').firstMatch(str);
+
+                 if (valueMatch != null && suitMatch != null) {
+                    final val = valueMatch.group(1) ?? '';
+                    final suit = suitMatch.group(1) ?? '';
+                    return '$val$suit';
+                 }
+             }
+
+             // 4. Fallback
+             print('⚠️ [PlayersSeatGrid] Failed to parse card: $e');
+             return 'card_back'; 
+           }).toList();
         } else if (!isMe && !isFolded && player['hand'] != null) {
-           // If not allowed to see face, but player has cards (not folded), 
-           // we still pass NULL to SeatHand so it renders CARD BACKS
-           // The logic here is:
-           // If cardsToRender is NULL, SeatHand checks isFolded.
-           // If isFolded=false and cardsToRender=null, SeatHand returns SizedBox/Empty?
-           // WAIT! SeatHand logic:
-           // if (widget.isFolded && widget.visibleCards == null) return SizedBox.shrink();
-           // if (visibleCards == null) ... it tries to render based on cardCount.
-           // Actually SeatHand uses `widget.cardCount` to generate list.
-           
-           // If I pass null, SeatHand will look for visibleCards. If null, it checks `cardCode`.
-           // `cardCode` will be null.
-           // `isFaceUp` logic in SeatHand: `isFaceUp` depends on animation mostly.
-           // BUT render: `isFaceUp ? ... (cardCode != null ? PokerCard : SizedBox) : CardBack`.
-           
-           // So if I pass null for `cardsToRender`, `cardCode` is null.
-           // If `isFaceUp` is true, it renders SizedBox (invisible space).
-           // If `isFaceUp` is false, it renders CardBack.
-           
-           // We want CardBacks for bots/opponents.
-           // So `cardsToRender` should be null.
-           // And we rely on SeatHand to show CardBacks.
-           // Default state of SeatHand is face down (isFaceUp=false) unless I force it.
-           // SeatHand uses `_flipControllers` to flip.
-           
-           // So, logic:
-           // IF shouldShowCards -> pass List. SeatHand will flip up.
-           // IF NOT shouldShowCards -> pass null. SeatHand will stay face down (CardBack).
            cardsToRender = null;
+        }
+
+        // 🐞 DEBUG LOGS
+        if (stage.toLowerCase() == 'showdown' || stage.toLowerCase() == 'finished') {
+            print('🔍 [DEBUG] Player ${player['name']} (Me: $isMe) Stage: $stage');
+            print('   - Raw Hand: ${player['hand']}');
+            print('   - Should Show: $shouldShowCards');
+            print('   - Cards Rendered: $cardsToRender');
         }
 
         // --- 4. BET POSITIONING (VECTOR MATH) ---
@@ -153,9 +173,24 @@ class PlayersSeatGrid extends StatelessWidget {
 
         int currentBet = int.tryParse(player['currentBet']?.toString() ?? '0') ?? 0;
 
-        // --- 5. WINNER LOGIC ---
+        // --- 5. WINNER LOGIC & LOCALIZATION ---
         bool isWinner = false;
         List<String>? playerWinningCards;
+        String? displayHandRank = player['handRank'];
+
+        // 🇪🇸 LOCALIZATION: Translate Hand Rank to Spanish
+        if (displayHandRank != null) {
+          if (displayHandRank.contains('High Card')) displayHandRank = 'Carta Alta';
+          else if (displayHandRank.contains('Pair') && !displayHandRank.contains('Two')) displayHandRank = 'Pareja';
+          else if (displayHandRank.contains('Two Pair')) displayHandRank = 'Doble Pareja';
+          else if (displayHandRank.contains('Three of a Kind')) displayHandRank = 'Trío';
+          else if (displayHandRank.contains('Straight') && !displayHandRank.contains('Flush')) displayHandRank = 'Escalera';
+          else if (displayHandRank.contains('Flush') && !displayHandRank.contains('Straight')) displayHandRank = 'Color';
+          else if (displayHandRank.contains('Full House')) displayHandRank = 'Full House';
+          else if (displayHandRank.contains('Four of a Kind')) displayHandRank = 'Póker';
+          else if (displayHandRank.contains('Straight Flush')) displayHandRank = 'Escalera de Color';
+          else if (displayHandRank.contains('Royal Flush')) displayHandRank = 'Escalera Real';
+        }
         
         if (winners != null && winners!['winners'] != null) {
            final winnersList = winners!['winners'] as List;
@@ -168,11 +203,67 @@ class PlayersSeatGrid extends StatelessWidget {
               isWinner = true;
               // Winner automatically shows cards too
               if (winnerData['winningCards'] != null) {
-                 playerWinningCards = (winnerData['winningCards'] as List).map((e) => e.toString()).toList();
+                 // ✅ FIX: Apply same robust parsing to winning cards
+                 playerWinningCards = (winnerData['winningCards'] as List).map((e) {
+                    String str = e.toString();
+                    
+                    // 1. Clean code
+                    if (str.length <= 3 && !str.contains('{') && !str.contains('value')) {
+                        if (str.startsWith('10')) return str.replaceFirst('10', 't');
+                        return str;
+                    }
+                    
+                    // 2. Dynamic Object
+                    try {
+                        dynamic d = e;
+                        if (d['value'] != null && d['suit'] != null) {
+                           final val = d['value']?.toString() ?? '';
+                           final suit = d['suit']?.toString() ?? '';
+                           return '$val$suit';
+                        }
+                    } catch (err) {}
+
+                    // 3. Regex
+                    if (str.contains('value') && str.contains('suit')) {
+                         final valueMatch = RegExp(r'value:\s*([a-zA-Z0-9]+)').firstMatch(str);
+                         final suitMatch = RegExp(r'suit:\s*([a-zA-Z0-9]+)').firstMatch(str);
+                         if (valueMatch != null && suitMatch != null) {
+                            final val = valueMatch.group(1) ?? '';
+                            final suit = suitMatch.group(1) ?? '';
+                            return '$val$suit';
+                         }
+                    }
+                    return ''; // Skip invalid
+                 }).where((e) => e.isNotEmpty).toList();
               }
               // Force show cards for winner even if stage weirdness (though winners implies finished)
               if (player['hand'] != null) {
-                 cardsToRender = (player['hand'] as List).map((e) => e.toString()).toList();
+                 // Duplicate parsing logic for safety
+                 cardsToRender = (player['hand'] as List).map((e) {
+                     String str = e.toString();
+                     if (str.length <= 3 && !str.contains('{') && !str.contains('value')) {
+                        if (str.startsWith('10')) return str.replaceFirst('10', 't');
+                        return str;
+                     }
+                     try {
+                        dynamic d = e;
+                        if (d['value'] != null && d['suit'] != null) {
+                           final val = d['value']?.toString() ?? '';
+                           final suit = d['suit']?.toString() ?? '';
+                           return '$val$suit';
+                        }
+                     } catch (err) {}
+                     if (str.contains('value') && str.contains('suit')) {
+                         final valueMatch = RegExp(r'value:\s*([a-zA-Z0-9]+)').firstMatch(str);
+                         final suitMatch = RegExp(r'suit:\s*([a-zA-Z0-9]+)').firstMatch(str);
+                         if (valueMatch != null && suitMatch != null) {
+                            final val = valueMatch.group(1) ?? '';
+                            final suit = suitMatch.group(1) ?? '';
+                            return '$val$suit';
+                         }
+                     }
+                     return 'card_back';
+                 }).toList();
               }
            }
         }

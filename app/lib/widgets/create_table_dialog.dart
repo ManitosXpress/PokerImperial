@@ -20,7 +20,33 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
   final TextEditingController _maxBuyInController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // Attach listeners for live validation
+    _sbController.addListener(_onFieldChanged);
+    _bbController.addListener(_onFieldChanged);
+    _minBuyInController.addListener(_onFieldChanged);
+    _maxBuyInController.addListener(_onFieldChanged);
+  }
+
+  void _onFieldChanged() {
+    setState(() {}); // Rebuild to update button state
+  }
+
+  bool get _isFormValid {
+    final sb = int.tryParse(_sbController.text) ?? 0;
+    final bb = int.tryParse(_bbController.text) ?? 0;
+    final minBI = int.tryParse(_minBuyInController.text) ?? 0;
+    final maxBI = int.tryParse(_maxBuyInController.text) ?? 0;
+    return sb > 0 && bb > 0 && minBI > 0 && maxBI > 0;
+  }
+
+  @override
   void dispose() {
+    _sbController.removeListener(_onFieldChanged);
+    _bbController.removeListener(_onFieldChanged);
+    _minBuyInController.removeListener(_onFieldChanged);
+    _maxBuyInController.removeListener(_onFieldChanged);
     _sbController.dispose();
     _bbController.dispose();
     _minBuyInController.dispose();
@@ -154,7 +180,7 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: _submit,
+                      onPressed: _isFormValid ? _submit : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: goldColor,
                         foregroundColor: Colors.black,

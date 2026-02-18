@@ -460,14 +460,11 @@ async function endPokerSessionLegacy(uid: string, sessionId: string, finalChips:
 
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-            // Registrar rake en plataforma (si hay)
+            // Registrar rake (solo log, NO actualizar accumulated_rake)
+            // NOTA: accumulated_rake ya fue actualizado per-hand en processRakeLocal/distributePot.
+            // Actualizarlo aquí causaría DOBLE CONTEO.
             if (totalRake > 0) {
-                const statsRef = db.collection('system_stats').doc('economy');
-                transaction.set(statsRef, {
-                    accumulated_rake: admin.firestore.FieldValue.increment(totalRake),
-                    lastUpdated: timestamp
-                }, { merge: true });
-                console.log(`[CASHOUT] Rake registrado en plataforma: +${totalRake}`);
+                console.log(`[CASHOUT] ℹ️ Rake total pagado en sesión: ${totalRake} (ya contabilizado per-hand)`);
             }
 
             // ════════════════════════════════════════════════════════════════════════

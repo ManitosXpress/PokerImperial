@@ -267,7 +267,7 @@ class SocketService extends ChangeNotifier {
   final _victoryStream = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get victoryStream => _victoryStream.stream;
 
-  Future<void> createRoom(String playerName, {String? roomId, double? minBuyIn, double? maxBuyIn, double? buyIn, bool isPublic = true, Function(String roomId)? onSuccess, Function(String error)? onError}) async {
+  Future<void> createRoom(String playerName, {String? roomId, double? minBuyIn, double? maxBuyIn, double? buyIn, int? smallBlind, int? bigBlind, bool isPublic = true, Function(String roomId)? onSuccess, Function(String error)? onError}) async {
     if (_socket == null || !_socket!.connected) {
       if (onError != null) {
         onError('Socket no conectado. Intenta nuevamente.');
@@ -287,8 +287,11 @@ class SocketService extends ChangeNotifier {
       'minBuyIn': minBuyIn,
       'maxBuyIn': maxBuyIn,
       'buyIn': buyIn,
+      'smallBlind': smallBlind,
+      'bigBlind': bigBlind,
       'isPublic': isPublic  // Added: Enviar flag para mesas públicas
     });
+
     
     // Set up one-time listeners for response
     _socket!.once('room_created', (data) {

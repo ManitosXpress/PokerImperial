@@ -742,6 +742,15 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
 
             // A. Plataforma (Siempre recibe algo)
             if (platformShare > 0) {
+                // 💰 Pagar al Treasury (billetera del admin)
+                const treasuryRef = db.collection('users').doc(TREASURY_ADMIN_UID);
+                transaction.update(treasuryRef, {
+                    credit: admin.firestore.FieldValue.increment(platformShare),
+                    totalRakeReceived: admin.firestore.FieldValue.increment(platformShare),
+                    lastRakeReceived: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                // 📊 Actualizar stats del sistema
                 transaction.set(db.collection('system_stats').doc('economy'), {
                     accumulated_rake: admin.firestore.FieldValue.increment(platformShare),
                     dailyGGR: admin.firestore.FieldValue.increment(platformShare),
@@ -881,46 +890,57 @@ export const processCashOut = async (data: ProcessCashOutRequest, context?: func
         console.log(`[CASHOUT] 📱 Client-initiated cashout for ${targetUserId}`);
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // PRE-TRANSACTION: Optimistic idempotency check (non-atomic, fast path)
+    // ══════════════════════════════════════════════════════════════════
+    const sessionQuery = await db.collection('poker_sessions')
+        .where('userId', '==', targetUserId)
+        .where('roomId', '==', tableId)
+        .limit(1)
+        .get();
+
+    if (!sessionQuery.empty) {
+        const sessionData = sessionQuery.docs[0].data();
+        if (sessionData.status === 'completed') {
+            console.log(`[CASHOUT] ⚠️ Session already completed (pre-check). Skipping duplicate cashout.`);
+            return { success: true, skipped: true, reason: 'already_completed' };
+        }
+    }
+
     try {
         const result = await db.runTransaction(async (transaction) => {
-            // 1. IDEMPOTENCY CHECK - Verificar si ya fue procesado
-            const sessionQuery = await db.collection('poker_sessions')
-                .where('userId', '==', targetUserId)
-                .where('roomId', '==', tableId)
-                .limit(1)
-                .get();
+            // ══════════════════════════════════════════════════════════════
+            // 1. 🔒 ATOMIC IDEMPOTENCY: Read table and check cashedOut flag
+            //    This is the REAL guard against race conditions.
+            //    The pre-transaction session query above is just an optimization.
+            // ══════════════════════════════════════════════════════════════
+            const tableRef = db.collection('poker_tables').doc(tableId);
+            const tableDoc = await transaction.get(tableRef);
 
-            if (!sessionQuery.empty) {
-                const sessionDoc = sessionQuery.docs[0];
-                const sessionData = sessionDoc.data();
+            if (!tableDoc.exists) {
+                console.warn(`[CASHOUT] ⚠️ Table ${tableId} not found.`);
+                // Still proceed to clean up user state
+            }
 
-                if (sessionData.status === 'completed') {
-                    console.log(`[CASHOUT] ⚠️ Session already completed. Skipping duplicate cashout.`);
-                    return { success: true, skipped: true, reason: 'already_completed' };
-                }
+            const tableData = tableDoc.exists ? tableDoc.data() : null;
+            const players: any[] = Array.isArray(tableData?.players) ? tableData.players : [];
+            const playerIndex = players.findIndex((p: any) => p.id === targetUserId || p.uid === targetUserId);
+
+            // 🔒 ATOMIC CHECK: If player already marked as cashedOut, abort
+            if (playerIndex !== -1 && players[playerIndex]?.cashedOut === true) {
+                console.log(`[CASHOUT] ⚠️ Player ${targetUserId} already cashedOut (atomic check). Aborting.`);
+                return { success: true, skipped: true, reason: 'already_cashed_out' };
             }
 
             // 2. Determinar monto si no viene del payload firmado
             if (!authPayload) {
-                const tableRef = db.collection('poker_tables').doc(tableId);
-                const tableDoc = await transaction.get(tableRef);
-
-                if (tableDoc.exists) {
-                    const tableData = tableDoc.data();
-                    const players = Array.isArray(tableData?.players) ? tableData.players : [];
-                    const player = players.find((p: any) => p.id === targetUserId || p.uid === targetUserId);
-
-                    if (player) {
-                        chipsToTransfer = Number(player.chips) || 0;
-                    } else if (data.playerChips !== undefined || data.finalChips !== undefined) {
-                        chipsToTransfer = Number(data.playerChips || data.finalChips) || 0;
-                    } else {
-                        console.warn(`[CASHOUT] ⚠️ Player ${targetUserId} not found in table ${tableId}`);
-                        chipsToTransfer = 0;
-                    }
-                } else {
-                    console.warn(`[CASHOUT] ⚠️ Table ${tableId} not found, using fallback chips`);
+                if (playerIndex !== -1 && players[playerIndex]) {
+                    chipsToTransfer = Number(players[playerIndex].chips) || 0;
+                } else if (data.playerChips !== undefined || data.finalChips !== undefined) {
                     chipsToTransfer = Number(data.playerChips || data.finalChips) || 0;
+                } else {
+                    console.warn(`[CASHOUT] ⚠️ Player ${targetUserId} not found in table ${tableId}`);
+                    chipsToTransfer = 0;
                 }
             }
 
@@ -961,27 +981,20 @@ export const processCashOut = async (data: ProcessCashOutRequest, context?: func
                     transaction.update(doc.ref, {
                         status: 'completed',
                         currentChips: chipsToTransfer,
+                        netResult: netProfit,
                         endTime: timestamp,
                         closedReason: cashoutReason
                     });
                 });
             }
 
-            // 5. ACTUALIZAR MESA (marcar jugador como fuera)
-            const tableRef = db.collection('poker_tables').doc(tableId);
-            const tableDoc = await transaction.get(tableRef);
-
-            if (tableDoc.exists) {
-                const tableData = tableDoc.data();
-                const players = Array.isArray(tableData?.players) ? tableData.players : [];
-                const playerIndex = players.findIndex((p: any) => p.id === targetUserId || p.uid === targetUserId);
-
-                if (playerIndex !== -1) {
-                    transaction.update(tableRef, {
-                        [`players.${playerIndex}.chips`]: 0,
-                        [`players.${playerIndex}.inGame`]: false
-                    });
-                }
+            // 5. ACTUALIZAR MESA: marcar jugador como fuera + cashedOut flag
+            if (tableDoc.exists && playerIndex !== -1) {
+                transaction.update(tableRef, {
+                    [`players.${playerIndex}.chips`]: 0,
+                    [`players.${playerIndex}.inGame`]: false,
+                    [`players.${playerIndex}.cashedOut`]: true  // 🔒 Atomic idempotency flag
+                });
             }
 
             // 6. LOGS DE TRANSACCIÓN
@@ -1219,7 +1232,7 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
  * - Seller (if public table and player has seller)
  * 
  * RULE: Private tables → 100% to Platform
- * RULE: Public tables → 50% Platform / 30% Club / 20% Seller
+ * RULE: Public tables → 25% Platform / 25% Club / 50% Seller
  * 
  * 🔒 IDEMPOTENCY: Uses deterministic doc ID `rake_${tableId}_${handId}`
  *    to prevent duplicate processing. Transaction-based duplicate detection.
@@ -1264,16 +1277,41 @@ export const distributeHandRake = functions.https.onCall(async (data, context) =
             } else {
                 // MESA PÚBLICA: 25% Platform, 25% Club, 50% Seller
                 platformShare = Math.floor(data.rakeTotal * 0.25);
-                clubShare = Math.floor(data.rakeTotal * 0.25);
-                sellerShare = Math.floor(data.rakeTotal * 0.50);
-                // Remainder se asigna implícitamente cuando sea necesario
+
+                if (data.clubId) {
+                    clubShare = Math.floor(data.rakeTotal * 0.25);
+                } else {
+                    platformShare += Math.floor(data.rakeTotal * 0.25);
+                }
+
+                if (data.sellerId) {
+                    sellerShare = Math.floor(data.rakeTotal * 0.50);
+                } else {
+                    platformShare += Math.floor(data.rakeTotal * 0.50);
+                }
+
+                // Remainder from rounding goes to platform
+                const allocated = platformShare + clubShare + sellerShare;
+                if (allocated < data.rakeTotal) {
+                    platformShare += (data.rakeTotal - allocated);
+                }
             }
 
             // 3. 💸 EJECUTAR TRANSFERENCIA AL ADMIN (TESORERÍA)
             if (platformShare > 0) {
                 transaction.update(treasuryRef, {
-                    credit: admin.firestore.FieldValue.increment(platformShare)
+                    credit: admin.firestore.FieldValue.increment(platformShare),
+                    totalRakeReceived: admin.firestore.FieldValue.increment(platformShare),
+                    lastRakeReceived: admin.firestore.FieldValue.serverTimestamp()
                 });
+
+                // 📊 UPDATE SYSTEM STATS
+                transaction.set(db.collection('system_stats').doc('economy'), {
+                    accumulated_rake: admin.firestore.FieldValue.increment(platformShare),
+                    total_volume: admin.firestore.FieldValue.increment(data.potTotal || 0),
+                    hands_played: admin.firestore.FieldValue.increment(1),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
             }
 
             // 4. 📝 REGISTRAR EN EL LEDGER (Consolidado)
@@ -1292,8 +1330,7 @@ export const distributeHandRake = functions.https.onCall(async (data, context) =
                 treasuryUid: TREASURY_ADMIN_UID // Referencia cruzada
             });
 
-            // (Opcional) Aquí agregarías la lógica para pagar al Club/Seller si corresponde
-            // Mantenemos la lógica existente para Club y Seller si están presentes en data
+            // 5. Pagar al Club/Seller si corresponde
             if (clubShare > 0 && data.clubId) {
                 const clubRef = db.collection('clubs').doc(data.clubId);
                 transaction.set(clubRef, {
@@ -1335,7 +1372,7 @@ export const distributeHandRake = functions.https.onCall(async (data, context) =
  * BUSINESS RULES:
  * - Rake = 8% of Total Pot (max 50)
  * - Private Table: 100% Platform
- * - Public Table: 50% Platform / 30% Club / 20% Seller (if missing, goes to platform)
+ * - Public Table: 25% Platform / 25% Club / 50% Seller (if missing, goes to platform)
  * 
  * WORKFLOW:
  * 1. Check if hand already distributed → abort if yes
@@ -1606,7 +1643,7 @@ export const distributePot = functions.https.onCall(async (data: DistributePotRe
             // 9. 📊 UPDATE SYSTEM STATS
             // ═══════════════════════════════════════════════════════════════
             transaction.set(db.collection('system_stats').doc('economy'), {
-                accumulated_rake: admin.firestore.FieldValue.increment(rakeAmount),
+                accumulated_rake: admin.firestore.FieldValue.increment(platformShare),
                 total_volume: admin.firestore.FieldValue.increment(data.potTotal),
                 hands_played: admin.firestore.FieldValue.increment(1),
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()

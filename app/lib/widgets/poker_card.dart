@@ -17,6 +17,12 @@ class PokerCard extends StatelessWidget {
       formattedCode = 'card_back';
     }
 
+    // Handle '10' vs 't' edge case
+    // If the code contains '10', map it to 't' (e.g. '10h' -> 'th')
+    if (formattedCode.startsWith('10')) {
+      formattedCode = formattedCode.replaceFirst('10', 't');
+    }
+
     // Construct path
     final String cardPath = 'assets/images/cards/$formattedCode.svg';
 
