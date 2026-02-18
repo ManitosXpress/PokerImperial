@@ -697,13 +697,13 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
             }
 
             // 3. Distribución del Rake (Revenue Share) - NUEVA LÓGICA
+            // 3. Distribución del Rake (Revenue Share) - MODELO 25/25/50
             let platformShare = 0;
             let clubShare = 0;
             let sellerShare = 0;
 
             if (clubId && clubOwnerId) {
                 // MESA DE CLUB (PÚBLICA): 25% Platform, 25% Club, 50% Seller
-                // Nuevo modelo para priorizar captación de clientes a través de Sellers
                 clubShare = Math.floor(rakeAmount * 0.25);
 
                 if (sellerId) {
@@ -711,16 +711,16 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
                 }
 
                 // Platform se lleva el resto (25% + remainder por redondeo)
+                // Si no hay seller, platform se lleva el 75% implícitamente aquí
                 platformShare = rakeAmount - clubShare - sellerShare;
 
-                // Pagar al Dueño del Club
+                // A. Pagar al Dueño del Club
                 const ownerRef = db.collection('users').doc(clubOwnerId);
                 transaction.update(ownerRef, {
                     credit: admin.firestore.FieldValue.increment(clubShare),
-                    // Opcional: stats de ganancias del club owner si se trackean en el user
                 });
 
-                // Pagar al Seller (si existe)
+                // B. Pagar al Seller (si existe)
                 if (sellerId && sellerShare > 0) {
                     const sellerRef = db.collection('users').doc(sellerId);
                     transaction.update(sellerRef, {
@@ -729,7 +729,7 @@ export const settleGameRoundCore = async (data: SettleRoundRequest, injectedDb?:
                     });
                 }
 
-                // Actualizar wallet del club (para registro)
+                // C. Actualizar wallet del club
                 transaction.update(db.collection('clubs').doc(clubId), {
                     walletBalance: admin.firestore.FieldValue.increment(clubShare),
                     totalRakeEarned: admin.firestore.FieldValue.increment(clubShare)
@@ -946,7 +946,7 @@ export const processCashOut = async (data: ProcessCashOutRequest, context?: func
 
             // 3. TRANSFERENCIA FINANCIERA (RAKE-FREE)
             // ✅ MODELO: Payout = FichasFinales (SIN deducción de rake)
-            // El rake ya fue cobrado mano a mano en settleGameRound
+            // El usuario recibe el 100% de sus fichas. NO hay deducción.
             const userRef = db.collection('users').doc(targetUserId);
             const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
@@ -1123,14 +1123,17 @@ export const universalTableSettlement = async (data: CloseTableRequest, context:
 
                 // PASO B: Cálculo Financiero (SIN RAKE ADICIONAL)
                 // En liquidación universal, devolvemos lo que hay en la mesa.
-                // El rake ya se cobró mano a mano en settleGameRound.
+                // Payout = Final Stack. Rake de salida = 0.
                 const netResult = finalStack - initialBuyIn;
                 const payout = finalStack; // El usuario recibe exactamente lo que tiene en fichas
                 const rake = 0; // NO cobrar rake de salida
 
                 // Actualizar crédito del usuario
                 transaction.update(userRef, {
-                    credit: admin.firestore.FieldValue.increment(payout)
+                    credit: admin.firestore.FieldValue.increment(payout),
+                    moneyInPlay: 0,       // ✅ LIMPIEZA OBLIGATORIA
+                    currentTableId: null, // ✅ LIMPIEZA OBLIGATORIA
+                    lastUpdated: timestamp
                 });
 
                 console.log(`[UNIVERSAL_SETTLEMENT] ${playerId} PROCESADO. BuyIn: ${initialBuyIn}, FinalStack: ${finalStack}, NetResult: ${netResult}, Payout: ${payout}, Rake: ${rake}`);

@@ -58,7 +58,7 @@ export const onCashoutTriggered = functions.firestore
                 if (result.skipped) {
                     console.log(`[TRIGGER] ⚠️ Cashout skipped (already completed) for ${data.uid}`);
                 } else {
-                    console.log(`[TRIGGER] ✅ Cashout processed successfully for ${data.uid}: ${result.amount} chips`);
+                    console.log(`[TRIGGER] ✅ Cashout processed successfully for ${data.uid}: ${(result as any).amount} chips`);
                 }
             } else {
                 console.error(`[TRIGGER] ❌ Cashout failed for ${data.uid}`);
