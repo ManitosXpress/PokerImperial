@@ -228,28 +228,11 @@ export async function processRakeLocal(data: RakeData): Promise<boolean> {
                     lastRakeReceived: admin.firestore.FieldValue.serverTimestamp()
                 });
 
-                // 2. Pagar al DUEÑO del Club (si existe)
-                if (clubOwnerRefLocal && clubOwnerDocRead && clubOwnerDocRead.exists) {
-                    transaction.update(clubOwnerRefLocal, {
-                        credit: admin.firestore.FieldValue.increment(clubShare)
-                    });
-
-                    // Log para el Dueño
-                    const ownerTxLogRef = db.collection('transaction_logs').doc();
-                    transaction.set(ownerTxLogRef, {
-                        userId: clubOwnerId,
-                        amount: clubShare,
-                        type: 'credit',
-                        reason: `Club Rake - Table ${data.tableId}`,
-                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                        metadata: {
-                            clubId: data.clubId,
-                            handId: data.handId,
-                            role: 'CLUB_OWNER'
-                        }
-                    });
-
-                    console.log(`[RAKE_LOCAL] 🏠 Club Owner ${clubOwnerId} recibe: ${clubShare} (Club ${data.clubId})`);
+                // 2. [DEPRECATED] Pagar al DUEÑO del Club (si existe) - REMOVED TO PREVENT INFLATION
+                // El dinero ya está en la wallet del club. El dueño debe retirar desde ahí.
+                // Evitamos duplicar el dinero (Wallet + Credit Personal).
+                if (clubOwnerId) {
+                    console.log(`[RAKE_LOCAL] 🏠 Club Wallet credited: ${clubShare} (Owner: ${clubOwnerId})`);
                 } else {
                     // Fallback: Si no hay dueño válido, enviar a Treasury
                     transaction.update(treasuryRef, {
